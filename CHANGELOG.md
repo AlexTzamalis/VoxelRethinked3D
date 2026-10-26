@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#011] 2026-10-27, E1.4 Containers, hashing, string ids
+### Added
+- vxe/core/containers.hpp: HashMap and HashSet on ankerl::unordered_dense, plus StringHash and StringMap for string_view lookups without temporaries.
+- vxe/core/hash.hpp: XXH3 hashBytes, hashString and hashValue (padding free types only), constexpr hashCombine and FNV-1a. xxHash is linked privately.
+- vxe/core/string_id.hpp: StringId, a 64 bit id hashed at compile time with the _sid literal or at runtime. Debug builds keep every name in a registry and stop on hash collisions.
+- vxe/core/small_vector.hpp: SmallVector with inline storage for N elements, tracked heap spill, and std::vector compatible names.
+- Tests with reference hash values (XXH3 and FNV-1a), StringId lifetimes, map lookups and SmallVector growth, copies, moves and self push_back.
+
 ## [#010] 2026-10-27, E1.3 Memory
 ### Added
 - vxe/core/memory.hpp: memory tags with lock free per tag counters (current bytes, peak, allocation and free counts, one cache line per tag), tracked aligned allocate and deallocate, recordAllocation for external memory, and TrackingAllocator for standard containers.

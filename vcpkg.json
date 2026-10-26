@@ -9,6 +9,8 @@
     {
       "name": "spdlog",
       "default-features": false
-    }
+    },
+    "unordered-dense",
+    "xxhash"
   ]
 }

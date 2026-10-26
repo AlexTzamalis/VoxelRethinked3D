@@ -7,6 +7,7 @@ add_executable(vxe_tests
     test_helpers.hpp
     test_main.cpp
     core/assert_tests.cpp
+    core/containers_tests.cpp
     core/log_tests.cpp
     core/memory_tests.cpp
     core/result_tests.cpp
