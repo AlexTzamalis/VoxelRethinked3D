@@ -6,7 +6,7 @@ find_package(doctest CONFIG REQUIRED)
 add_executable(vxe_tests
     test_main.cpp
 )
-target_link_libraries(vxe_tests PRIVATE vxe::core doctest::doctest)
+target_link_libraries(vxe_tests PRIVATE vxe::vxe doctest::doctest)
 vxe_set_warnings(vxe_tests)
 
 # Registered as a single CTest test. doctest returns a non zero exit code when

@@ -1,19 +1,19 @@
-# The vxe engine. Each module becomes its own static library target.
-# For now only vxe_core exists; later modules are added per the roadmap.
+# The vxe engine. Each module is its own static library created with
+# vxe_add_module() (cmake/VxeModule.cmake), which enforces the layer order.
+# Add modules from the lowest layer up, in the order of VXE_MODULE_LAYERS.
 
-add_library(vxe_core STATIC
-    src/core/version.cpp
-)
-add_library(vxe::core ALIAS vxe_core)
+set(VXE_ENGINE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
-target_include_directories(vxe_core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+vxe_add_module(core
+    SOURCES
+        src/core/version.cpp
 )
-target_compile_features(vxe_core PUBLIC cxx_std_20)
 target_compile_definitions(vxe_core PRIVATE
     VXE_VERSION_STRING="${PROJECT_VERSION}"
 )
-vxe_set_warnings(vxe_core)
+
+# One target that links every engine module, for the game and tools.
+vxe_add_engine_target()
 
 if(VXE_BUILD_TESTS)
     add_subdirectory(tests)

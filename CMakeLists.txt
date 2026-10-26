@@ -45,6 +45,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(Warnings)
 include(Sanitizers)
 include(Format)
+include(VxeModule)
 
 if(VXE_BUILD_TESTS)
     enable_testing()
@@ -52,3 +53,8 @@ endif()
 
 add_subdirectory(engine)
 add_subdirectory(game)
+
+if(VXE_BUILD_TESTS)
+    # Script tests for the build rules themselves (layer order, include rules).
+    add_subdirectory(cmake/tests)
+endif()

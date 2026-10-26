@@ -2,6 +2,17 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#005] 2026-10-27, E0.3 Module dependency enforcement
+### Added
+- cmake/VxeModule.cmake with vxe_add_module(): one layer table for all engine modules, strictly lower layer dependencies only, an allow list for net, glad and OpenGL linkable only PRIVATE by rhi_gl, no engine to game links.
+- cmake/CheckIncludes.cmake: rejects includes of engine modules outside the dependency closure and graphics API headers outside rhi_gl, at configure time and again at build time when files change. The game is checked too.
+- vxe::vxe convenience target linking every engine module.
+- 13 CMake script tests (cmake/tests) proving every rule fires with the right message.
+### Changed
+- vxe_core is created through vxe_add_module(). The game and vxe_tests link vxe::vxe.
+### Docs
+- ADR-015 records the layer order.
+
 ## [#004] 2026-10-26, E0.2 Tooling
 ### Added
 - .clang-format (LLVM based, 4 spaces, 110 columns, grouped includes) and .clang-tidy (naming rules from the coding standards).
