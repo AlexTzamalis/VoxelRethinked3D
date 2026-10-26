@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#015] 2026-10-27, E2.2 Geometry
+### Added
+- vxe/math/face.hpp: Face in the engine wide order (+X, -X, +Y, -Y, +Z, -Z) with opposite, axis, sign and normal helpers.
+- vxe/math/aabb.hpp: Aabb with empty, expand, contains, intersects, translated and inflated.
+- vxe/math/frustum.hpp: frustum planes extracted from a view projection matrix, including the degenerate far plane of the reversed Z infinite projection, and a positive vertex box test.
+- vxe/math/raycast.hpp: Amanatides and Woo voxel traversal in double precision with a templated solidity predicate, returning block, entry face, distance and point.
+- Tests for frustums from standard and reversed infinite projections, box culling, and raycasts along axes, diagonals, negative coordinates, 30 million blocks out, from inside a block and with a zero direction.
+### Changed
+- Test code may access optionals after doctest REQUIRE (engine/tests/.clang-tidy).
+
 ## [#014] 2026-10-27, E2.1 Coordinates and vectors
 ### Added
 - vxe_math module (layer 1) with glm 1.0.3, built with GLM_FORCE_DEPTH_ZERO_TO_ONE and GLM_FORCE_INTRINSICS as public definitions so every file sees one glm layout.

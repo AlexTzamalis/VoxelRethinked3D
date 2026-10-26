@@ -1,0 +1,6 @@
+# Test code uses the root rules with one exception.
+#   bugprone-unchecked-optional-access  doctest REQUIRE(opt.has_value()) stops the test when it fails,
+#                                       but clang-tidy cannot see that and flags every access after it.
+InheritParentConfig: true
+Checks: >
+  -bugprone-unchecked-optional-access
