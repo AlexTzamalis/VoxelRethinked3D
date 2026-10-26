@@ -74,6 +74,30 @@ Note! This is a fully educational project, designed and created for learning. I 
 
 ---
 
+# Building
+
+**Prerequisites:** Visual Studio 2022 17.8+ (MSVC) or newer, CMake 3.28+, Ninja and [vcpkg](https://github.com/microsoft/vcpkg) with the `VCPKG_ROOT` environment variable pointing at it. Dependencies are installed automatically from `vcpkg.json` on the first configure.
+
+From a Visual Studio developer shell (x64):
+
+```
+cmake --preset debug
+cmake --build --preset debug
+ctest --preset debug
+```
+
+| Preset | Use |
+|--------|-----|
+| `debug` | Day to day development |
+| `release` | Optimized build for players |
+| `relwithdebinfo` | Optimized with debug info, for profiling |
+| `asan` | AddressSanitizer (plus UBSan on Clang and GCC) |
+| `tsan` | ThreadSanitizer, Linux only |
+
+Executables end up in `build/<preset>/bin/`. In CLion, select the **Visual Studio** toolchain and enable the CMake presets.
+
+---
+
 # Roadmap
 
 - [ ] **Engine:** core, jobs, settings, input, RHI, renderer, voxel systems, lighting, LOD, UI

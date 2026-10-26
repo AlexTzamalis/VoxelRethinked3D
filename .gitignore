@@ -1,1 +1,9 @@
 CLAUDE.md
+
+# Build output (CMake presets, CLion profiles)
+build/
+out/
+cmake-build-*/
+
+# vcpkg manifest mode install folder
+vcpkg_installed/
