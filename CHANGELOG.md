@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#018] 2026-10-27, E3.1 Job scheduler
+### Added
+- vxe_jobs module (layer 2): JobSystem, a work stealing thread pool with five priorities (Critical to Background). Each worker owns a ring buffer queue per priority (LIFO for its own jobs, FIFO for thieves), other threads submit to shared queues, and the highest priority job anywhere runs first.
+- JobCounter for allocation free batches and JobHandle (with a keep alive so dropped handles are safe). wait() runs other jobs while waiting, so nested waits cannot deadlock.
+- Idle workers spin briefly, then sleep with a lost wakeup free handshake. The destructor drains every queued and running job before joining.
+- vxe/core/inline_function.hpp: move only void() callable with fixed inline storage (48 bytes for jobs), so scheduling never allocates.
+- Tests: exactly once execution, 1,000,000 job stress (0.46 s release, 0.97 s ASan), nested waits on 2 workers, strict priority order, handle lifetime, shutdown drain and move only captures. Repeated 50 times in debug and release without a failure.
+### Performance
+- 1,000,000 tiny jobs scheduled from one thread and run: 0.46 s in release (about 0.46 microseconds per job, dominated by the shared queue mutex). Recorded as the baseline for a lock free queue later.
+
 ## [#017] 2026-10-27, E2.3 Projection helpers
 ### Added
 - vxe/math/projection.hpp: perspectiveReversedInfinite (reversed Z, depth 0 to 1, infinite far plane), cameraRelativeView, CameraPosition (chunk plus fraction split exactly from double positions) and relativeToCamera for chunks and blocks with integer differences first.

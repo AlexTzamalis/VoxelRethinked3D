@@ -67,6 +67,18 @@ target_compile_definitions(vxe_math PUBLIC
     GLM_FORCE_INTRINSICS
 )
 
+# Jobs: the work stealing scheduler with priorities (E3, ADR-012).
+find_package(Threads REQUIRED)
+
+vxe_add_module(jobs
+    SOURCES
+        src/jobs/job_system.cpp
+    DEPENDS
+        core
+    PUBLIC_LIBS
+        Threads::Threads
+)
+
 # One target that links every engine module, for the game and tools.
 vxe_add_engine_target()
 
