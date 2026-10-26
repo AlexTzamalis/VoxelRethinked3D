@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#010] 2026-10-27, E1.3 Memory
+### Added
+- vxe/core/memory.hpp: memory tags with lock free per tag counters (current bytes, peak, allocation and free counts, one cache line per tag), tracked aligned allocate and deallocate, recordAllocation for external memory, and TrackingAllocator for standard containers.
+- LinearAllocator: arena with markers, rewind, reset, peak tracking and typed arrays for trivial types.
+- PoolAllocator: O(1) create and destroy on growing pages with an intrusive free list. Pointers stay stable while it grows.
+- ScratchScope: a 4 MiB per thread scratch arena created on first use, released when the scope ends, nestable.
+- Tests for tag totals, container tracking, alignment, arena overflow, pool slot reuse and per thread scratch arenas.
+### Changed
+- clang-tidy no longer flags computed array indices, unchecked operator[] or missing math parentheses, and ignores macros for boolean simplification.
+
 ## [#009] 2026-10-27, E1.2 Result and Error
 ### Added
 - vxe/core/error.hpp: ErrorCode and Error with code, message and the source location where it was created, plus withContext() and describe().

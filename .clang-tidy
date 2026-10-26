@@ -13,6 +13,10 @@
 #   readability-identifier-length          Short names like x, y, z and i are clearer in math code.
 #   misc-include-cleaner                   Too noisy with umbrella headers from third party libraries.
 #   cppcoreguidelines-avoid-do-while       do { } while (false) is the standard way to write statement macros.
+#   *-pro-bounds-constant-array-index,
+#   *-pro-bounds-avoid-unchecked-container-access  Voxel code indexes arrays with computed indices in hot loops by
+#                                          design. Bounds are guarded by VXE_ASSERT where they are not obvious.
+#   readability-math-missing-parentheses   Math heavy code (y * 256 + z * 16 + x) reads worse with extra parentheses.
 Checks: >
   -*,
   bugprone-*,
@@ -27,6 +31,8 @@ Checks: >
   -cppcoreguidelines-non-private-member-variables-in-classes,
   -cppcoreguidelines-avoid-c-arrays,
   -cppcoreguidelines-avoid-do-while,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
   misc-*,
   -misc-non-private-member-variables-in-classes,
   -misc-include-cleaner,
@@ -37,7 +43,8 @@ Checks: >
   portability-*,
   readability-*,
   -readability-magic-numbers,
-  -readability-identifier-length
+  -readability-identifier-length,
+  -readability-math-missing-parentheses
 
 WarningsAsErrors: ''
 HeaderFilterRegex: '.*/(engine|game|tools|benchmarks)/.*'
@@ -74,3 +81,5 @@ CheckOptions:
   - { key: readability-function-cognitive-complexity.Threshold,     value: 40 }
   # Test macros (doctest CHECK) expand to branches that are not real complexity.
   - { key: readability-function-cognitive-complexity.IgnoreMacros,  value: true }
+  # VXE_ASSERT expands to if (!(condition)), which is not something to simplify.
+  - { key: readability-simplify-boolean-expr.IgnoreMacros,           value: true }

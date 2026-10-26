@@ -12,7 +12,10 @@ vxe_add_module(core
     SOURCES
         src/core/assert.cpp
         src/core/error.cpp
+        src/core/linear_allocator.cpp
         src/core/log.cpp
+        src/core/memory.cpp
+        src/core/scratch.cpp
         src/core/version.cpp
     PRIVATE_LIBS
         spdlog::spdlog
