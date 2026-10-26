@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#006] 2026-10-27, E0.4 CI
+### Added
+- GitHub Actions workflow: clang-format 22.1.3 check, plus build and test on Windows MSVC (debug, release), Linux Clang 18 (debug, release, asan, tsan) and Linux GCC 14 (debug), with warnings as errors.
+- vcpkg is cloned at the pinned baseline and its binary cache is kept between runs with actions/cache.
+### Changed
+- An empty CXX or VCPKG_DEFAULT_TRIPLET environment variable now counts as unset when picking the Windows defaults.
+- UBSan in the asan preset no longer recovers, so undefined behavior fails the run.
+
 ## [#005] 2026-10-27, E0.3 Module dependency enforcement
 ### Added
 - cmake/VxeModule.cmake with vxe_add_module(): one layer table for all engine modules, strictly lower layer dependencies only, an allow list for net, glad and OpenGL linkable only PRIVATE by rhi_gl, no engine to game links.

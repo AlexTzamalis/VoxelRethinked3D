@@ -43,7 +43,9 @@ if(MSVC)
     endif()
 else()
     if(VXE_SANITIZER STREQUAL "address")
-        set(vxeSanitizerFlags -fsanitize=address,undefined)
+        # By default UBSan only prints and keeps running, so a test would still
+        # pass. Not recovering turns every undefined behavior report into a failure.
+        set(vxeSanitizerFlags -fsanitize=address,undefined -fno-sanitize-recover=undefined)
     else()
         set(vxeSanitizerFlags -fsanitize=thread)
     endif()

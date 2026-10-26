@@ -1,0 +1,119 @@
+# Continuous integration for Voxel Rethinked (Section 24 of the plan).
+# Runs on every push and pull request:
+#   - format:  clang-format check, pinned to the same version Visual Studio ships.
+#   - build:   configure, build and test on Windows (MSVC) and Linux (Clang, GCC),
+#              plus AddressSanitizer and ThreadSanitizer builds on Linux.
+# Warnings are errors here (VXE_WARNINGS_AS_ERRORS), unlike local builds.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Format check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-format 22.1.3
+        run: pipx install clang-format==22.1.3
+      - name: Check formatting
+        run: |
+          clang-format --version
+          git ls-files '*.cpp' '*.hpp' | xargs --no-run-if-empty clang-format --dry-run --Werror --style=file
+
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Windows MSVC debug,   os: windows-latest, preset: debug,   triplet: x64-windows-static-md }
+          - { name: Windows MSVC release, os: windows-latest, preset: release, triplet: x64-windows-static-md }
+          - { name: Linux Clang debug,    os: ubuntu-24.04,   preset: debug,   triplet: x64-linux, cc: clang-18, cxx: clang++-18 }
+          - { name: Linux Clang release,  os: ubuntu-24.04,   preset: release, triplet: x64-linux, cc: clang-18, cxx: clang++-18 }
+          - { name: Linux GCC debug,      os: ubuntu-24.04,   preset: debug,   triplet: x64-linux, cc: gcc-14,   cxx: g++-14 }
+          - { name: Linux Clang asan,     os: ubuntu-24.04,   preset: asan,    triplet: x64-linux, cc: clang-18, cxx: clang++-18 }
+          - { name: Linux Clang tsan,     os: ubuntu-24.04,   preset: tsan,    triplet: x64-linux, cc: clang-18, cxx: clang++-18 }
+    defaults:
+      run:
+        shell: bash
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set vcpkg paths
+        run: |
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+          echo "VCPKG_BINARY_CACHE=$RUNNER_TEMP/vcpkg-binary-cache" >> "$GITHUB_ENV"
+
+      # vcpkg is cloned at the exact baseline from vcpkg.json, so CI resolves the
+      # same package versions as a local build.
+      - name: Clone vcpkg at the pinned baseline
+        run: |
+          baseline=$(jq -r '."builtin-baseline"' vcpkg.json)
+          git clone --quiet https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          git -C "$VCPKG_ROOT" checkout --quiet "$baseline"
+          mkdir -p "$VCPKG_BINARY_CACHE"
+          echo "VCPKG_BINARY_SOURCES=clear;files,$VCPKG_BINARY_CACHE,readwrite" >> "$GITHUB_ENV"
+
+      - name: Bootstrap vcpkg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '& "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics'
+
+      - name: Bootstrap vcpkg (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+
+      # Prebuilt packages, keyed on the manifest and toolchain. A changed
+      # manifest restores the closest older cache and only builds what changed.
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_BINARY_CACHE }}
+          key: vcpkg-${{ matrix.os }}-${{ matrix.triplet }}-${{ matrix.cxx }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ matrix.os }}-${{ matrix.triplet }}-${{ matrix.cxx }}-
+
+      - name: Set up MSVC developer environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} -DVXE_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+      - name: Upload vcpkg logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcpkg-logs-${{ matrix.name }}
+          path: |
+            ${{ env.VCPKG_ROOT }}/buildtrees/**/*.log
+            build/${{ matrix.preset }}/vcpkg-manifest-install.log
+          if-no-files-found: ignore

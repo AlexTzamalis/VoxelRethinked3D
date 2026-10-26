@@ -8,13 +8,14 @@ cmake_minimum_required(VERSION 3.28)
 # Both are only defaults: a preset, the command line or the environment wins.
 if(CMAKE_HOST_WIN32)
     # MSVC is the primary Windows compiler. Without this, the Ninja generator may
-    # pick up a MinGW g++ that happens to be first on PATH.
-    if(NOT DEFINED CMAKE_CXX_COMPILER AND NOT DEFINED ENV{CXX})
+    # pick up a MinGW g++ that happens to be first on PATH. An empty CXX variable
+    # (CI sets one for every job) counts as unset.
+    if(NOT DEFINED CMAKE_CXX_COMPILER AND "$ENV{CXX}" STREQUAL "")
         set(CMAKE_CXX_COMPILER cl)
     endif()
     # Static libraries with the dynamic CRT: one executable with no third party
     # DLLs to copy around, while still sharing the CRT with the system.
-    if(NOT DEFINED VCPKG_TARGET_TRIPLET AND NOT DEFINED ENV{VCPKG_DEFAULT_TRIPLET})
+    if(NOT DEFINED VCPKG_TARGET_TRIPLET AND "$ENV{VCPKG_DEFAULT_TRIPLET}" STREQUAL "")
         set(VCPKG_TARGET_TRIPLET x64-windows-static-md CACHE STRING "vcpkg triplet")
     endif()
 endif()
