@@ -1,3 +1,5 @@
+#include "../test_helpers.hpp"
+
 #include <vxe/core/containers.hpp>
 #include <vxe/math/coords.hpp>
 

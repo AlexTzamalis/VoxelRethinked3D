@@ -2,6 +2,12 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#017] 2026-10-27, E2.3 Projection helpers
+### Added
+- vxe/math/projection.hpp: perspectiveReversedInfinite (reversed Z, depth 0 to 1, infinite far plane), cameraRelativeView, CameraPosition (chunk plus fraction split exactly from double positions) and relativeToCamera for chunks and blocks with integer differences first.
+- Tests: near maps to 1, depth falls towards 0 without reaching it, surfaces 1 block apart at 32,000 blocks get different depths, and camera relative positions stay exact 10 million blocks out.
+- doctest printers for ChunkPos, BlockPos and LocalPos in the test helpers.
+
 ## [#016] 2026-10-27, E2.2 Fix sign conversion in the raycast
 ### Fixed
 - raycastBlocks indexed std::array with an int axis, which fails -Wsign-conversion on Linux CI (MSVC does not warn). Axes are now usize, with explicit casts for glm's int indices.

@@ -4,7 +4,11 @@
 
 #include <vxe/core/assert.hpp>
 #include <vxe/core/types.hpp>
+#include <vxe/math/coords.hpp>
 
+#include <doctest/doctest.h>
+
+#include <format>
 #include <string>
 
 namespace vxe::test {
@@ -40,3 +44,22 @@ private:
 };
 
 } // namespace vxe::test
+
+// Lets doctest print engine types in failure messages instead of "{?}", by
+// reusing their std::formatter.
+namespace doctest {
+
+template <>
+struct StringMaker<vxe::ChunkPos> {
+    static String convert(const vxe::ChunkPos& value) { return std::format("{}", value).c_str(); }
+};
+template <>
+struct StringMaker<vxe::BlockPos> {
+    static String convert(const vxe::BlockPos& value) { return std::format("{}", value).c_str(); }
+};
+template <>
+struct StringMaker<vxe::LocalPos> {
+    static String convert(const vxe::LocalPos& value) { return std::format("{}", value).c_str(); }
+};
+
+} // namespace doctest

@@ -56,6 +56,7 @@ vxe_add_module(math
     SOURCES
         src/math/coords.cpp
         src/math/frustum.cpp
+        src/math/projection.cpp
     DEPENDS
         core
     PUBLIC_LIBS
