@@ -13,6 +13,11 @@
 #   - run as a script (cmake -P) by a build step, so files edited after
 #     configuring are checked again. See vxe_add_include_check() in VxeModule.cmake.
 
+# Script mode (cmake -P) starts with old policy defaults on CMake 3.x, where
+# if(IN_LIST) does not exist yet. include() gets its own policy scope, so this
+# does not leak into the including project.
+cmake_policy(VERSION 3.28)
+
 # Checks the include lines of a list of files.
 #   OWNER              Name used in error messages, for example "module core".
 #   ALLOWED_MODULES    Engine modules whose headers may be included.

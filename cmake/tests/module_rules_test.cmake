@@ -3,6 +3,11 @@
 # Every rule violation must stop CMake with a clear message, and every legal
 # setup must pass. The expected output of each case lives in CMakeLists.txt.
 
+# Script mode (cmake -P) starts with old policy defaults on CMake 3.x, where
+# if(IN_LIST) does not exist yet. include() gets its own policy scope, so this
+# does not leak into the including project.
+cmake_policy(VERSION 3.28)
+
 include("${CMAKE_CURRENT_LIST_DIR}/../VxeModule.cmake")
 
 # Writes a source file with the given include line and runs the include check on it.

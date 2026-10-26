@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#007] 2026-10-27, E0.4 Fix include check on CMake 3.x
+### Fixed
+- The include check and rule tests run as cmake -P scripts, which start with old policy defaults on CMake 3.x, so if(IN_LIST) failed on the Linux runners. Both scripts now set cmake_policy(VERSION 3.28). Verified locally with CMake 3.31.6.
+
 ## [#006] 2026-10-27, E0.4 CI
 ### Added
 - GitHub Actions workflow: clang-format 22.1.3 check, plus build and test on Windows MSVC (debug, release), Linux Clang 18 (debug, release, asan, tsan) and Linux GCC 14 (debug), with warnings as errors.
