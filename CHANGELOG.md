@@ -2,6 +2,12 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#012] 2026-10-27, E1.5 Event bus and time
+### Added
+- vxe/core/event_bus.hpp: typed deferred event bus. publish() from any thread, dispatch() on the owner thread in publish order, RAII Subscription. Handlers may subscribe or unsubscribe while dispatching, and events published during a dispatch wait for the next one.
+- vxe/core/time.hpp: steady clock aliases and conversions, Stopwatch, ScopedTimer, and FrameTimer producing FrameTime with clamped and raw deltas.
+- Tests for ordering, type routing, subscription lifetime and moves, changes during dispatch, publishing from 4 threads, and frame time clamping with injected time.
+
 ## [#011] 2026-10-27, E1.4 Containers, hashing, string ids
 ### Added
 - vxe/core/containers.hpp: HashMap and HashSet on ankerl::unordered_dense, plus StringHash and StringMap for string_view lookups without temporaries.

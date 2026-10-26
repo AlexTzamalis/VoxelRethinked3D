@@ -14,12 +14,14 @@ vxe_add_module(core
     SOURCES
         src/core/assert.cpp
         src/core/error.cpp
+        src/core/event_bus.cpp
         src/core/hash.cpp
         src/core/linear_allocator.cpp
         src/core/log.cpp
         src/core/memory.cpp
         src/core/scratch.cpp
         src/core/string_id.cpp
+        src/core/time.cpp
         src/core/version.cpp
     PUBLIC_LIBS
         unordered_dense::unordered_dense
