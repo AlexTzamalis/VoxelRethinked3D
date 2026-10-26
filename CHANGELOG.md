@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#014] 2026-10-27, E2.1 Coordinates and vectors
+### Added
+- vxe_math module (layer 1) with glm 1.0.3, built with GLM_FORCE_DEPTH_ZERO_TO_ONE and GLM_FORCE_INTRINSICS as public definitions so every file sees one glm layout.
+- vxe/math/vector.hpp: Vec, IVec, DVec, Mat4 and Quat aliases.
+- vxe/math/coords.hpp: ChunkPos (int32), LocalPos (0 to 15, Y major index), BlockPos (int64), toChunk, toLocal, toBlock, chunkOrigin, blockAt for double positions with clamping, chebyshevDistance without overflow, std::hash and std::formatter specializations.
+- Tests for negative coordinates, int32 grid extremes, all 4096 local indices, NaN and huge entity positions, hash spread over 4096 neighbors and log formatting.
+
 ## [#013] 2026-10-27, E1.6 Profiling macros
 ### Added
 - vxe/core/profile.hpp: VXE_PROFILE_SCOPE, VXE_PROFILE_FUNCTION, VXE_PROFILE_FRAME, VXE_PROFILE_PLOT and VXE_PROFILE_MESSAGE on Tracy, compiled out unless VXE_ENABLE_PROFILING is on. profiling::setThreadName names threads for Tracy and for debuggers.

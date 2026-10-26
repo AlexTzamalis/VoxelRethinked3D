@@ -13,6 +13,7 @@ add_executable(vxe_tests
     core/memory_tests.cpp
     core/profile_tests.cpp
     core/result_tests.cpp
+    math/coords_tests.cpp
 )
 target_link_libraries(vxe_tests PRIVATE vxe::vxe doctest::doctest)
 # doctest forward declares std types by default; with real std headers it can

@@ -46,6 +46,25 @@ if(VXE_ENABLE_PROFILING)
     message(STATUS "vxe: Tracy profiling enabled")
 endif()
 
+# Math: glm wrappers and the coordinate types of the voxel world (E2). The glm
+# switches are PUBLIC definitions so every file sees the same glm layout:
+# depth 0 to 1 matches the reversed Z projection (ADR-010), intrinsics give
+# SIMD versions of the vector math.
+find_package(glm CONFIG REQUIRED)
+
+vxe_add_module(math
+    SOURCES
+        src/math/coords.cpp
+    DEPENDS
+        core
+    PUBLIC_LIBS
+        glm::glm
+)
+target_compile_definitions(vxe_math PUBLIC
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_INTRINSICS
+)
+
 # One target that links every engine module, for the game and tools.
 vxe_add_engine_target()
 
