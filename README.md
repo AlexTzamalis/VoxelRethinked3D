@@ -94,6 +94,8 @@ ctest --preset debug
 | `asan` | AddressSanitizer (plus UBSan on Clang and GCC) |
 | `tsan` | ThreadSanitizer, Linux only |
 
+Code style is enforced with clang-format (`--target format-check`, or `--target format` to fix) and clang-tidy (`-DVXE_ENABLE_CLANG_TIDY=ON`). Architecture decisions live in [docs/adr](docs/adr).
+
 Executables end up in `build/<preset>/bin/`. In CLion, select the **Visual Studio** toolchain and enable the CMake presets.
 
 ---

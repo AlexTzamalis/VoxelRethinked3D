@@ -1,0 +1,23 @@
+# Normalize text files to LF in the repository. Git converts them to the
+# platform's line ending on checkout, so Windows line endings never reach
+# shaders, scripts or the Linux CI.
+* text=auto
+
+# Scripts that must keep one specific line ending to run at all.
+*.sh  text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets. Never diffed, never converted.
+*.png  binary
+*.jpg  binary
+*.ttf  binary
+*.otf  binary
+*.ico  binary
+*.wav  binary
+*.ogg  binary
+*.zst  binary
+*.lz4  binary
+*.vxr  binary
+*.vxl  binary
+*.spv  binary

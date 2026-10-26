@@ -3,10 +3,9 @@
 // hands it to vxe::runApplication (Section 6.5 of the plan).
 #include <vxe/core/version.hpp>
 
-#include <cstdio>
+#include <iostream>
 
 int main() {
-    const std::string_view version = vxe::engineVersion();
-    std::printf("Voxel Rethinked %.*s\n", static_cast<int>(version.size()), version.data());
+    std::cout << "Voxel Rethinked " << vxe::engineVersion() << '\n';
     return 0;
 }

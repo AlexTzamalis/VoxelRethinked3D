@@ -1,0 +1,72 @@
+# Static analysis rules (Section 23 of the plan). Run locally with the
+# VXE_ENABLE_CLANG_TIDY CMake option, CI runs it on changed files.
+#
+# Disabled checks and why:
+#   bugprone-easily-swappable-parameters   Fires on every (x, y, z) style signature.
+#   *-magic-numbers                        Voxel code is full of meaningful constants like 16 and 4096.
+#   *-pro-bounds-pointer-arithmetic,
+#   *-pro-type-reinterpret-cast,
+#   *-pro-type-union-access                Allocators, packing and GPU buffers need these on purpose.
+#   *-non-private-member-variables-in-classes  Plain data structs are preferred (Section 23.2).
+#   *-avoid-c-arrays                       Fixed size C arrays are fine in packed GPU structs.
+#   modernize-use-trailing-return-type     Not our style.
+#   readability-identifier-length          Short names like x, y, z and i are clearer in math code.
+#   misc-include-cleaner                   Too noisy with umbrella headers from third party libraries.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  clang-analyzer-*,
+  concurrency-*,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-union-access,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  -cppcoreguidelines-avoid-c-arrays,
+  misc-*,
+  -misc-non-private-member-variables-in-classes,
+  -misc-include-cleaner,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  performance-*,
+  portability-*,
+  readability-*,
+  -readability-magic-numbers,
+  -readability-identifier-length
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*/(engine|game|tools|benchmarks)/.*'
+FormatStyle: file
+
+# Naming rules from Section 23.1.
+CheckOptions:
+  - { key: readability-identifier-naming.NamespaceCase,             value: lower_case }
+  - { key: readability-identifier-naming.ClassCase,                 value: CamelCase }
+  - { key: readability-identifier-naming.StructCase,                value: CamelCase }
+  - { key: readability-identifier-naming.UnionCase,                 value: CamelCase }
+  - { key: readability-identifier-naming.EnumCase,                  value: CamelCase }
+  - { key: readability-identifier-naming.EnumConstantCase,          value: CamelCase }
+  - { key: readability-identifier-naming.TypeAliasCase,             value: CamelCase }
+  - { key: readability-identifier-naming.TemplateParameterCase,     value: CamelCase }
+  - { key: readability-identifier-naming.ConceptCase,               value: CamelCase }
+  - { key: readability-identifier-naming.FunctionCase,              value: camelBack }
+  - { key: readability-identifier-naming.MethodCase,                value: camelBack }
+  - { key: readability-identifier-naming.VariableCase,              value: camelBack }
+  - { key: readability-identifier-naming.ParameterCase,             value: camelBack }
+  - { key: readability-identifier-naming.PublicMemberCase,          value: camelBack }
+  - { key: readability-identifier-naming.PrivateMemberCase,         value: camelBack }
+  - { key: readability-identifier-naming.PrivateMemberPrefix,       value: m_ }
+  - { key: readability-identifier-naming.ProtectedMemberCase,       value: camelBack }
+  - { key: readability-identifier-naming.ProtectedMemberPrefix,     value: m_ }
+  - { key: readability-identifier-naming.ConstexprVariableCase,     value: CamelCase }
+  - { key: readability-identifier-naming.ConstexprVariablePrefix,   value: k }
+  - { key: readability-identifier-naming.GlobalConstantCase,        value: CamelCase }
+  - { key: readability-identifier-naming.GlobalConstantPrefix,      value: k }
+  - { key: readability-identifier-naming.StaticConstantCase,        value: CamelCase }
+  - { key: readability-identifier-naming.StaticConstantPrefix,      value: k }
+  - { key: readability-identifier-naming.LocalConstantCase,         value: camelBack }
+  - { key: readability-identifier-naming.MacroDefinitionCase,       value: UPPER_CASE }
+  - { key: readability-function-cognitive-complexity.Threshold,     value: 40 }

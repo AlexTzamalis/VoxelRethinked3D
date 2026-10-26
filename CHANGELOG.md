@@ -2,6 +2,20 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#004] 2026-10-26, E0.2 Tooling
+### Added
+- .clang-format (LLVM based, 4 spaces, 110 columns, grouped includes) and .clang-tidy (naming rules from the coding standards).
+- cmake/Format.cmake with format and format-check targets and a VXE_ENABLE_CLANG_TIDY option. Finds the LLVM tools bundled with Visual Studio.
+- .editorconfig and .gitattributes (LF in the repository, binary assets never converted).
+### Changed
+- .gitignore now also covers IDE folders, CMakeUserPresets.json and the runtime folders logs, captures, saves and screenshots.
+- The game prints its version with iostream instead of printf (clang-tidy vararg finding).
+### Removed
+- .idea project files from the repository (they stay on disk for CLion).
+### Docs
+- docs/adr with ADR-001 to ADR-014 and an index.
+- README mentions the format targets and the ADR folder.
+
 ## [#003] 2026-10-26, E0.1 Repository and build skeleton
 ### Added
 - CMakePresets.json with debug, release, relwithdebinfo, asan and tsan presets (Ninja, vcpkg toolchain).

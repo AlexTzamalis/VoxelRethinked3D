@@ -1,0 +1,50 @@
+# Formatting rules for all C++ code in the repository (Section 23.1 of the plan).
+# Based on LLVM style with 4 space indentation and a 110 column limit.
+# Check with:  cmake --build --preset debug --target format-check
+# Fix with:    cmake --build --preset debug --target format
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 110
+AccessModifierOffset: -4
+NamespaceIndentation: None
+FixNamespaceComments: true
+IndentCaseLabels: false
+
+PointerAlignment: Left
+ReferenceAlignment: Left
+DerivePointerAlignment: false
+
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortEnumsOnASingleLine: false
+AllowShortLambdasOnASingleLine: All
+BreakTemplateDeclarations: Yes
+BreakConstructorInitializers: BeforeComma
+PackConstructorInitializers: Never
+AlignAfterOpenBracket: Align
+AlignTrailingComments: true
+SpaceAfterTemplateKeyword: true
+InsertNewlineAtEOF: true
+MaxEmptyLinesToKeep: 1
+
+# Include order: the matching header first, then our own quoted headers,
+# then engine headers, then third party headers, then the standard library.
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^"'
+    Priority: 1
+  - Regex: '^<vxe/'
+    Priority: 2
+  - Regex: '^<[a-z_]+>$'
+    Priority: 4
+  - Regex: '^<'
+    Priority: 3

@@ -44,6 +44,7 @@ option(VXE_BUILD_TESTS "Build the unit test executables" ON)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(Warnings)
 include(Sanitizers)
+include(Format)
 
 if(VXE_BUILD_TESTS)
     enable_testing()

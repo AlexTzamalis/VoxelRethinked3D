@@ -7,3 +7,15 @@ cmake-build-*/
 
 # vcpkg manifest mode install folder
 vcpkg_installed/
+
+# IDE state and personal CMake presets
+.idea/
+.vs/
+.vscode/
+CMakeUserPresets.json
+
+# Runtime folders the game writes next to the executable
+logs/
+captures/
+saves/
+screenshots/
