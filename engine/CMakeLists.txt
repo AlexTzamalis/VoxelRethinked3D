@@ -11,6 +11,7 @@ find_package(spdlog CONFIG REQUIRED)
 vxe_add_module(core
     SOURCES
         src/core/assert.cpp
+        src/core/error.cpp
         src/core/log.cpp
         src/core/version.cpp
     PRIVATE_LIBS

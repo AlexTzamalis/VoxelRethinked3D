@@ -39,8 +39,9 @@ enum class Level : u8 {
     Off, // Only valid as a minimum level: disables a category.
 };
 
-// Returns the lowercase name of a level, for example "warn".
-[[nodiscard]] std::string_view toString(Level level) noexcept;
+// Returns the lowercase name of a level, for example "warn". Not called
+// toString because doctest finds that name through ADL for printing values.
+[[nodiscard]] std::string_view nameOf(Level level) noexcept;
 
 // A named group of log messages with its own minimum level. Categories are
 // usually global objects that live for the whole program, so registering one

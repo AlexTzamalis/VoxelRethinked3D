@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#009] 2026-10-27, E1.2 Result and Error
+### Added
+- vxe/core/error.hpp: ErrorCode and Error with code, message and the source location where it was created, plus withContext() and describe().
+- vxe/core/result.hpp: Result<T, E> and Result<void, E> on std::variant, with asserted value() and error() access, operator* and ->, valueOr(), and the VXE_TRY macro to pass errors up.
+- Shared test helpers (throwing assert handler) and Result tests, including move only values and wrong side access in debug.
+### Changed
+- toString(Level) is now nameOf(Level), because doctest picks up toString through ADL to print values.
+- Engine tests build with DOCTEST_CONFIG_USE_STD_HEADERS so failures can print std::string_view.
+
 ## [#008] 2026-10-27, E1.1 Types, asserts, logging
 ### Added
 - vxe/core/types.hpp: fixed width aliases (u8 to u64, i8 to i64, f32, f64, usize, isize).

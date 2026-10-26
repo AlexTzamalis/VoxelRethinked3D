@@ -57,8 +57,8 @@ TEST_CASE("Categories are registered once and found by name") {
 }
 
 TEST_CASE("Level names") {
-    CHECK(vxe::log::toString(vxe::log::Level::Info) == "info");
-    CHECK(vxe::log::toString(vxe::log::Level::Critical) == "critical");
+    CHECK(vxe::log::nameOf(vxe::log::Level::Info) == "info");
+    CHECK(vxe::log::nameOf(vxe::log::Level::Critical) == "critical");
 }
 
 TEST_CASE("initialize creates the log file and writes formatted messages") {

@@ -62,7 +62,7 @@ spdlog::level::level_enum toSpdlog(Level level) noexcept {
 
 } // namespace
 
-std::string_view toString(Level level) noexcept {
+std::string_view nameOf(Level level) noexcept {
     switch (level) {
     case Level::Trace:
         return "trace";
@@ -166,7 +166,7 @@ void write(const Category& category, Level level, std::string_view message) {
     spdlog::logger* logger = activeLogger.load(std::memory_order_acquire);
     if (logger == nullptr) {
         // Not initialized yet (or already shut down): stderr keeps the message.
-        writeToStderr(std::format("[{}] [{}] {}\n", toString(level), category.name(), message));
+        writeToStderr(std::format("[{}] [{}] {}\n", nameOf(level), category.name(), message));
         return;
     }
     logger->log(toSpdlog(level), "[{}] {}", category.name(), message);

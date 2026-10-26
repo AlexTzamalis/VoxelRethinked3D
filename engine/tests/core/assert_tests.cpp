@@ -1,42 +1,12 @@
+#include "../test_helpers.hpp"
+
 #include <vxe/core/assert.hpp>
 #include <vxe/core/types.hpp>
 
 #include <doctest/doctest.h>
 
-#include <string>
-
-namespace {
-
-// Thrown by the test handler so a failed assert unwinds back into the test
-// instead of aborting the test run.
-struct AssertFired {
-    std::string expression;
-    std::string message;
-    vxe::u32 line = 0;
-};
-
-[[noreturn]] void throwingHandler(const vxe::AssertInfo& info) {
-    throw AssertFired{.expression = std::string(info.expression),
-                      .message = std::string(info.message),
-                      .line = info.location.line()};
-}
-
-// Installs the throwing handler for one test and restores the previous one.
-class ScopedThrowingHandler {
-public:
-    ScopedThrowingHandler()
-        : m_previous(vxe::setAssertHandler(&throwingHandler)) {}
-    ScopedThrowingHandler(const ScopedThrowingHandler&) = delete;
-    ScopedThrowingHandler& operator=(const ScopedThrowingHandler&) = delete;
-    ScopedThrowingHandler(ScopedThrowingHandler&&) = delete;
-    ScopedThrowingHandler& operator=(ScopedThrowingHandler&&) = delete;
-    ~ScopedThrowingHandler() { vxe::setAssertHandler(m_previous); }
-
-private:
-    vxe::AssertHandler m_previous;
-};
-
-} // namespace
+using vxe::test::AssertFired;
+using ScopedThrowingHandler = vxe::test::ScopedThrowingAssertHandler;
 
 TEST_CASE("Fixed width aliases have the expected sizes") {
     static_assert(sizeof(vxe::u8) == 1 && sizeof(vxe::u16) == 2 && sizeof(vxe::u32) == 4 &&
@@ -91,6 +61,6 @@ TEST_CASE("VXE_UNREACHABLE fires when asserts are enabled") {
 #endif
 
 TEST_CASE("setAssertHandler returns the previous handler") {
-    const vxe::AssertHandler original = vxe::setAssertHandler(&throwingHandler);
-    CHECK(vxe::setAssertHandler(original) == &throwingHandler);
+    const vxe::AssertHandler original = vxe::setAssertHandler(&vxe::test::throwingAssertHandler);
+    CHECK(vxe::setAssertHandler(original) == &vxe::test::throwingAssertHandler);
 }
