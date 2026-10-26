@@ -5,6 +5,10 @@
   "description": "Voxel Rethinked, a modern voxel sandbox game, and the vxe engine.",
   "builtin-baseline": "0e5030f583a5427123cd3b714255e5ae62faa3ba",
   "dependencies": [
-    "doctest"
+    "doctest",
+    {
+      "name": "spdlog",
+      "default-features": false
+    }
   ]
 }

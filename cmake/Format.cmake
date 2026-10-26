@@ -1,13 +1,15 @@
 # Code formatting and static analysis helpers.
 #
-# Targets (only created when clang-format is found):
+# Targets (each one is only created when its tool is found):
 #   format        Rewrites every C++ source file in place with .clang-format.
 #   format-check  Fails if any file is not formatted. CI runs this.
+#   tidy          Runs clang-tidy (.clang-tidy) on every engine and game source
+#                 file, using this build's compile_commands.json.
 #
-# Option:
-#   VXE_ENABLE_CLANG_TIDY  Runs clang-tidy on every file we compile, using
-#                          .clang-tidy. Off by default because it roughly
-#                          doubles build times.
+# clang-tidy is a separate target instead of CMAKE_CXX_CLANG_TIDY because
+# CMake's MSVC wrapper for it passes the compile flags in a way clang-tidy
+# misreads (it reports exceptions as disabled despite /EHsc). Reading the
+# compile database gives the exact same flags the compiler sees.
 
 # Visual Studio ships clang-format and clang-tidy in its LLVM folder, which is
 # not on PATH even inside a developer shell, so look there too.
@@ -15,8 +17,6 @@ set(vxeLlvmHints "$ENV{VCINSTALLDIR}/Tools/Llvm/x64/bin")
 
 find_program(VXE_CLANG_FORMAT_EXE NAMES clang-format HINTS ${vxeLlvmHints})
 find_program(VXE_CLANG_TIDY_EXE NAMES clang-tidy HINTS ${vxeLlvmHints})
-
-option(VXE_ENABLE_CLANG_TIDY "Run clang-tidy while compiling our targets" OFF)
 
 if(VXE_CLANG_FORMAT_EXE)
     # A glob is acceptable here (unlike for target sources): CONFIGURE_DEPENDS
@@ -44,11 +44,19 @@ else()
     message(STATUS "vxe: clang-format not found, the format and format-check targets are unavailable")
 endif()
 
-if(VXE_ENABLE_CLANG_TIDY)
-    if(NOT VXE_CLANG_TIDY_EXE)
-        message(FATAL_ERROR "VXE_ENABLE_CLANG_TIDY is ON but clang-tidy was not found")
-    endif()
-    # Set before add_subdirectory(), so every target we define picks it up.
-    # vcpkg packages are prebuilt and never pass through this.
-    set(CMAKE_CXX_CLANG_TIDY "${VXE_CLANG_TIDY_EXE}")
+if(VXE_CLANG_TIDY_EXE)
+    file(GLOB_RECURSE vxeTidySources CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/engine/*.cpp"
+        "${CMAKE_SOURCE_DIR}/game/*.cpp"
+        "${CMAKE_SOURCE_DIR}/tools/*.cpp"
+        "${CMAKE_SOURCE_DIR}/benchmarks/*.cpp"
+    )
+    add_custom_target(tidy
+        COMMAND ${VXE_CLANG_TIDY_EXE} -p "${CMAKE_BINARY_DIR}" --quiet ${vxeTidySources}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Running clang-tidy"
+        VERBATIM
+    )
+else()
+    message(STATUS "vxe: clang-tidy not found, the tidy target is unavailable")
 endif()

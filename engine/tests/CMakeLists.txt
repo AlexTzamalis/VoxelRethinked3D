@@ -5,6 +5,8 @@ find_package(doctest CONFIG REQUIRED)
 
 add_executable(vxe_tests
     test_main.cpp
+    core/assert_tests.cpp
+    core/log_tests.cpp
 )
 target_link_libraries(vxe_tests PRIVATE vxe::vxe doctest::doctest)
 vxe_set_warnings(vxe_tests)

@@ -2,6 +2,18 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#008] 2026-10-27, E1.1 Types, asserts, logging
+### Added
+- vxe/core/types.hpp: fixed width aliases (u8 to u64, i8 to i64, f32, f64, usize, isize).
+- vxe/core/assert.hpp: VXE_ASSERT (debug only, condition not evaluated when off), VXE_VERIFY (always), VXE_UNREACHABLE, and a replaceable assert handler. The default handler logs the expression, message and location, breaks into an attached debugger and aborts.
+- vxe/core/log.hpp: log categories with atomic levels, a category registry, compile time checked std::format messages, a reusable per thread format buffer, and console plus logs/latest.log outputs. spdlog (built on std::format) stays private to log.cpp.
+- The game logs its version to logs/latest.log next to the executable and turns escaping exceptions into a logged error.
+- Unit tests for asserts in debug and release, category filtering, the registry and log file creation.
+- cmake/triplets/x64-windows-static-md-asan.cmake: vcpkg packages for the Windows asan preset are built with ASan, because MSVC refuses to link ASan code with libraries built without it.
+### Changed
+- The clang-tidy CMake option is replaced by a tidy target that reads compile_commands.json, because CMake's MSVC wrapper made clang-tidy report exceptions as disabled.
+- clang-tidy ignores macros for cognitive complexity and allows do { } while (false) macros.
+
 ## [#007] 2026-10-27, E0.4 Fix include check on CMake 3.x
 ### Fixed
 - The include check and rule tests run as cmake -P scripts, which start with old policy defaults on CMake 3.x, so if(IN_LIST) failed on the Linux runners. Both scripts now set cmake_policy(VERSION 3.28). Verified locally with CMake 3.31.6.

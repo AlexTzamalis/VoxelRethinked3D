@@ -4,9 +4,17 @@
 
 set(VXE_ENGINE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
+# spdlog is built on std::format (vcpkg.json disables its fmt feature) and is
+# linked privately: only log.cpp sees it, the public log API does not.
+find_package(spdlog CONFIG REQUIRED)
+
 vxe_add_module(core
     SOURCES
+        src/core/assert.cpp
+        src/core/log.cpp
         src/core/version.cpp
+    PRIVATE_LIBS
+        spdlog::spdlog
 )
 target_compile_definitions(vxe_core PRIVATE
     VXE_VERSION_STRING="${PROJECT_VERSION}"

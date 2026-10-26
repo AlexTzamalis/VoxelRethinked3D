@@ -1,5 +1,5 @@
-# Static analysis rules (Section 23 of the plan). Run locally with the
-# VXE_ENABLE_CLANG_TIDY CMake option, CI runs it on changed files.
+# Static analysis rules (Section 23 of the plan). Run locally with
+#   cmake --build --preset debug --target tidy
 #
 # Disabled checks and why:
 #   bugprone-easily-swappable-parameters   Fires on every (x, y, z) style signature.
@@ -12,6 +12,7 @@
 #   modernize-use-trailing-return-type     Not our style.
 #   readability-identifier-length          Short names like x, y, z and i are clearer in math code.
 #   misc-include-cleaner                   Too noisy with umbrella headers from third party libraries.
+#   cppcoreguidelines-avoid-do-while       do { } while (false) is the standard way to write statement macros.
 Checks: >
   -*,
   bugprone-*,
@@ -25,6 +26,7 @@ Checks: >
   -cppcoreguidelines-pro-type-union-access,
   -cppcoreguidelines-non-private-member-variables-in-classes,
   -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-avoid-do-while,
   misc-*,
   -misc-non-private-member-variables-in-classes,
   -misc-include-cleaner,
@@ -70,3 +72,5 @@ CheckOptions:
   - { key: readability-identifier-naming.LocalConstantCase,         value: camelBack }
   - { key: readability-identifier-naming.MacroDefinitionCase,       value: UPPER_CASE }
   - { key: readability-function-cognitive-complexity.Threshold,     value: 40 }
+  # Test macros (doctest CHECK) expand to branches that are not real complexity.
+  - { key: readability-function-cognitive-complexity.IgnoreMacros,  value: true }

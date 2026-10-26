@@ -16,7 +16,13 @@ if(CMAKE_HOST_WIN32)
     # Static libraries with the dynamic CRT: one executable with no third party
     # DLLs to copy around, while still sharing the CRT with the system.
     if(NOT DEFINED VCPKG_TARGET_TRIPLET AND "$ENV{VCPKG_DEFAULT_TRIPLET}" STREQUAL "")
-        set(VCPKG_TARGET_TRIPLET x64-windows-static-md CACHE STRING "vcpkg triplet")
+        if(VXE_SANITIZER STREQUAL "address")
+            # ASan builds need packages built with ASan too (see the triplet file).
+            set(VCPKG_OVERLAY_TRIPLETS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/triplets" CACHE STRING "vcpkg overlay triplets")
+            set(VCPKG_TARGET_TRIPLET x64-windows-static-md-asan CACHE STRING "vcpkg triplet")
+        else()
+            set(VCPKG_TARGET_TRIPLET x64-windows-static-md CACHE STRING "vcpkg triplet")
+        endif()
     endif()
 endif()
 
