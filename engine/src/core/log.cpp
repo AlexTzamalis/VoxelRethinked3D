@@ -1,5 +1,7 @@
 #include "vxe/core/log.hpp"
 
+#include <vxe/core/profile.hpp>
+
 #include <spdlog/logger.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -170,6 +172,8 @@ void write(const Category& category, Level level, std::string_view message) {
         return;
     }
     logger->log(toSpdlog(level), "[{}] {}", category.name(), message);
+    // Shows the message at the right moment in the Tracy timeline.
+    VXE_PROFILE_MESSAGE(message.data(), message.size());
 }
 
 std::string& threadBuffer() {

@@ -1,5 +1,7 @@
 #include "vxe/core/event_bus.hpp"
 
+#include <vxe/core/profile.hpp>
+
 #include <algorithm>
 
 namespace vxe {
@@ -31,6 +33,7 @@ usize EventBus::pendingCount() const {
 }
 
 void EventBus::dispatch() {
+    VXE_PROFILE_FUNCTION();
     assertOwnerThread();
 
     // Take the whole queue at once, so events published while delivering

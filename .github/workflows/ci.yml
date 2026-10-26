@@ -2,7 +2,8 @@
 # Runs on every push and pull request:
 #   - format:  clang-format check, pinned to the same version Visual Studio ships.
 #   - build:   configure, build and test on Windows (MSVC) and Linux (Clang, GCC),
-#              plus AddressSanitizer and ThreadSanitizer builds on Linux.
+#              plus AddressSanitizer and ThreadSanitizer builds on Linux, and
+#              relwithdebinfo builds that include the Tracy profiler client.
 # Warnings are errors here (VXE_WARNINGS_AS_ERRORS), unlike local builds.
 
 name: CI
@@ -41,8 +42,10 @@ jobs:
         include:
           - { name: Windows MSVC debug,   os: windows-latest, preset: debug,   triplet: x64-windows-static-md }
           - { name: Windows MSVC release, os: windows-latest, preset: release, triplet: x64-windows-static-md }
+          - { name: Windows MSVC relwithdebinfo, os: windows-latest, preset: relwithdebinfo, triplet: x64-windows-static-md }
           - { name: Linux Clang debug,    os: ubuntu-24.04,   preset: debug,   triplet: x64-linux, cc: clang-18, cxx: clang++-18 }
           - { name: Linux Clang release,  os: ubuntu-24.04,   preset: release, triplet: x64-linux, cc: clang-18, cxx: clang++-18 }
+          - { name: Linux Clang relwithdebinfo, os: ubuntu-24.04, preset: relwithdebinfo, triplet: x64-linux, cc: clang-18, cxx: clang++-18 }
           - { name: Linux GCC debug,      os: ubuntu-24.04,   preset: debug,   triplet: x64-linux, cc: gcc-14,   cxx: g++-14 }
           - { name: Linux Clang asan,     os: ubuntu-24.04,   preset: asan,    triplet: x64-linux, cc: clang-18, cxx: clang++-18 }
           - { name: Linux Clang tsan,     os: ubuntu-24.04,   preset: tsan,    triplet: x64-linux, cc: clang-18, cxx: clang++-18 }
@@ -89,9 +92,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.VCPKG_BINARY_CACHE }}
-          key: vcpkg-${{ matrix.os }}-${{ matrix.triplet }}-${{ matrix.cxx }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ matrix.os }}-${{ matrix.triplet }}-${{ matrix.cxx }}-${{ matrix.preset }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
-            vcpkg-${{ matrix.os }}-${{ matrix.triplet }}-${{ matrix.cxx }}-
+            vcpkg-${{ matrix.os }}-${{ matrix.triplet }}-${{ matrix.cxx }}-${{ matrix.preset }}-
 
       - name: Set up MSVC developer environment
         if: runner.os == 'Windows'

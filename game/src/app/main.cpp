@@ -2,6 +2,7 @@
 // the version. Later this becomes the place that creates VoxelRethinkedApp and
 // hands it to vxe::runApplication (Section 6.5 of the plan).
 #include <vxe/core/log.hpp>
+#include <vxe/core/profile.hpp>
 #include <vxe/core/version.hpp>
 
 #include <cstdio>
@@ -16,6 +17,9 @@ namespace {
 constinit vxe::log::Category gameLog{"game", vxe::log::Level::Info};
 
 int run(std::span<char*> arguments) {
+    vxe::profiling::setThreadName("Main");
+    VXE_PROFILE_FUNCTION();
+
     // Runtime folders live next to the executable (Section 5 of the plan). The
     // platform module will provide the real executable folder later; argv[0]
     // is good enough until then.
@@ -29,6 +33,10 @@ int run(std::span<char*> arguments) {
     vxe::log::registerCategory(gameLog);
 
     VXE_LOG_INFO(gameLog, "Voxel Rethinked {}", vxe::engineVersion());
+    if constexpr (vxe::profiling::isEnabled()) {
+        VXE_LOG_INFO(gameLog, "Tracy profiling is compiled in");
+    }
+    VXE_PROFILE_FRAME();
 
     vxe::log::shutdown();
     return 0;

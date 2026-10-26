@@ -12,5 +12,18 @@
     },
     "unordered-dense",
     "xxhash"
-  ]
+  ],
+  "features": {
+    "profiling": {
+      "description": "Tracy profiler client, used by the relwithdebinfo preset.",
+      "dependencies": [
+        {
+          "name": "tracy",
+          "features": [
+            "on-demand"
+          ]
+        }
+      ]
+    }
+  }
 }

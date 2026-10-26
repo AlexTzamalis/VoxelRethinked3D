@@ -19,6 +19,7 @@ vxe_add_module(core
         src/core/linear_allocator.cpp
         src/core/log.cpp
         src/core/memory.cpp
+        src/core/profile.cpp
         src/core/scratch.cpp
         src/core/string_id.cpp
         src/core/time.cpp
@@ -32,6 +33,18 @@ vxe_add_module(core
 target_compile_definitions(vxe_core PRIVATE
     VXE_VERSION_STRING="${PROJECT_VERSION}"
 )
+
+# Tracy profiler client (E1.6). The relwithdebinfo preset turns this on and
+# also enables the "profiling" vcpkg feature that installs Tracy. Linked
+# PUBLIC because the VXE_PROFILE_* macros expand to Tracy macros in every
+# file that uses them.
+option(VXE_ENABLE_PROFILING "Build with the Tracy profiler client" OFF)
+if(VXE_ENABLE_PROFILING)
+    find_package(Tracy CONFIG REQUIRED)
+    target_link_libraries(vxe_core PUBLIC Tracy::TracyClient)
+    target_compile_definitions(vxe_core PUBLIC VXE_ENABLE_PROFILING=1)
+    message(STATUS "vxe: Tracy profiling enabled")
+endif()
 
 # One target that links every engine module, for the game and tools.
 vxe_add_engine_target()

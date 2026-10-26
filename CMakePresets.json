@@ -29,9 +29,13 @@
     {
       "name": "relwithdebinfo",
       "displayName": "RelWithDebInfo",
-      "description": "Optimized build with debug info, used for profiling with Tracy.",
+      "description": "Optimized build with debug info and the Tracy profiler client.",
       "inherits": "base",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "VXE_ENABLE_PROFILING": "ON",
+        "VCPKG_MANIFEST_FEATURES": "profiling"
+      }
     },
     {
       "name": "asan",

@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#013] 2026-10-27, E1.6 Profiling macros
+### Added
+- vxe/core/profile.hpp: VXE_PROFILE_SCOPE, VXE_PROFILE_FUNCTION, VXE_PROFILE_FRAME, VXE_PROFILE_PLOT and VXE_PROFILE_MESSAGE on Tracy, compiled out unless VXE_ENABLE_PROFILING is on. profiling::setThreadName names threads for Tracy and for debuggers.
+- A "profiling" vcpkg feature with the on demand Tracy 0.14.1 client, enabled only by the relwithdebinfo preset.
+- Log messages appear in the Tracy timeline. EventBus::dispatch and the game startup are profiled.
+- CI jobs for relwithdebinfo on Windows and Linux. The vcpkg cache key now includes the preset.
+### Docs
+- README explains how to connect Tracy.
+
 ## [#012] 2026-10-27, E1.5 Event bus and time
 ### Added
 - vxe/core/event_bus.hpp: typed deferred event bus. publish() from any thread, dispatch() on the owner thread in publish order, RAII Subscription. Handlers may subscribe or unsubscribe while dispatching, and events published during a dispatch wait for the next one.

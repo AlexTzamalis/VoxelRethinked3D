@@ -96,7 +96,9 @@ ctest --preset debug
 
 Code style is enforced with clang-format (`--target format-check`, or `--target format` to fix) and clang-tidy (`--target tidy`). Architecture decisions live in [docs/adr](docs/adr).
 
-Executables end up in `build/<preset>/bin/`. In CLion, select the **Visual Studio** toolchain and enable the CMake presets.
+Executables end up in `build/<preset>/bin/`.
+
+**Profiling:** the `relwithdebinfo` preset includes the [Tracy](https://github.com/wolfpld/tracy) 0.14.1 client. Start the game, then connect with the Tracy 0.14.1 profiler (the versions must match). Set `TRACY_NO_EXIT=1` to keep a short run open until the profiler has received its data. In CLion, select the **Visual Studio** toolchain and enable the CMake presets.
 
 ---
 
