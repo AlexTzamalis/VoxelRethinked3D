@@ -59,15 +59,18 @@ template <BlockPredicate IsSolid>
     BlockPos block = blockAt(origin);
     std::array<i64*, 3> cell{&block.x, &block.y, &block.z};
 
+    // Per axis state, indexed with usize. glm vectors index with int, hence
+    // the small glmIndex helper.
+    const auto glmIndex = [](usize axis) { return static_cast<glm::length_t>(axis); };
     std::array<int, 3> step{};
     std::array<f64, 3> tMax{};
     std::array<f64, 3> tDelta{};
     constexpr f64 kInf = std::numeric_limits<f64>::infinity();
-    for (int axis = 0; axis < 3; ++axis) {
-        const f64 d = dir[axis];
+    for (usize axis = 0; axis < 3; ++axis) {
+        const f64 d = dir[glmIndex(axis)];
         // The offset inside the starting block (0 to 1), computed from the
         // block index so it stays exact even far from the origin.
-        const f64 inside = origin[axis] - static_cast<f64>(*cell[axis]);
+        const f64 inside = origin[glmIndex(axis)] - static_cast<f64>(*cell[axis]);
         if (d > 0.0) {
             step[axis] = 1;
             tDelta[axis] = 1.0 / d;
@@ -85,22 +88,24 @@ template <BlockPredicate IsSolid>
 
     if (isSolid(static_cast<const BlockPos&>(block))) {
         // Started inside a block: report it with the face the ray "comes from".
-        int mainAxis = 0;
-        for (int axis = 1; axis < 3; ++axis) {
-            if (std::abs(dir[axis]) > std::abs(dir[mainAxis])) {
+        usize mainAxis = 0;
+        for (usize axis = 1; axis < 3; ++axis) {
+            if (std::abs(dir[glmIndex(axis)]) > std::abs(dir[glmIndex(mainAxis)])) {
                 mainAxis = axis;
             }
         }
-        const int sign = dir[mainAxis] > 0.0 ? -1 : 1;
-        return RaycastHit{
-            .block = block, .face = faceFromAxis(mainAxis, sign), .distance = 0.0, .point = origin};
+        const int sign = dir[glmIndex(mainAxis)] > 0.0 ? -1 : 1;
+        return RaycastHit{.block = block,
+                          .face = faceFromAxis(static_cast<int>(mainAxis), sign),
+                          .distance = 0.0,
+                          .point = origin};
     }
 
     // Each step crosses one boundary, and a ray of length L crosses at most
     // about L boundaries per axis. The cap only guards against bad input.
     const auto maxSteps = static_cast<i64>(std::ceil(maxDistance) * 3.0) + 3;
     for (i64 i = 0; i < maxSteps; ++i) {
-        int axis = 0;
+        usize axis = 0;
         if (tMax[1] < tMax[axis]) {
             axis = 1;
         }
@@ -117,7 +122,7 @@ template <BlockPredicate IsSolid>
         if (isSolid(static_cast<const BlockPos&>(block))) {
             // Moving in +X enters the new block through its -X face, and so on.
             return RaycastHit{.block = block,
-                              .face = faceFromAxis(axis, -step[axis]),
+                              .face = faceFromAxis(static_cast<int>(axis), -step[axis]),
                               .distance = distance,
                               .point = origin + dir * distance};
         }

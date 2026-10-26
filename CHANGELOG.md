@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#016] 2026-10-27, E2.2 Fix sign conversion in the raycast
+### Fixed
+- raycastBlocks indexed std::array with an int axis, which fails -Wsign-conversion on Linux CI (MSVC does not warn). Axes are now usize, with explicit casts for glm's int indices.
+
 ## [#015] 2026-10-27, E2.2 Geometry
 ### Added
 - vxe/math/face.hpp: Face in the engine wide order (+X, -X, +Y, -Y, +Z, -Z) with opposite, axis, sign and normal helpers.
