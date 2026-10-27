@@ -248,10 +248,13 @@ JobHandle JobSystem::scheduleAfter(std::span<const JobHandle> dependencies, JobF
 
 void JobSystem::releaseDependency(const std::shared_ptr<PendingJob>& pending) {
     if (pending->remaining.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        // Queued before it stops counting as waiting, so the shutdown drain
-        // always sees it in one of the two counts.
-        enqueue(std::move(pending->job), pending->options);
+        // It stops counting as waiting before it is queued, so once the job
+        // can run (and finish) the waiting count is already exact. The
+        // shutdown drain cannot miss it in between: this thread is either a
+        // running job or the caller of scheduleAfter, and both keep the drain
+        // waiting until the job is queued.
         m_waitingJobs.fetch_sub(1, std::memory_order_acq_rel);
+        enqueue(std::move(pending->job), pending->options);
     }
 }
 
@@ -351,6 +354,9 @@ void JobSystem::runJob(Job& job, std::atomic<u64>& runningCounter, ThreadCounter
         state->finished = true;
         released.swap(state->continuations);
     }
+    // Every statistic of this job is recorded before it counts as done, so a
+    // thread that waited for it reads final numbers.
+    m_completedJobs.fetch_add(1, std::memory_order_relaxed);
     if (counter != nullptr) {
         // Counted as done before any dependent is released, so a finished
         // dependent always implies finished dependencies. After this a waiter
@@ -364,7 +370,6 @@ void JobSystem::runJob(Job& job, std::atomic<u64>& runningCounter, ThreadCounter
         releaseDependency(pending);
     }
     state.reset();
-    m_completedJobs.fetch_add(1, std::memory_order_relaxed);
     runningCounter.fetch_sub(1, std::memory_order_acq_rel);
 }
 

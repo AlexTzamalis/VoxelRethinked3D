@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#022] 2026-10-27, E3.3 Fix job statistics read right after a wait
+### Fixed
+- The waiting for dependencies count dropped only after the released job was queued, and the completed count rose only after a job counted as done, so a thread that had just waited could read stale numbers (Linux GCC CI failure). Both are now updated before the job can be observed as queued or done. Repeated 200 times in release and debug and 40 times under ASan without a failure.
+
 ## [#021] 2026-10-27, E4.1 Virtual file system
 ### Added
 - vxe_io module (layer 3) with Vfs: named mounts (assets, textures, config, saves) over real folders, read only or read write, optionally created on mount, behind a shared mutex for concurrent lookups.
