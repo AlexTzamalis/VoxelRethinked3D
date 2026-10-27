@@ -2,6 +2,18 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#033] 2026-10-27, E6.1 RHI interface and handles
+### Added
+- vxe_rhi module (layer 7): typed 32 bit handles (24 bit index, 8 bit generation) and a HandlePool that turns use after destroy into a null lookup.
+- RHI types shaped like Vulkan and D3D12 (ADR-003): formats, opt in usage and barrier flags, raster, depth (reversed Z GreaterOrEqual by default), blend and topology state, and descriptions for buffers, textures, samplers, shaders, pipelines, render passes and texture uploads.
+- CommandList: a non virtual, flat byte buffer of plain command structs (render passes, binds, draws, indirect and indirect count draws, dispatch, copies, barriers, debug groups, timestamps) with an iterator for backends; reset keeps the memory.
+- The Device interface with capabilities, stats, resource creation and destruction, uploads, mapped ranges, fences, submit and present.
+- Validation of every description, called by backends on creation, plus mip count and level size helpers.
+- vxe_rhi_null module (layer 8) with the Null device skeleton (validated handles, stubs) and createNullDevice.
+- Tests for handle typing and staleness, generation wrap, command recording and replay of every payload, validation rules, size helpers and the Null device.
+### Docs
+- ADR-015: backends expose their own create functions; the factory that picks one lives in render.
+
 ## [#032] 2026-10-27, E5.5 Bindings, persistence, conflicts, capture
 ### Added
 - vxe/input/keybinds.hpp: readable binding text ("W", "Ctrl+S", "F3+G", "Mouse Left", "Wheel Up", "key:Z", "Scancode 300") in both directions, forgiving about case and spaces, and keybinds.toml with a commented line per action (name, category, defaults), up to three bindings, unknown actions kept.

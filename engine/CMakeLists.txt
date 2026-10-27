@@ -145,6 +145,26 @@ vxe_add_module(input
         tomlplusplus::tomlplusplus
 )
 
+# RHI: the backend independent graphics interface (E6, ADR-003), and the Null
+# backend for tests and headless servers. The OpenGL backend follows in E6.3.
+# The factory that picks a backend lives in render, above both backends
+# (ADR-015), so rhi itself never depends on a backend.
+vxe_add_module(rhi
+    SOURCES
+        src/rhi/command_list.cpp
+        src/rhi/validation.cpp
+    DEPENDS
+        core
+)
+
+vxe_add_module(rhi_null
+    SOURCES
+        src/rhi_null/null_device.cpp
+    DEPENDS
+        core
+        rhi
+)
+
 # App: Application, EngineContext and the main loop (E4.5). The top layer,
 # because the loop drives every other module (ADR-015).
 vxe_add_module(app

@@ -30,6 +30,7 @@ add_executable(vxe_tests
     math/geometry_tests.cpp
     math/projection_tests.cpp
     platform/platform_tests.cpp
+    rhi/rhi_tests.cpp
 )
 # SDL is linked directly only so platform tests can push synthetic OS events.
 find_package(SDL3 CONFIG REQUIRED)

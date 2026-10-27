@@ -45,7 +45,8 @@ one table:
 - The table turns side by side boxes of the diagram into a total order. Where the diagram is ambiguous
   (config below input, render below ui below debug) the table decides. Changing the order means editing the
   table and this ADR together.
-- The RHI device factory cannot live in `rhi` if it must create backends from layer 8. Where it goes is
-  decided in E6.1.
+- The RHI device factory cannot live in `rhi`, because it creates backends from layer 8. Decided in E6.1:
+  each backend exposes its own create function (`createNullDevice`, later `createGlDevice`), and the
+  factory that picks one from a setting lives in `render` (layer 9), which may depend on both.
 - `Application` (Section 6.5 sketches it in `vxe/core`) lives in the `app` module at the top, because it
   needs the platform, jobs and IO modules and core may depend on nothing. Added 2026-10-27 in E4.5.
