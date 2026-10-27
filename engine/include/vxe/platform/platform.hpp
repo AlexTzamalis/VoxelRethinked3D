@@ -1,0 +1,56 @@
+#pragma once
+
+#include <vxe/core/result.hpp>
+#include <vxe/core/types.hpp>
+#include <vxe/platform/events.hpp>
+
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace vxe::platform {
+
+struct PlatformConfig {
+    // Start the video subsystem (windows, displays). Off for headless tools,
+    // tests and a future dedicated server, which still get events and timers.
+    bool video = true;
+};
+
+// Owns the platform layer (SDL3, ADR-004) for the lifetime of the program.
+//
+// Exactly one Platform may exist at a time. Windows are created through it
+// and must be destroyed before it. Everything SDL related happens on the main
+// thread, which is also why only the main thread may call into this class.
+class Platform {
+public:
+    [[nodiscard]] static Result<std::unique_ptr<Platform>> create(const PlatformConfig& config = {});
+    ~Platform();
+
+    Platform(const Platform&) = delete;
+    Platform& operator=(const Platform&) = delete;
+    Platform(Platform&&) = delete;
+    Platform& operator=(Platform&&) = delete;
+
+    // Translates every pending OS event and appends it to `out`. Call once per
+    // frame on the main thread. Returns the number of events appended.
+    usize pollEvents(std::vector<PlatformEvent>& out);
+
+    // The label of a key for the keybind screen, in the current keyboard
+    // layout (for example "Z" for the scancode labeled Y on a German keyboard).
+    [[nodiscard]] std::string keyName(u16 scancode) const;
+
+    // The folder of the running executable. Runtime folders such as config/
+    // and textures/ live next to it (Section 5).
+    [[nodiscard]] static std::filesystem::path executableFolder();
+
+    [[nodiscard]] bool hasVideo() const noexcept { return m_video; }
+
+private:
+    explicit Platform(bool video) noexcept
+        : m_video(video) {}
+    bool m_video = false;
+};
+
+} // namespace vxe::platform

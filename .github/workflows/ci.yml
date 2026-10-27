@@ -83,7 +83,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ninja-build
+          # Ninja, plus the X11 and Wayland development packages SDL3 needs for windows.
+          sudo apt-get install -y -qq ninja-build libx11-dev libxft-dev libxext-dev libwayland-dev             libxkbcommon-dev libegl1-mesa-dev libgl1-mesa-dev
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
 
       # Prebuilt packages, keyed on the manifest and toolchain. A changed

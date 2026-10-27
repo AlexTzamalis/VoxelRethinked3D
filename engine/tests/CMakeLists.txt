@@ -23,8 +23,11 @@ add_executable(vxe_tests
     math/coords_tests.cpp
     math/geometry_tests.cpp
     math/projection_tests.cpp
+    platform/platform_tests.cpp
 )
-target_link_libraries(vxe_tests PRIVATE vxe::vxe doctest::doctest)
+# SDL is linked directly only so platform tests can push synthetic OS events.
+find_package(SDL3 CONFIG REQUIRED)
+target_link_libraries(vxe_tests PRIVATE vxe::vxe doctest::doctest SDL3::SDL3)
 # doctest forward declares std types by default; with real std headers it can
 # print std::string_view and other values in failure messages.
 target_compile_definitions(vxe_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)

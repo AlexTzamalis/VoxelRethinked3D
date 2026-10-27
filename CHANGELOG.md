@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#026] 2026-10-27, E4.4 Platform window
+### Added
+- vxe_platform module (layer 4) on SDL3 3.4.18, with SDL private to the module: Platform (single instance, optional video for headless use), event translation into engine events (quit, resize, pixel size, focus, minimize, display scale, keys by scancode with modifiers, mouse buttons, motion, wheel, text), key names in the current layout and the executable folder.
+- Window: windowed, borderless and exclusive fullscreen, high DPI with logical and pixel sizes, relative mouse mode, and an OpenGL 4.6 core context (4.5 fallback) with an optional debug flag. The context and loader are handed to the future OpenGL backend; no GL call happens in the platform module.
+- Tests: headless start, single instance, synthetic SDL events translated correctly, and (with VXE_GUI_TESTS=1) a real window that opens with OpenGL 4.6 core debug, resizes, switches borderless, exclusive fullscreen and windowed, toggles relative mouse mode and closes.
+- CI installs the X11 and Wayland development packages SDL3 needs on Linux.
+### Changed
+- vcpkg.json takes SDL3 without its default features: X11 and Wayland on Linux only, no ibus (which would build a whole D-Bus stack).
+
 ## [#025] 2026-10-27, E4.3 Catch files created in new folders on Linux
 ### Fixed
 - Linux has no recursive watches, so files written into a brand new sub folder before efsw watched it were missed (Linux CI failure; copying a texture pack folder would hit it). Watches now enable efsw's synthetic events, which report the files already in a newly watched folder; the per file debounce merges any duplicates.

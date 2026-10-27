@@ -100,6 +100,21 @@ vxe_add_module(io
         efsw::efsw
 )
 
+# Platform: SDL3 window, OpenGL context creation, OS events, paths (E4.4, ADR-004).
+# SDL is private: only the platform sources see it.
+find_package(SDL3 CONFIG REQUIRED)
+
+vxe_add_module(platform
+    SOURCES
+        src/platform/platform.cpp
+        src/platform/window.cpp
+    DEPENDS
+        core
+        math
+    PRIVATE_LIBS
+        SDL3::SDL3
+)
+
 # One target that links every engine module, for the game and tools.
 vxe_add_engine_target()
 
