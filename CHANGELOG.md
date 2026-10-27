@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#024] 2026-10-27, E4.3 File watcher
+### Added
+- vxe/io/file_watcher.hpp: FileWatcher over efsw (hidden behind a private implementation), recursive or flat watches, unwatch, and poll() that delivers events on the calling thread.
+- Changes are collected per file and delivered once the file has been quiet for the debounce time (200 ms by default), so an editor's burst of writes becomes one reload.
+- efsw's thread is stopped before the state it writes to is destroyed.
+- Tests that change real files: creation, modification in sub folders, removal, a burst of five writes giving one event, and no events after unwatch. Repeated 20 times in release and under ASan without a failure.
+
 ## [#023] 2026-10-27, E4.2 Async IO and compression
 ### Added
 - vxe/io/binary.hpp: BinaryWriter and BinaryReader with little endian on every platform, IEEE float bits, LEB128 and ZigZag varints and length prefixed strings. The reader fails safely with a sticky error flag instead of reading out of bounds.

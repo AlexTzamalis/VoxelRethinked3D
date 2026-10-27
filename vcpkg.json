@@ -6,6 +6,7 @@
   "builtin-baseline": "0e5030f583a5427123cd3b714255e5ae62faa3ba",
   "dependencies": [
     "doctest",
+    "efsw",
     "glm",
     {
       "name": "spdlog",

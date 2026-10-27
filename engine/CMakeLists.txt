@@ -82,12 +82,14 @@ vxe_add_module(jobs
 # IO: virtual file system, async file IO, compression, serialization (E4).
 find_package(zstd CONFIG REQUIRED)
 find_package(lz4 CONFIG REQUIRED)
+find_package(efsw CONFIG REQUIRED)
 
 vxe_add_module(io
     SOURCES
         src/io/binary.cpp
         src/io/compression.cpp
         src/io/file_io.cpp
+        src/io/file_watcher.cpp
         src/io/vfs.cpp
     DEPENDS
         core
@@ -95,6 +97,7 @@ vxe_add_module(io
     PRIVATE_LIBS
         zstd::libzstd
         lz4::lz4
+        efsw::efsw
 )
 
 # One target that links every engine module, for the game and tools.
