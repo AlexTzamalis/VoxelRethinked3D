@@ -81,4 +81,100 @@ GLenum addressMode(AddressMode mode) noexcept {
     return GL_REPEAT;
 }
 
+GLenum shaderStage(ShaderStage stage) noexcept {
+    switch (stage) {
+    case ShaderStage::Vertex:
+        return GL_VERTEX_SHADER;
+    case ShaderStage::Fragment:
+        return GL_FRAGMENT_SHADER;
+    case ShaderStage::Compute:
+        return GL_COMPUTE_SHADER;
+    }
+    return GL_VERTEX_SHADER;
+}
+
+GLenum primitiveTopology(PrimitiveTopology topology) noexcept {
+    switch (topology) {
+    case PrimitiveTopology::Triangles:
+        return GL_TRIANGLES;
+    case PrimitiveTopology::Lines:
+        return GL_LINES;
+    case PrimitiveTopology::Points:
+        return GL_POINTS;
+    }
+    return GL_TRIANGLES;
+}
+
+GLenum polygonMode(PolygonMode mode) noexcept {
+    return mode == PolygonMode::Line ? GL_LINE : GL_FILL;
+}
+
+GLenum frontFace(FrontFace face) noexcept {
+    return face == FrontFace::Clockwise ? GL_CW : GL_CCW;
+}
+
+GLenum compareOp(CompareOp op) noexcept {
+    switch (op) {
+    case CompareOp::Never:
+        return GL_NEVER;
+    case CompareOp::Less:
+        return GL_LESS;
+    case CompareOp::LessOrEqual:
+        return GL_LEQUAL;
+    case CompareOp::Equal:
+        return GL_EQUAL;
+    case CompareOp::GreaterOrEqual:
+        return GL_GEQUAL;
+    case CompareOp::Greater:
+        return GL_GREATER;
+    case CompareOp::NotEqual:
+        return GL_NOTEQUAL;
+    case CompareOp::Always:
+        return GL_ALWAYS;
+    }
+    return GL_ALWAYS;
+}
+
+GLenum blendFactor(BlendFactor factor) noexcept {
+    switch (factor) {
+    case BlendFactor::Zero:
+        return GL_ZERO;
+    case BlendFactor::One:
+        return GL_ONE;
+    case BlendFactor::SrcColor:
+        return GL_SRC_COLOR;
+    case BlendFactor::OneMinusSrcColor:
+        return GL_ONE_MINUS_SRC_COLOR;
+    case BlendFactor::SrcAlpha:
+        return GL_SRC_ALPHA;
+    case BlendFactor::OneMinusSrcAlpha:
+        return GL_ONE_MINUS_SRC_ALPHA;
+    case BlendFactor::DstColor:
+        return GL_DST_COLOR;
+    case BlendFactor::OneMinusDstColor:
+        return GL_ONE_MINUS_DST_COLOR;
+    case BlendFactor::DstAlpha:
+        return GL_DST_ALPHA;
+    case BlendFactor::OneMinusDstAlpha:
+        return GL_ONE_MINUS_DST_ALPHA;
+    }
+    return GL_ONE;
+}
+
+GLenum blendOp(BlendOp op) noexcept {
+    switch (op) {
+    case BlendOp::Add:
+        return GL_FUNC_ADD;
+    case BlendOp::Subtract:
+        return GL_FUNC_SUBTRACT;
+    case BlendOp::ReverseSubtract:
+        return GL_FUNC_REVERSE_SUBTRACT;
+    case BlendOp::Min:
+        return GL_MIN;
+    case BlendOp::Max:
+        return GL_MAX;
+    }
+    return GL_FUNC_ADD;
+}
+
 } // namespace vxe::rhi::gl

@@ -5,6 +5,7 @@
 
 #include <array>
 #include <span>
+#include <string>
 #include <string_view>
 #include <type_traits>
 
@@ -277,7 +278,12 @@ struct SamplerDesc {
 
 struct ShaderDesc {
     ShaderStage stage = ShaderStage::Vertex;
-    std::string_view source{}; // GLSL 460 source, after the include step (E6.4).
+    // Complete GLSL source, usually from preprocessShader (shader_source.hpp).
+    std::string_view source{};
+    // The file behind each source string number in the #line directives, so
+    // compile errors can name "include/bindings.glsl:12" instead of "1(12)".
+    // Optional; logs keep the raw numbers without it.
+    std::span<const std::string> fileNames{};
     std::string_view debugName{};
 };
 
@@ -292,7 +298,10 @@ struct BlendState {
     BlendFactor dstAlpha = BlendFactor::Zero;
     BlendOp alphaOp = BlendOp::Add;
 
-    // Premultiplied style alpha blending for translucent geometry and UI.
+    friend constexpr bool operator==(const BlendState&, const BlendState&) = default;
+
+    // Classic alpha blending for translucent geometry and UI: color weighted
+    // by the source alpha, alpha accumulated so the target stays usable.
     [[nodiscard]] static constexpr BlendState alphaBlend() noexcept {
         return BlendState{.enabled = true,
                           .srcColor = BlendFactor::SrcAlpha,
@@ -309,12 +318,16 @@ struct RasterState {
     CullMode cullMode = CullMode::Back;
     FrontFace frontFace = FrontFace::CounterClockwise;
     bool depthClamp = false;
+
+    friend constexpr bool operator==(const RasterState&, const RasterState&) = default;
 };
 
 struct DepthState {
     bool testEnabled = true;
     bool writeEnabled = true;
     CompareOp compare = CompareOp::GreaterOrEqual; // Reversed Z (ADR-010).
+
+    friend constexpr bool operator==(const DepthState&, const DepthState&) = default;
 };
 
 // An immutable pipeline: shaders plus every piece of fixed function state.

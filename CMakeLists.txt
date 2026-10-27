@@ -53,12 +53,15 @@ include(Warnings)
 include(Sanitizers)
 include(Format)
 include(VxeModule)
+include(Shaders)
 
 if(VXE_BUILD_TESTS)
     enable_testing()
 endif()
 
 add_subdirectory(engine)
+# Developer tools. Some run during the build (the shader checker).
+add_subdirectory(tools)
 add_subdirectory(game)
 
 if(VXE_BUILD_TESTS)

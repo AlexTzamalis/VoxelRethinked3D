@@ -41,10 +41,13 @@ struct DeviceStats {
     u32 samplers = 0;
     u32 shaders = 0;
     u32 pipelines = 0;
-    u64 commandsSubmitted = 0; // Since startup.
-    u64 invalidCommands = 0;   // Commands that used destroyed resources or broke nesting rules.
-    u64 apiErrors = 0;         // Errors the graphics API reported (KHR_debug). Should stay 0.
-    u64 apiWarnings = 0;       // Performance and portability warnings it reported.
+    u64 commandsSubmitted = 0;    // Since startup.
+    u64 invalidCommands = 0;      // Commands that used destroyed resources or broke nesting rules.
+    u64 apiErrors = 0;            // Errors the graphics API reported (KHR_debug). Should stay 0.
+    u64 apiWarnings = 0;          // Performance and portability warnings it reported.
+    u64 pipelineBinds = 0;        // Pipeline binds submitted.
+    u64 pipelineBindsSkipped = 0; // Binds of the pipeline that was already bound, filtered out.
+    u64 stateChanges = 0;         // Fixed function state calls actually sent to the API.
     u64 framesPresented = 0;
 };
 

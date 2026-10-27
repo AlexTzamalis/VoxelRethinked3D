@@ -1,0 +1,22 @@
+// Writes value + index into every element of a storage buffer. The RHI tests
+// read the buffer back to prove that compute dispatches, storage bindings
+// and barriers work.
+#include "include/bindings.glsl"
+
+layout(local_size_x = 64) in;
+
+VXE_BINDING_STD430(0, 0) buffer Output {
+    uint values[];
+} outputData;
+
+VXE_BINDING_STD140(1, 0) uniform FillParams {
+    uint baseValue;
+    uint count;
+} params;
+
+void main() {
+    const uint index = gl_GlobalInvocationID.x;
+    if (index < params.count) {
+        outputData.values[index] = params.baseValue + index;
+    }
+}

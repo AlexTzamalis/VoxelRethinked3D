@@ -33,13 +33,16 @@ add_executable(vxe_tests
     rhi/gl_device_tests.cpp
     rhi/null_device_tests.cpp
     rhi/rhi_tests.cpp
+    rhi/shader_source_tests.cpp
 )
 # SDL is linked directly only so platform tests can push synthetic OS events.
 find_package(SDL3 CONFIG REQUIRED)
 target_link_libraries(vxe_tests PRIVATE vxe::vxe doctest::doctest SDL3::SDL3)
 # doctest forward declares std types by default; with real std headers it can
 # print std::string_view and other values in failure messages.
-target_compile_definitions(vxe_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)
+target_compile_definitions(vxe_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS
+    # The GPU tests compile the real engine shaders from the source tree.
+    "VXE_ENGINE_SHADER_DIR=\"${PROJECT_SOURCE_DIR}/engine/shaders\"")
 vxe_set_warnings(vxe_tests)
 
 # Registered as a single CTest test. doctest returns a non zero exit code when

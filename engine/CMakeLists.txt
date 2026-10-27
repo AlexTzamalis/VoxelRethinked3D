@@ -152,6 +152,7 @@ vxe_add_module(input
 vxe_add_module(rhi
     SOURCES
         src/rhi/command_list.cpp
+        src/rhi/shader_source.cpp
         src/rhi/validation.cpp
     DEPENDS
         core
@@ -175,6 +176,8 @@ vxe_add_module(rhi_gl
         src/rhi_gl/gl_device.cpp
         src/rhi_gl/gl_formats.cpp
         src/rhi_gl/gl_formats.hpp
+        src/rhi_gl/gl_state.cpp
+        src/rhi_gl/gl_state.hpp
     DEPENDS
         core
         platform
@@ -182,6 +185,10 @@ vxe_add_module(rhi_gl
     PRIVATE_LIBS
         glad::glad
 )
+
+# Engine shaders (GLSL 460 with the engine's include system). Checked with
+# glslang on every build, so a broken shader fails the build (E6.4).
+vxe_add_shader_check(vxe_engine_shaders ROOT "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 
 # App: Application, EngineContext and the main loop (E4.5). The top layer,
 # because the loop drives every other module (ADR-015).

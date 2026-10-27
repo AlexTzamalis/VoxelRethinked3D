@@ -2,6 +2,21 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#036] 2026-10-27, E6.4 OpenGL shaders and pipelines
+### Added
+- rhi/shader_source: the GLSL preprocessor shared by runtime and build. It resolves #include "path" relative to the shader root, honors #pragma once, rejects cycles, unsafe paths and #version in files with file:line messages, writes #version 460 core plus backend and stage defines, and emits #line directives so every line maps back to its file.
+- annotateShaderLog rewrites NVIDIA, AMD, Mesa and glslang compiler logs into file:line messages.
+- Engine shaders in engine/shaders: include/bindings.glsl with the VXE_BINDING macros (Section 7.3) and the debug triangle and fill buffer shaders for the RHI smoke tests.
+- tools/shader_check (vxe_shader_check): runs the engine preprocessor and glslang 16.4 on each shader and prints clickable absolute file:line errors. cmake/Shaders.cmake checks every .vert, .frag and .comp file as part of the build, so an invalid shader fails the build.
+- CTest cases that expect the checker to fail on a broken shader, a broken include file and a missing include, each with the right file and line.
+- OpenGL shaders and pipelines: compile errors returned with file names (for example include/colors.glsl:3), program linking with shaders detached so they can be destroyed early, and immutable pipelines holding all fixed function state.
+- gl::StateCache: redundant state filtering for program, polygon mode, culling, front face, depth clamp, depth test, write and compare, and per attachment blending. Measured on an RTX 4060: 29 state calls for the first pass over 8 binds, 13 for the same binds once the state is known.
+- Pipeline binds replayed by submit (the rest of command replay follows in E6.5); repeated binds of the bound pipeline are skipped. DeviceStats counts pipeline binds, skipped binds and state changes, on both backends.
+- GPU tests (VXE_GUI_TESTS=1) for engine shaders, pipelines, state filtering, readable compile and link errors, and stage checks.
+### Changed
+- ShaderDesc carries the file names behind each source number, and the debug callback no longer repeats compiler messages that already come back as errors.
+- Raster, depth and blend state are comparable; the alpha blend comment now describes straight alpha correctly.
+
 ## [#035] 2026-10-27, E6.3 OpenGL device, buffers, textures, samplers
 ### Added
 - engine/third_party/glad: the glad2 2.0.8 loader generated for OpenGL 4.6 core plus bindless textures, indirect parameters, gl_spirv, anisotropic filtering, KHR_debug and the NVX and ATI memory info extensions, with the exact regeneration command. Built as C++ and linked only by rhi_gl, privately.

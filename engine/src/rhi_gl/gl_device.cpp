@@ -1,9 +1,11 @@
 #include "vxe/rhi_gl/gl_device.hpp"
 
 #include "gl_formats.hpp"
+#include "gl_state.hpp"
 
 #include <vxe/core/log.hpp>
 #include <vxe/platform/window.hpp>
+#include <vxe/rhi/shader_source.hpp>
 #include <vxe/rhi/validation.hpp>
 
 #include <glad/gl.h>
@@ -40,6 +42,38 @@ struct GlSampler {
 struct GlFence {
     GLsync sync = nullptr;
 };
+
+struct GlShader {
+    GLuint id = 0;
+    ShaderStage stage = ShaderStage::Vertex;
+    std::string name;
+};
+
+// A linked program plus every piece of fixed function state, applied as a
+// whole on bind (through the StateCache, which skips what is already set).
+struct GlPipeline {
+    GLuint program = 0;
+    bool compute = false;
+    GLenum topology = GL_TRIANGLES; // Used by draws (E6.5).
+    RasterState raster;
+    DepthState depth;
+    std::array<BlendState, kMaxColorAttachments> blend{};
+    std::string name;
+};
+
+// Reads a shader or program info log, which OpenGL keeps per object.
+template <typename GetLength, typename GetLog>
+std::string infoLog(GLuint object, GetLength getLength, GetLog getLog) {
+    GLint length = 0;
+    getLength(object, GL_INFO_LOG_LENGTH, &length);
+    std::string log(static_cast<usize>(std::max(length, 0)), '\0');
+    if (length > 0) {
+        GLsizei written = 0;
+        getLog(object, length, &written, log.data());
+        log.resize(static_cast<usize>(std::max(written, 0)));
+    }
+    return log;
+}
 
 std::string_view glString(GLenum name) {
     const GLubyte* value = glGetString(name);
@@ -152,7 +186,13 @@ public:
         stats.buffers = static_cast<u32>(m_buffers.liveCount());
         stats.textures = static_cast<u32>(m_textures.liveCount());
         stats.samplers = static_cast<u32>(m_samplers.liveCount());
+        stats.shaders = static_cast<u32>(m_shaders.liveCount());
+        stats.pipelines = static_cast<u32>(m_pipelines.liveCount());
         stats.commandsSubmitted = m_commandsSubmitted;
+        stats.invalidCommands = m_invalidCommands;
+        stats.pipelineBinds = m_pipelineBinds;
+        stats.pipelineBindsSkipped = m_pipelineBindsSkipped;
+        stats.stateChanges = m_state.stateChanges();
         stats.framesPresented = m_framesPresented;
         stats.apiErrors = m_apiErrors.load(std::memory_order_relaxed);
         stats.apiWarnings = m_apiWarnings.load(std::memory_order_relaxed);
@@ -239,14 +279,72 @@ public:
 
     Result<ShaderHandle> createShader(const ShaderDesc& desc) override {
         VXE_TRY(validate(desc));
-        return Error(ErrorCode::Unsupported,
-                     "The OpenGL backend does not create shaders yet (plan step E6.4)");
+        const GLuint id = glCreateShader(gl::shaderStage(desc.stage));
+        const GLchar* text = desc.source.data();
+        const auto length = static_cast<GLint>(desc.source.size());
+        glShaderSource(id, 1, &text, &length);
+        glCompileShader(id);
+        GLint compiled = GL_FALSE;
+        glGetShaderiv(id, GL_COMPILE_STATUS, &compiled);
+        if (compiled == GL_FALSE) {
+            const std::string log = infoLog(id, glGetShaderiv, glGetShaderInfoLog);
+            glDeleteShader(id);
+            return Error(ErrorCode::ParseError,
+                         std::format("The {} shader '{}' does not compile:\n{}", nameOf(desc.stage),
+                                     desc.debugName, annotateShaderLog(log, desc.fileNames)));
+        }
+        label(GL_SHADER, id, desc.debugName);
+        return m_shaders.allocate(
+            GlShader{.id = id, .stage = desc.stage, .name = std::string(desc.debugName)});
     }
 
     Result<PipelineHandle> createPipeline(const PipelineDesc& desc) override {
         VXE_TRY(validate(desc));
-        return Error(ErrorCode::Unsupported,
-                     "The OpenGL backend does not create pipelines yet (plan step E6.4)");
+        std::array<GLuint, 2> stages{};
+        usize stageCount = 0;
+        const auto addStage = [&](ShaderHandle handle, ShaderStage stage) -> Result<void> {
+            if (!handle.isValid()) {
+                return {};
+            }
+            const GlShader* shader = m_shaders.get(handle);
+            if (shader == nullptr || shader->stage != stage) {
+                return Error(ErrorCode::InvalidArgument,
+                             std::format("Pipeline '{}' uses a missing {} shader or one of another stage",
+                                         desc.debugName, nameOf(stage)));
+            }
+            stages[stageCount++] = shader->id;
+            return {};
+        };
+        VXE_TRY(addStage(desc.compute, ShaderStage::Compute));
+        VXE_TRY(addStage(desc.vertex, ShaderStage::Vertex));
+        VXE_TRY(addStage(desc.fragment, ShaderStage::Fragment));
+
+        const GLuint program = glCreateProgram();
+        for (usize i = 0; i < stageCount; ++i) {
+            glAttachShader(program, stages[i]);
+        }
+        glLinkProgram(program);
+        // Detached after linking, so the shaders can be destroyed while the
+        // pipeline lives on; the program keeps its own linked copy.
+        for (usize i = 0; i < stageCount; ++i) {
+            glDetachShader(program, stages[i]);
+        }
+        GLint linked = GL_FALSE;
+        glGetProgramiv(program, GL_LINK_STATUS, &linked);
+        if (linked == GL_FALSE) {
+            const std::string log = infoLog(program, glGetProgramiv, glGetProgramInfoLog);
+            glDeleteProgram(program);
+            return Error(ErrorCode::ParseError,
+                         std::format("Pipeline '{}' does not link:\n{}", desc.debugName, log));
+        }
+        label(GL_PROGRAM, program, desc.debugName);
+        return m_pipelines.allocate(GlPipeline{.program = program,
+                                               .compute = desc.compute.isValid(),
+                                               .topology = gl::primitiveTopology(desc.topology),
+                                               .raster = desc.raster,
+                                               .depth = desc.depth,
+                                               .blend = desc.blend,
+                                               .name = std::string(desc.debugName)});
     }
 
     void destroy(BufferHandle handle) override {
@@ -266,8 +364,20 @@ public:
             glDeleteSamplers(1, &sampler->id);
         }
     }
-    void destroy(ShaderHandle /*handle*/) override {}
-    void destroy(PipelineHandle /*handle*/) override {}
+    void destroy(ShaderHandle handle) override {
+        if (auto shader = m_shaders.release(handle)) {
+            glDeleteShader(shader->id);
+        }
+    }
+    void destroy(PipelineHandle handle) override {
+        if (auto pipeline = m_pipelines.release(handle)) {
+            m_state.forgetProgram(pipeline->program);
+            if (m_boundPipeline == handle) {
+                m_boundPipeline = {};
+            }
+            glDeleteProgram(pipeline->program);
+        }
+    }
 
     Result<void> updateBuffer(BufferHandle handle, usize offset, std::span<const std::byte> data) override {
         const GlBuffer* buffer = m_buffers.get(handle);
@@ -342,9 +452,14 @@ public:
     }
 
     void submit(const CommandList& commands) override {
-        // Command replay arrives with pipelines in E6.5; until then the
-        // commands are only counted.
-        m_commandsSubmitted += commands.commandCount();
+        // E6.4 replays pipeline binds only; render passes, binds, draws and
+        // dispatches follow in E6.5.
+        for (const CommandView command : commands) {
+            ++m_commandsSubmitted;
+            if (command.type == CommandType::BindPipeline) {
+                bindPipeline(command.as<cmd::BindPipeline>().pipeline);
+            }
+        }
     }
 
     void beginFrame() override {}
@@ -461,7 +576,10 @@ private:
             device->m_debugSelfTestSeen.store(true, std::memory_order_relaxed);
             return;
         }
-        if (type == GL_DEBUG_TYPE_PUSH_GROUP || type == GL_DEBUG_TYPE_POP_GROUP) {
+        // Compile and link failures are returned as errors with file names
+        // (createShader, createPipeline), so they need no second report here.
+        if (type == GL_DEBUG_TYPE_PUSH_GROUP || type == GL_DEBUG_TYPE_POP_GROUP ||
+            source == GL_DEBUG_SOURCE_SHADER_COMPILER) {
             return;
         }
         if (type == GL_DEBUG_TYPE_ERROR || severity == GL_DEBUG_SEVERITY_HIGH) {
@@ -476,6 +594,28 @@ private:
             VXE_LOG_TRACE(log::rhi, "GL {} ({}, id {}): {}", debugTypeName(type), debugSourceName(source), id,
                           text);
         }
+    }
+
+    // Makes a pipeline current. Binding the pipeline that is already bound
+    // costs nothing, and switching only sends the state that differs.
+    void bindPipeline(PipelineHandle handle) {
+        ++m_pipelineBinds;
+        const GlPipeline* pipeline = m_pipelines.get(handle);
+        if (pipeline == nullptr) {
+            ++m_invalidCommands;
+            return;
+        }
+        if (handle == m_boundPipeline) {
+            ++m_pipelineBindsSkipped;
+            return;
+        }
+        m_state.useProgram(pipeline->program);
+        if (!pipeline->compute) {
+            m_state.applyRaster(pipeline->raster);
+            m_state.applyDepth(pipeline->depth);
+            m_state.applyBlend(pipeline->blend);
+        }
+        m_boundPipeline = handle;
     }
 
     void logCapabilities() const {
@@ -527,6 +667,14 @@ private:
         if (m_samplers.liveCount() > 0) {
             leaks.push_back(std::format("{} samplers", m_samplers.liveCount()));
         }
+        m_shaders.forEach([&leaks](ShaderHandle, const GlShader& sh) {
+            leaks.push_back("shader '" + sh.name + "'");
+            glDeleteShader(sh.id);
+        });
+        m_pipelines.forEach([&leaks](PipelineHandle, const GlPipeline& pl) {
+            leaks.push_back("pipeline '" + pl.name + "'");
+            glDeleteProgram(pl.program);
+        });
         m_fences.forEach([](FenceHandle, const GlFence& f) { glDeleteSync(f.sync); });
         for (const std::string& leak : leaks) {
             VXE_LOG_WARN(log::rhi, "OpenGL device destroyed with a live {}", leak);
@@ -540,7 +688,14 @@ private:
     HandlePool<TextureTag, GlTexture> m_textures;
     HandlePool<SamplerTag, GlSampler> m_samplers;
     HandlePool<FenceTag, GlFence> m_fences;
+    HandlePool<ShaderTag, GlShader> m_shaders;
+    HandlePool<PipelineTag, GlPipeline> m_pipelines;
+    gl::StateCache m_state;
+    PipelineHandle m_boundPipeline;
     u64 m_commandsSubmitted = 0;
+    u64 m_invalidCommands = 0;
+    u64 m_pipelineBinds = 0;
+    u64 m_pipelineBindsSkipped = 0;
     u64 m_framesPresented = 0;
     mutable std::atomic<u64> m_apiErrors{0};
     mutable std::atomic<u64> m_apiWarnings{0};

@@ -2,6 +2,7 @@
 
 #include <vxe/platform/platform.hpp>
 #include <vxe/platform/window.hpp>
+#include <vxe/rhi/shader_source.hpp>
 #include <vxe/rhi/validation.hpp>
 #include <vxe/rhi_gl/gl_device.hpp>
 
@@ -9,6 +10,10 @@
 
 #include <array>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -202,4 +207,181 @@ TEST_CASE("OpenGL device creates resources without driver errors (VXE_GUI_TESTS=
         REQUIRE(device.hasValue());
         exerciseDevice(*device.value());
     } // The device goes before the window, as createGlDevice requires.
+}
+
+namespace {
+
+// Reads engine shaders straight from the source tree.
+vxe::Result<std::string> readEngineShader(std::string_view path) {
+    const std::ifstream file(std::filesystem::path(VXE_ENGINE_SHADER_DIR) / std::filesystem::path(path),
+                             std::ios::binary);
+    if (!file) {
+        return vxe::Error(vxe::ErrorCode::NotFound, std::string(path));
+    }
+    std::ostringstream text;
+    text << file.rdbuf();
+    return text.str();
+}
+
+vxe::Result<ShaderHandle> compileShader(Device& device, std::string_view path,
+                                        const ShaderFileReader& reader) {
+    const ShaderStage stage = shaderStageFromPath(path).value();
+    auto source = preprocessShader(path, {.stage = stage, .defines = {}}, reader);
+    if (!source) {
+        return source.error();
+    }
+    return device.createShader({.stage = stage,
+                                .source = source.value().source,
+                                .fileNames = source.value().files,
+                                .debugName = path});
+}
+
+void exerciseShadersAndPipelines(Device& device) {
+    const ShaderFileReader engineShaders = &readEngineShader;
+    const ShaderHandle vertex = compileShader(device, "debug/triangle.vert", engineShaders).value();
+    const ShaderHandle fragment = compileShader(device, "debug/triangle.frag", engineShaders).value();
+    const ShaderHandle compute = compileShader(device, "debug/fill_buffer.comp", engineShaders).value();
+    CHECK(device.stats().shaders == 3);
+
+    PipelineDesc opaqueDesc{.vertex = vertex, .fragment = fragment, .debugName = "Test opaque"};
+    opaqueDesc.colorFormats[0] = Format::RGBA8Unorm;
+    opaqueDesc.colorCount = 1;
+    opaqueDesc.depthFormat = Format::D32Float;
+    PipelineDesc wireframeDesc = opaqueDesc;
+    wireframeDesc.debugName = "Test wireframe";
+    wireframeDesc.raster.polygonMode = PolygonMode::Line;
+    wireframeDesc.raster.cullMode = CullMode::None;
+    PipelineDesc translucentDesc = opaqueDesc;
+    translucentDesc.debugName = "Test translucent";
+    translucentDesc.depth.writeEnabled = false;
+    translucentDesc.blend[0] = BlendState::alphaBlend();
+
+    const PipelineHandle opaque = device.createPipeline(opaqueDesc).value();
+    const PipelineHandle wireframe = device.createPipeline(wireframeDesc).value();
+    const PipelineHandle translucent = device.createPipeline(translucentDesc).value();
+    const PipelineHandle fill = device.createPipeline({.compute = compute, .debugName = "Test fill"}).value();
+
+    // Linked programs no longer need their shaders.
+    for (const ShaderHandle shader : {vertex, fragment, compute}) {
+        device.destroy(shader);
+    }
+    CHECK(device.stats().shaders == 0);
+
+    CommandList list;
+    for (const PipelineHandle pipeline :
+         {opaque, opaque, wireframe, opaque, translucent, translucent, fill, fill}) {
+        list.bindPipeline(pipeline);
+    }
+    device.submit(list);
+    DeviceStats stats = device.stats();
+    CHECK(stats.pipelineBinds == 8);
+    CHECK(stats.pipelineBindsSkipped == 3); // The three repeats.
+    CHECK(stats.invalidCommands == 0);
+    const vxe::u64 firstChanges = stats.stateChanges;
+    CHECK(firstChanges > 0);
+
+    // The second time the GL state is known, so far fewer calls go out
+    // (only what differs between neighbors in the list).
+    device.submit(list);
+    stats = device.stats();
+    CHECK(stats.pipelineBinds == 16);
+    CHECK(stats.pipelineBindsSkipped == 6);
+    const vxe::u64 secondChanges = stats.stateChanges - firstChanges;
+    MESSAGE("State calls: " << firstChanges << " for the first pass, " << secondChanges << " for the second");
+    CHECK(secondChanges < firstChanges);
+
+    // Binding a destroyed pipeline is reported, not applied.
+    device.destroy(wireframe);
+    list.reset();
+    list.bindPipeline(wireframe);
+    device.submit(list);
+    CHECK(device.stats().invalidCommands == 1);
+
+    for (const PipelineHandle pipeline : {opaque, translucent, fill}) {
+        device.destroy(pipeline);
+    }
+    stats = device.stats();
+    CHECK(stats.pipelines == 0);
+    CHECK(stats.apiErrors == 0);
+    CHECK(stats.apiWarnings == 0);
+}
+
+// A reader for the error test: a type error on line 3 of an include file, and
+// a fragment shader that compiles but cannot link.
+vxe::Result<std::string> readBrokenShader(std::string_view path) {
+    if (path == "broken.frag") {
+        return std::string("#include \"include/colors.glsl\"\n"
+                           "layout(location = 0) out vec4 outColor;\n"
+                           "void main() { outColor = tint(); }\n");
+    }
+    if (path == "include/colors.glsl") {
+        return std::string("#pragma once\n"
+                           "// Returns the tint.\n"
+                           "vec4 tint() { return vec3(1.0); }\n");
+    }
+    if (path == "unlinked.frag") {
+        return std::string("layout(location = 0) out vec4 outColor;\n"
+                           "vec4 missingFunction();\n"
+                           "void main() { outColor = missingFunction(); }\n");
+    }
+    return vxe::Error(vxe::ErrorCode::NotFound, std::string(path));
+}
+
+void checkReadableErrors(Device& device) {
+    const ShaderFileReader reader = &readBrokenShader;
+    const auto broken = compileShader(device, "broken.frag", reader);
+    REQUIRE(broken.hasError());
+    MESSAGE(broken.error().message());
+    CHECK(broken.error().code() == vxe::ErrorCode::ParseError);
+    CHECK(broken.error().message().find("fragment shader 'broken.frag' does not compile") !=
+          std::string::npos);
+    CHECK(broken.error().message().find("include/colors.glsl:3:") != std::string::npos);
+
+    const ShaderHandle vertex = compileShader(device, "debug/triangle.vert", &readEngineShader).value();
+    const ShaderHandle unlinked = compileShader(device, "unlinked.frag", reader).value();
+    PipelineDesc desc{.vertex = vertex, .fragment = unlinked, .debugName = "Unlinked"};
+    desc.depth.testEnabled = false;
+    const auto pipeline = device.createPipeline(desc);
+    REQUIRE(pipeline.hasError());
+    MESSAGE(pipeline.error().message());
+    CHECK(pipeline.error().message().starts_with("Pipeline 'Unlinked' does not link:"));
+
+    // Shaders of the wrong stage are refused before OpenGL sees them.
+    PipelineDesc wrongStage{.vertex = unlinked, .debugName = "Wrong stage"};
+    wrongStage.depth.testEnabled = false;
+    CHECK(device.createPipeline(wrongStage).hasError());
+    device.destroy(vertex);
+    device.destroy(unlinked);
+}
+
+// Opens a hidden window with a debug context and runs `body` on a device.
+template <typename Body>
+void withGlDevice(const char* title, const Body& body) {
+    auto platform = Platform::create();
+    REQUIRE(platform.hasValue());
+    auto window =
+        Window::create(*platform.value(), WindowDesc{.title = title, .debugContext = true, .hidden = true});
+    REQUIRE(window.hasValue());
+    auto device = createGlDevice(*window.value(), GlDeviceOptions{.debugOutput = true});
+    REQUIRE(device.hasValue());
+    body(*device.value());
+    device.value().reset(); // The device goes before the window.
+}
+
+} // namespace
+
+TEST_CASE("OpenGL device compiles shaders, links pipelines and skips redundant state (VXE_GUI_TESTS=1)") {
+    if (!vxe::test::guiTestsEnabled()) {
+        MESSAGE("Skipped: set VXE_GUI_TESTS=1 to run tests that open real windows");
+        return;
+    }
+    withGlDevice("vxe OpenGL shader test", [](Device& device) { exerciseShadersAndPipelines(device); });
+}
+
+TEST_CASE("OpenGL compile and link errors are readable (VXE_GUI_TESTS=1)") {
+    if (!vxe::test::guiTestsEnabled()) {
+        MESSAGE("Skipped: set VXE_GUI_TESTS=1 to run tests that open real windows");
+        return;
+    }
+    withGlDevice("vxe OpenGL error test", [](Device& device) { checkReadableErrors(device); });
 }

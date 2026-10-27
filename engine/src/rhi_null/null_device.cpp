@@ -80,6 +80,8 @@ public:
         stats.pipelines = static_cast<u32>(m_pipelines.liveCount());
         stats.commandsSubmitted = m_commandsSubmitted;
         stats.invalidCommands = m_invalidCommands;
+        stats.pipelineBinds = m_pipelineBinds;
+        stats.pipelineBindsSkipped = m_pipelineBindsSkipped;
         stats.framesPresented = m_framesPresented;
         return stats;
     }
@@ -192,6 +194,9 @@ public:
             if (!isCommandValid(command, insidePass)) {
                 ++m_invalidCommands;
             }
+            if (command.type == CommandType::BindPipeline) {
+                countPipelineBind(command.as<cmd::BindPipeline>().pipeline);
+            }
         }
         if (insidePass) {
             ++m_invalidCommands; // A render pass was never ended.
@@ -205,6 +210,16 @@ public:
     [[nodiscard]] u32 backBufferHeight() const noexcept override { return 0; }
 
 private:
+    // Counts binds the same way the OpenGL backend filters them, so stats
+    // from tests on the Null device match what a GPU backend reports.
+    void countPipelineBind(PipelineHandle pipeline) {
+        ++m_pipelineBinds;
+        if (pipeline == m_boundPipeline && m_pipelines.isLive(pipeline)) {
+            ++m_pipelineBindsSkipped;
+        }
+        m_boundPipeline = pipeline;
+    }
+
     // True if every handle the command uses is alive and the command is
     // allowed where it appears (draws only inside render passes).
     bool isCommandValid(const CommandView& command, bool& insidePass) const {
@@ -294,6 +309,9 @@ private:
     HandlePool<FenceTag, NullFence> m_fences;
     u64 m_commandsSubmitted = 0;
     u64 m_invalidCommands = 0;
+    u64 m_pipelineBinds = 0;
+    u64 m_pipelineBindsSkipped = 0;
+    PipelineHandle m_boundPipeline;
     u64 m_framesPresented = 0;
 };
 

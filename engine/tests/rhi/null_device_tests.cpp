@@ -185,6 +185,16 @@ TEST_CASE("Submitted command lists are counted and checked") {
     CHECK(stats.commandsSubmitted == 11);
     CHECK(stats.invalidCommands == 0);
     CHECK(stats.framesPresented == 1);
+    CHECK(stats.pipelineBinds == 2);
+    CHECK(stats.pipelineBindsSkipped == 0);
+
+    // A repeated bind is counted as skipped, like the OpenGL backend filters it.
+    list.reset();
+    list.bindPipeline(scene.terrain);
+    list.bindPipeline(scene.terrain);
+    scene.device->submit(list);
+    CHECK(scene.device->stats().pipelineBinds == 4);
+    CHECK(scene.device->stats().pipelineBindsSkipped == 2);
 }
 
 TEST_CASE("Commands that use destroyed resources or break nesting are flagged") {

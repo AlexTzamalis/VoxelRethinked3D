@@ -21,5 +21,12 @@ struct FormatInfo {
 [[nodiscard]] GLenum minFilter(Filter filter, MipmapMode mipmapMode) noexcept;
 [[nodiscard]] GLenum magFilter(Filter filter) noexcept;
 [[nodiscard]] GLenum addressMode(AddressMode mode) noexcept;
+[[nodiscard]] GLenum shaderStage(ShaderStage stage) noexcept;
+[[nodiscard]] GLenum primitiveTopology(PrimitiveTopology topology) noexcept;
+[[nodiscard]] GLenum polygonMode(PolygonMode mode) noexcept;
+[[nodiscard]] GLenum frontFace(FrontFace face) noexcept;
+[[nodiscard]] GLenum compareOp(CompareOp op) noexcept;
+[[nodiscard]] GLenum blendFactor(BlendFactor factor) noexcept;
+[[nodiscard]] GLenum blendOp(BlendOp op) noexcept;
 
 } // namespace vxe::rhi::gl
