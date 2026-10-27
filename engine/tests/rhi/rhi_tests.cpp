@@ -1,4 +1,5 @@
 #include <vxe/rhi/command_list.hpp>
+#include <vxe/rhi/deferred_release.hpp>
 #include <vxe/rhi/handles.hpp>
 #include <vxe/rhi/validation.hpp>
 #include <vxe/rhi_null/null_device.hpp>
@@ -191,4 +192,48 @@ TEST_CASE("The Null device skeleton creates validated resources") {
     CHECK(device->createBuffer({.sizeBytes = 0, .usage = BufferUsage::Storage}).hasError());
     device->destroy(buffer.value());
     device->destroy(buffer.value()); // A second destroy of a stale handle is harmless.
+}
+
+TEST_CASE("Deferred releases wait for their frame to complete") {
+    DeferredReleaseQueue<int> queue;
+    std::vector<int> released;
+    const auto release = [&released](int item) { released.push_back(item); };
+    queue.push(1, 5);
+    queue.push(2, 5);
+    queue.push(3, 6);
+    queue.push(4, 8);
+    CHECK(queue.releaseCompleted(4, release) == 0); // Frame 5 is still in flight.
+    CHECK(queue.releaseCompleted(5, release) == 2);
+    CHECK(released == std::vector<int>{1, 2});
+    CHECK(queue.releaseCompleted(7, release) == 1);
+    CHECK(released == std::vector<int>{1, 2, 3});
+    CHECK(queue.size() == 1);
+    CHECK(queue.releaseAll(release) == 1); // GPU idle: everything goes.
+    CHECK(released == std::vector<int>{1, 2, 3, 4});
+    CHECK(queue.empty());
+}
+
+TEST_CASE("Objects without a debug name get a numbered one") {
+    vxe::u32 counter = 0;
+    CHECK(objectName("Chunk arena", "buffer", counter) == "Chunk arena");
+    CHECK(counter == 0);
+    CHECK(objectName("", "buffer", counter) == "unnamed buffer 1");
+    CHECK(objectName("", "texture", counter) == "unnamed texture 2");
+}
+
+TEST_CASE("The Null device lists live resources for the leak report") {
+    const auto device = createNullDevice();
+    CHECK(device->liveResources().empty());
+    const BufferHandle named =
+        device->createBuffer({.sizeBytes = 16, .usage = BufferUsage::Storage, .debugName = "Named"}).value();
+    const SamplerHandle sampler = device->createSampler({}).value();
+    const QueryHandle query = device->createTimestampQuery().value();
+    CHECK(device->liveResources() ==
+          std::vector<std::string>{"buffer 'Named'", "sampler 'unnamed sampler 1'", "timestamp query"});
+    device->destroy(named);
+    device->destroy(sampler);
+    device->destroy(query);
+    device->waitIdle();
+    CHECK(device->liveResources().empty());
+    CHECK(device->stats().pendingDestroys == 0);
 }

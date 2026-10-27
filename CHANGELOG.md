@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#038] 2026-10-27, E6.6 RHI hardening
+### Added
+- rhi::DeferredReleaseQueue: destroyed objects wait until the GPU has completed the frame that may still use them, the rule a Vulkan backend needs, shared by every backend.
+- The OpenGL backend inserts a fence per presented frame, polls them without waiting in beginFrame and present, and deletes deferred buffers, textures, samplers, shaders and programs once their frame completed. Handles become invalid immediately.
+- Device::waitIdle (drains the GPU and releases everything pending) and DeviceStats::pendingDestroys.
+- Device::liveResources, the leak report: every object not destroyed yet, by name. Both devices log it when destroyed; the demo fails its scripted run when it is not empty.
+- Automatic names ("unnamed buffer 3") for objects created without a debug name, used for GL labels and the leak report; samplers keep their names; the engine VAO and cached framebuffers are labeled.
+- Tests for the release queue, automatic names, the Null leak listing, and GL deferral (pending until frames complete or waitIdle). Every GL test now ends with an empty leak report.
+
 ## [#037] 2026-10-27, E6.5 GL command execution, sync, queries, swapchain
 ### Added
 - gl::CommandReplayer: full command list replay for the OpenGL backend. Render passes to the window or to cached framebuffer objects, clears (float, integer, depth, depth stencil), LoadOp and StoreOp DontCare invalidation, viewport and scissor, uniform, storage and texture binds through the set * 16 + slot rule, index buffers on one engine VAO, draw, drawIndexed, multi draw indirect and indirect count (core 4.6 or ARB), compute dispatch, buffer copies, barriers mapped to glMemoryBarrier bits, debug groups and timestamps.

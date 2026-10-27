@@ -31,6 +31,7 @@
 #include <format>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <variant>
 #include <vector>
@@ -378,9 +379,14 @@ int run(const Options& options) {
                  stats.invalidCommands, stats.apiErrors);
     gpuTimer.destroy(device);
     destroyScene(device, scene);
+    // The leak report (E6.6): everything the demo created must be gone now.
+    const std::vector<std::string> leaks = device.liveResources();
+    for (const std::string& leak : leaks) {
+        VXE_LOG_ERROR(log::core, "Leaked {}", leak);
+    }
     created.value().reset();
     log::shutdown();
-    return stats.invalidCommands == 0 && stats.apiErrors == 0 ? 0 : 1;
+    return stats.invalidCommands == 0 && stats.apiErrors == 0 && leaks.empty() ? 0 : 1;
 }
 
 } // namespace

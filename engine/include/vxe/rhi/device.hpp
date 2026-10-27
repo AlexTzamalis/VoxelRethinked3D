@@ -9,6 +9,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace vxe::rhi {
 
@@ -55,6 +56,7 @@ struct DeviceStats {
     u64 stateChanges = 0;         // Fixed function state calls actually sent to the API.
     u64 drawCalls = 0;            // Draws sent to the API, each indirect multi draw counting once.
     u64 dispatches = 0;           // Compute dispatches sent to the API.
+    u32 pendingDestroys = 0;      // Destroyed objects waiting for the GPU to finish with them.
     u64 framesPresented = 0;
 };
 
@@ -132,8 +134,22 @@ public:
     // Executes a recorded command list. The OpenGL backend replays it at once.
     virtual void submit(const CommandList& commands) = 0;
 
+    // Frames: beginFrame() starts one, present() ends it and shows it. The
+    // device counts frames to know when destroyed objects are no longer in
+    // use by the GPU (see DeferredReleaseQueue) and frees them in beginFrame.
     virtual void beginFrame() = 0;
     virtual void present() = 0;
+
+    // Blocks until the GPU has finished all submitted work, then frees every
+    // object whose destruction was deferred. For shutdown, window resizes and
+    // tests; never call it every frame, it drains the GPU pipeline.
+    virtual void waitIdle() = 0;
+
+    // Every object created through this device and not destroyed yet, as
+    // "buffer 'Chunk arena'". Empty at a clean shutdown. The device logs this
+    // list as a leak report when it is destroyed (E6.6).
+    [[nodiscard]] virtual std::vector<std::string> liveResources() const = 0;
+
     virtual void setPresentMode(PresentMode mode) = 0;
     // The size of the window's back buffer in pixels. 0 for headless devices.
     [[nodiscard]] virtual u32 backBufferWidth() const noexcept = 0;

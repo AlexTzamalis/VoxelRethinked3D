@@ -28,6 +28,13 @@ usize textureLevelBytes(const TextureDesc& desc, u32 mipLevel) noexcept {
     return static_cast<usize>(width) * height * bytesPerTexel(desc.format);
 }
 
+std::string objectName(std::string_view debugName, std::string_view kind, u32& unnamedCount) {
+    if (!debugName.empty()) {
+        return std::string(debugName);
+    }
+    return std::format("unnamed {} {}", kind, ++unnamedCount);
+}
+
 usize textureTotalBytes(const TextureDesc& desc) noexcept {
     usize total = 0;
     for (u32 level = 0; level < desc.mipLevels; ++level) {

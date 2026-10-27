@@ -28,7 +28,9 @@ struct NullTexture {
     usize bytes = 0;
 };
 
-struct NullSampler {};
+struct NullSampler {
+    std::string name;
+};
 
 struct NullShader {
     ShaderStage stage = ShaderStage::Vertex;
@@ -67,7 +69,11 @@ public:
     // Reporting leaks allocates; failing at shutdown cannot be recovered from, so
     // terminating (what an escaping exception does here) is acceptable.
     // NOLINTNEXTLINE(bugprone-exception-escape)
-    ~NullDevice() override { reportLeaks(); }
+    ~NullDevice() override {
+        for (const std::string& leak : liveResources()) {
+            VXE_LOG_WARN(log::rhi, "Null device destroyed with a live {}", leak);
+        }
+    }
 
     [[nodiscard]] const DeviceCapabilities& capabilities() const noexcept override { return m_capabilities; }
 
@@ -96,7 +102,7 @@ public:
         VXE_TRY(validate(desc));
         return m_buffers.allocate(NullBuffer{.size = desc.sizeBytes,
                                              .usage = desc.usage,
-                                             .name = std::string(desc.debugName),
+                                             .name = objectName(desc.debugName, "buffer", m_unnamed),
                                              .memory = std::vector<std::byte>(desc.sizeBytes)});
     }
 
@@ -109,18 +115,20 @@ public:
         }
         TextureDesc stored = desc;
         stored.debugName = {};
-        return m_textures.allocate(NullTexture{
-            .desc = stored, .name = std::string(desc.debugName), .bytes = textureTotalBytes(desc)});
+        return m_textures.allocate(NullTexture{.desc = stored,
+                                               .name = objectName(desc.debugName, "texture", m_unnamed),
+                                               .bytes = textureTotalBytes(desc)});
     }
 
     Result<SamplerHandle> createSampler(const SamplerDesc& desc) override {
         VXE_TRY(validate(desc));
-        return m_samplers.allocate(NullSampler{});
+        return m_samplers.allocate(NullSampler{.name = objectName(desc.debugName, "sampler", m_unnamed)});
     }
 
     Result<ShaderHandle> createShader(const ShaderDesc& desc) override {
         VXE_TRY(validate(desc));
-        return m_shaders.allocate(NullShader{.stage = desc.stage, .name = std::string(desc.debugName)});
+        return m_shaders.allocate(
+            NullShader{.stage = desc.stage, .name = objectName(desc.debugName, "shader", m_unnamed)});
     }
 
     Result<PipelineHandle> createPipeline(const PipelineDesc& desc) override {
@@ -141,8 +149,8 @@ public:
         VXE_TRY(checkStage(desc.vertex, ShaderStage::Vertex));
         VXE_TRY(checkStage(desc.fragment, ShaderStage::Fragment));
         VXE_TRY(checkStage(desc.compute, ShaderStage::Compute));
-        return m_pipelines.allocate(
-            NullPipeline{.compute = desc.compute.isValid(), .name = std::string(desc.debugName)});
+        return m_pipelines.allocate(NullPipeline{.compute = desc.compute.isValid(),
+                                                 .name = objectName(desc.debugName, "pipeline", m_unnamed)});
     }
 
     void destroy(BufferHandle handle) override { static_cast<void>(m_buffers.release(handle)); }
@@ -244,6 +252,25 @@ public:
 
     void beginFrame() override {}
     void present() override { ++m_framesPresented; }
+    // Without a GPU nothing is ever in flight, so destruction is immediate.
+    void waitIdle() override {}
+
+    [[nodiscard]] std::vector<std::string> liveResources() const override {
+        std::vector<std::string> live;
+        m_buffers.forEach(
+            [&live](BufferHandle, const NullBuffer& b) { live.push_back("buffer '" + b.name + "'"); });
+        m_textures.forEach(
+            [&live](TextureHandle, const NullTexture& t) { live.push_back("texture '" + t.name + "'"); });
+        m_samplers.forEach(
+            [&live](SamplerHandle, const NullSampler& s) { live.push_back("sampler '" + s.name + "'"); });
+        m_shaders.forEach(
+            [&live](ShaderHandle, const NullShader& s) { live.push_back("shader '" + s.name + "'"); });
+        m_pipelines.forEach(
+            [&live](PipelineHandle, const NullPipeline& p) { live.push_back("pipeline '" + p.name + "'"); });
+        m_fences.forEach([&live](FenceHandle, const NullFence&) { live.emplace_back("fence"); });
+        m_queries.forEach([&live](QueryHandle, const NullQuery&) { live.emplace_back("timestamp query"); });
+        return live;
+    }
     void setPresentMode(PresentMode /*mode*/) override {}
     [[nodiscard]] u32 backBufferWidth() const noexcept override { return 0; }
     [[nodiscard]] u32 backBufferHeight() const noexcept override { return 0; }
@@ -325,27 +352,6 @@ private:
         return false;
     }
 
-    // Resources still alive when the device goes away are leaks; naming them
-    // makes them easy to find (E6.6).
-    void reportLeaks() const {
-        std::vector<std::string> leaks;
-        m_buffers.forEach(
-            [&leaks](BufferHandle, const NullBuffer& b) { leaks.push_back("buffer '" + b.name + "'"); });
-        m_textures.forEach(
-            [&leaks](TextureHandle, const NullTexture& t) { leaks.push_back("texture '" + t.name + "'"); });
-        m_shaders.forEach(
-            [&leaks](ShaderHandle, const NullShader& s) { leaks.push_back("shader '" + s.name + "'"); });
-        m_pipelines.forEach([&leaks](PipelineHandle, const NullPipeline& p) {
-            leaks.push_back("pipeline '" + p.name + "'");
-        });
-        if (m_samplers.liveCount() > 0) {
-            leaks.push_back(std::format("{} samplers", m_samplers.liveCount()));
-        }
-        for (const std::string& leak : leaks) {
-            VXE_LOG_WARN(log::core, "Null device destroyed with a live {}", leak);
-        }
-    }
-
     DeviceCapabilities m_capabilities;
     HandlePool<BufferTag, NullBuffer> m_buffers;
     HandlePool<TextureTag, NullTexture> m_textures;
@@ -362,6 +368,7 @@ private:
     u64 m_pipelineBindsSkipped = 0;
     PipelineHandle m_boundPipeline;
     u64 m_framesPresented = 0;
+    u32 m_unnamed = 0; // Counter for "unnamed <kind> <n>" names.
 };
 
 } // namespace

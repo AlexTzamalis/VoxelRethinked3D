@@ -3,6 +3,9 @@
 #include <vxe/core/result.hpp>
 #include <vxe/rhi/types.hpp>
 
+#include <string>
+#include <string_view>
+
 // Checks of resource descriptions before a backend creates anything
 // (Section 7, E6.1). A description that can never work (a zero sized buffer,
 // a depth format used as a color target) fails here with a clear message
@@ -37,6 +40,11 @@ namespace vxe::rhi {
 
 // The byte size of one mip level of one layer, for upload checks.
 [[nodiscard]] usize textureLevelBytes(const TextureDesc& desc, u32 mipLevel) noexcept;
+
+// The name of a new object for debuggers (RenderDoc, KHR_debug labels) and
+// leak reports: its debug name, or "unnamed <kind> <n>" so nothing is
+// anonymous. `unnamedCount` is the backend's running counter.
+[[nodiscard]] std::string objectName(std::string_view debugName, std::string_view kind, u32& unnamedCount);
 
 // The byte size of the whole texture: every mip level of every layer.
 [[nodiscard]] usize textureTotalBytes(const TextureDesc& desc) noexcept;

@@ -210,6 +210,7 @@ TEST_CASE("OpenGL device creates resources without driver errors (VXE_GUI_TESTS=
         auto device = createGlDevice(*window.value(), GlDeviceOptions{.debugOutput = true});
         REQUIRE(device.hasValue());
         exerciseDevice(*device.value());
+        CHECK(device.value()->liveResources().empty());
     } // The device goes before the window, as createGlDevice requires.
 }
 
@@ -369,6 +370,8 @@ void withGlDevice(const char* title, const Body& body) {
     auto device = createGlDevice(*window.value(), GlDeviceOptions{.debugOutput = true});
     REQUIRE(device.hasValue());
     body(*device.value());
+    // A clean run destroys everything it made: the leak report is empty (E6.6).
+    CHECK(device.value()->liveResources().empty());
     device.value().reset(); // The device goes before the window.
 }
 
@@ -758,4 +761,69 @@ TEST_CASE("OpenGL device renders through the full command path (VXE_GUI_TESTS=1)
         CHECK(stats.textures == 0);
         CHECK(stats.pipelines == 0);
     });
+}
+
+namespace {
+
+// E6.6: destroyed objects stay alive until the GPU has finished their frame.
+void checkDeferredDestruction(Device& device) {
+    const auto makeBuffer = [&device](std::string_view name) {
+        return device
+            .createBuffer({.sizeBytes = 256,
+                           .usage = BufferUsage::Uniform | BufferUsage::TransferDst,
+                           .debugName = name})
+            .value();
+    };
+    // Used by a submitted frame, then destroyed: the handle dies at once, the
+    // GL object waits for the frame's fence.
+    const BufferHandle used = makeBuffer("Used then destroyed");
+    CommandList commands;
+    commands.bindUniformBuffer(1, 0, used, 0, 0);
+    device.beginFrame();
+    device.submit(commands);
+    device.destroy(used);
+    CHECK(device.stats().buffers == 0);
+    CHECK(device.stats().pendingDestroys == 1);
+    commands.reset();
+    commands.bindUniformBuffer(1, 0, used, 0, 0); // The handle is already invalid.
+    device.submit(commands);
+    CHECK(device.stats().invalidCommands == 1);
+
+    // Presenting frames lets the GPU catch up; the object is then deleted
+    // without anyone waiting for it.
+    bool released = false;
+    for (int frame = 0; frame < 300 && !released; ++frame) {
+        device.present();
+        device.beginFrame();
+        released = device.stats().pendingDestroys == 0;
+        if (!released) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    CHECK(released);
+
+    // waitIdle releases everything at once, frames or not.
+    device.destroy(makeBuffer("Waited for"));
+    CHECK(device.stats().pendingDestroys == 1);
+    device.waitIdle();
+    CHECK(device.stats().pendingDestroys == 0);
+
+    // Unnamed objects still get a name for debuggers and the leak report.
+    const BufferHandle unnamed = makeBuffer("");
+    const std::vector<std::string> live = device.liveResources();
+    REQUIRE(live.size() == 1);
+    CHECK(live[0].starts_with("buffer 'unnamed buffer "));
+    device.destroy(unnamed);
+    CHECK(device.liveResources().empty());
+    CHECK(device.stats().apiErrors == 0);
+}
+
+} // namespace
+
+TEST_CASE("OpenGL device defers destruction until the GPU is done (VXE_GUI_TESTS=1)") {
+    if (!vxe::test::guiTestsEnabled()) {
+        MESSAGE("Skipped: set VXE_GUI_TESTS=1 to run tests that open real windows");
+        return;
+    }
+    withGlDevice("vxe OpenGL lifetime test", [](Device& device) { checkDeferredDestruction(device); });
 }

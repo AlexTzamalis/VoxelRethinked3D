@@ -6,7 +6,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <format>
 #include <span>
+#include <string>
+#include <string_view>
 
 namespace vxe::rhi::gl {
 namespace {
@@ -66,6 +69,9 @@ void CommandReplayer::initialize() {
     // VAO, holding only the index buffer, serves every draw.
     glCreateVertexArrays(1, &m_vertexArray);
     glBindVertexArray(m_vertexArray);
+    constexpr std::string_view kVertexArrayName = "Engine vertex array";
+    glObjectLabel(GL_VERTEX_ARRAY, m_vertexArray, static_cast<GLsizei>(kVertexArrayName.size()),
+                  kVertexArrayName.data());
 
     m_limits.uniformBufferBindings = glLimit(GL_MAX_UNIFORM_BUFFER_BINDINGS);
     m_limits.storageBufferBindings = glLimit(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS);
@@ -248,6 +254,10 @@ std::optional<GLuint> CommandReplayer::framebufferFor(const RenderPassDesc& pass
         glDeleteFramebuffers(1, &framebuffer);
         return std::nullopt;
     }
+    // Named after its attachments, so frame debuggers show what it is.
+    const std::string label =
+        std::format("Framebuffer ({} color, {})", key.colorCount, key.depth != 0 ? "depth" : "no depth");
+    glObjectLabel(GL_FRAMEBUFFER, framebuffer, static_cast<GLsizei>(label.size()), label.data());
     m_framebuffers.push_back({.key = key, .framebuffer = framebuffer});
     return framebuffer;
 }

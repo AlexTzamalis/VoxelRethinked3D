@@ -7,6 +7,7 @@
 
 #include <vxe/core/log.hpp>
 #include <vxe/platform/window.hpp>
+#include <vxe/rhi/deferred_release.hpp>
 #include <vxe/rhi/shader_source.hpp>
 #include <vxe/rhi/validation.hpp>
 
@@ -15,6 +16,7 @@
 #include <algorithm>
 #include <atomic>
 #include <bit>
+#include <deque>
 #include <format>
 #include <string>
 #include <string_view>
@@ -114,11 +116,15 @@ public:
     // so terminating (what an escaping exception does here) is acceptable.
     // NOLINTNEXTLINE(bugprone-exception-escape)
     ~GlDevice() override {
+        waitIdle();
+        for (const std::string& leak : liveResources()) {
+            VXE_LOG_WARN(log::rhi, "OpenGL device destroyed with a live {}", leak);
+        }
         m_replayer.shutdown();
         if (m_readback.id != 0) {
             glDeleteBuffers(1, &m_readback.id);
         }
-        reportAndFreeLeftovers();
+        freeLeftovers();
         if (m_capabilities.debugOutput) {
             // The callback points at this object, so it must go first.
             glDebugMessageCallback(nullptr, nullptr);
@@ -175,6 +181,7 @@ public:
         stats.dispatches = replay.dispatches;
         stats.stateChanges = m_state.stateChanges();
         stats.framesPresented = m_framesPresented;
+        stats.pendingDestroys = static_cast<u32>(m_deferred.size());
         stats.apiErrors = m_apiErrors.load(std::memory_order_relaxed);
         stats.apiWarnings = m_apiWarnings.load(std::memory_order_relaxed);
         return stats;
@@ -201,12 +208,13 @@ public:
             glDeleteBuffers(1, &id);
             return creationError("buffer", desc.debugName, error);
         }
-        label(GL_BUFFER, id, desc.debugName);
+        std::string name = objectName(desc.debugName, "buffer", m_unnamed);
+        label(GL_BUFFER, id, name);
         return m_resources.buffers.allocate(gl::Buffer{.id = id,
                                                        .size = desc.sizeBytes,
                                                        .usage = desc.usage,
                                                        .mapped = mapped,
-                                                       .name = std::string(desc.debugName)});
+                                                       .name = std::move(name)});
     }
 
     Result<TextureHandle> createTexture(const TextureDesc& desc) override {
@@ -233,11 +241,12 @@ public:
             glDeleteTextures(1, &id);
             return creationError("texture", desc.debugName, error);
         }
-        label(GL_TEXTURE, id, desc.debugName);
+        std::string name = objectName(desc.debugName, "texture", m_unnamed);
+        label(GL_TEXTURE, id, name);
         TextureDesc stored = desc;
         stored.debugName = {};
-        return m_resources.textures.allocate(gl::Texture{
-            .id = id, .desc = stored, .name = std::string(desc.debugName), .bytes = textureTotalBytes(desc)});
+        return m_resources.textures.allocate(
+            gl::Texture{.id = id, .desc = stored, .name = std::move(name), .bytes = textureTotalBytes(desc)});
     }
 
     Result<SamplerHandle> createSampler(const SamplerDesc& desc) override {
@@ -254,8 +263,9 @@ public:
             glSamplerParameterf(id, GL_TEXTURE_MAX_ANISOTROPY,
                                 std::min(desc.maxAnisotropy, m_capabilities.maxAnisotropy));
         }
-        label(GL_SAMPLER, id, desc.debugName);
-        return m_resources.samplers.allocate(gl::Sampler{.id = id});
+        std::string name = objectName(desc.debugName, "sampler", m_unnamed);
+        label(GL_SAMPLER, id, name);
+        return m_resources.samplers.allocate(gl::Sampler{.id = id, .name = std::move(name)});
     }
 
     Result<ShaderHandle> createShader(const ShaderDesc& desc) override {
@@ -274,9 +284,10 @@ public:
                          std::format("The {} shader '{}' does not compile:\n{}", nameOf(desc.stage),
                                      desc.debugName, annotateShaderLog(log, desc.fileNames)));
         }
-        label(GL_SHADER, id, desc.debugName);
+        std::string name = objectName(desc.debugName, "shader", m_unnamed);
+        label(GL_SHADER, id, name);
         return m_resources.shaders.allocate(
-            gl::Shader{.id = id, .stage = desc.stage, .name = std::string(desc.debugName)});
+            gl::Shader{.id = id, .stage = desc.stage, .name = std::move(name)});
     }
 
     Result<PipelineHandle> createPipeline(const PipelineDesc& desc) override {
@@ -318,46 +329,47 @@ public:
             return Error(ErrorCode::ParseError,
                          std::format("Pipeline '{}' does not link:\n{}", desc.debugName, log));
         }
-        label(GL_PROGRAM, program, desc.debugName);
+        std::string name = objectName(desc.debugName, "pipeline", m_unnamed);
+        label(GL_PROGRAM, program, name);
         return m_resources.pipelines.allocate(gl::Pipeline{.program = program,
                                                            .compute = desc.compute.isValid(),
                                                            .topology = gl::primitiveTopology(desc.topology),
                                                            .raster = desc.raster,
                                                            .depth = desc.depth,
                                                            .blend = desc.blend,
-                                                           .name = std::string(desc.debugName)});
+                                                           .name = std::move(name)});
     }
 
+    // Destroying invalidates the handle at once; the GL object itself is
+    // deleted once the GPU has finished the frames that may use it (E6.6).
     void destroy(BufferHandle handle) override {
         if (auto buffer = m_resources.buffers.release(handle)) {
-            // Deleting also ends a persistent mapping. OpenGL keeps the memory
-            // alive until the GPU is done with it, so this is safe right away.
-            glDeleteBuffers(1, &buffer->id);
+            deferDelete(gl::DeferredObject::Kind::Buffer, buffer->id);
         }
     }
     void destroy(TextureHandle handle) override {
         if (auto texture = m_resources.textures.release(handle)) {
             m_replayer.onTextureDestroyed(texture->id);
-            glDeleteTextures(1, &texture->id);
+            deferDelete(gl::DeferredObject::Kind::Texture, texture->id);
         }
     }
     void destroy(SamplerHandle handle) override {
         if (auto sampler = m_resources.samplers.release(handle)) {
-            glDeleteSamplers(1, &sampler->id);
+            deferDelete(gl::DeferredObject::Kind::Sampler, sampler->id);
         }
     }
     void destroy(ShaderHandle handle) override {
         if (auto shader = m_resources.shaders.release(handle)) {
-            glDeleteShader(shader->id);
+            deferDelete(gl::DeferredObject::Kind::Shader, shader->id);
         }
     }
     void destroy(PipelineHandle handle) override {
         if (auto pipeline = m_resources.pipelines.release(handle)) {
-            // OpenGL may hand the program name to a new program, which the
-            // caches must not mistake for this one.
+            // The caches forget the program now: once deleted, OpenGL may hand
+            // its name to a new program, which must not look already bound.
             m_state.forgetProgram(pipeline->program);
             m_replayer.onPipelineDestroyed(handle);
-            glDeleteProgram(pipeline->program);
+            deferDelete(gl::DeferredObject::Kind::Program, pipeline->program);
         }
     }
 
@@ -490,11 +502,45 @@ public:
 
     void submit(const CommandList& commands) override { m_replayer.submit(commands); }
 
-    void beginFrame() override {}
+    void beginFrame() override { releaseFinishedFrames(); }
 
     void present() override {
         m_window.swapGlBuffers();
         ++m_framesPresented;
+        // Marks the end of this frame in the GPU's command stream. When the
+        // fence signals, everything destroyed during the frame can go.
+        m_frameFences.push_back(
+            {.serial = m_frameSerial, .sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0)});
+        ++m_frameSerial;
+        releaseFinishedFrames();
+    }
+
+    void waitIdle() override {
+        glFinish();
+        for (const FrameFence& fence : m_frameFences) {
+            glDeleteSync(fence.sync);
+        }
+        m_frameFences.clear();
+        m_completedSerial = m_frameSerial;
+        m_deferred.releaseAll([](const gl::DeferredObject& object) { deleteObject(object); });
+    }
+
+    [[nodiscard]] std::vector<std::string> liveResources() const override {
+        std::vector<std::string> live;
+        m_resources.buffers.forEach(
+            [&live](BufferHandle, const gl::Buffer& b) { live.push_back("buffer '" + b.name + "'"); });
+        m_resources.textures.forEach(
+            [&live](TextureHandle, const gl::Texture& t) { live.push_back("texture '" + t.name + "'"); });
+        m_resources.samplers.forEach(
+            [&live](SamplerHandle, const gl::Sampler& s) { live.push_back("sampler '" + s.name + "'"); });
+        m_resources.shaders.forEach(
+            [&live](ShaderHandle, const gl::Shader& s) { live.push_back("shader '" + s.name + "'"); });
+        m_resources.pipelines.forEach(
+            [&live](PipelineHandle, const gl::Pipeline& p) { live.push_back("pipeline '" + p.name + "'"); });
+        m_resources.fences.forEach([&live](FenceHandle, const gl::Fence&) { live.emplace_back("fence"); });
+        m_resources.queries.forEach(
+            [&live](QueryHandle, const gl::Query&) { live.emplace_back("timestamp query"); });
+        return live;
     }
 
     void setPresentMode(PresentMode mode) override {
@@ -640,6 +686,46 @@ private:
             caps.maxAnisotropy, caps.videoMemoryBytes / kBytesPerMiB);
     }
 
+    void deferDelete(gl::DeferredObject::Kind kind, GLuint id) {
+        m_deferred.push(gl::DeferredObject{.kind = kind, .id = id}, m_frameSerial);
+    }
+
+    static void deleteObject(const gl::DeferredObject& object) {
+        switch (object.kind) {
+        case gl::DeferredObject::Kind::Buffer:
+            glDeleteBuffers(1, &object.id); // Also ends a persistent mapping.
+            break;
+        case gl::DeferredObject::Kind::Texture:
+            glDeleteTextures(1, &object.id);
+            break;
+        case gl::DeferredObject::Kind::Sampler:
+            glDeleteSamplers(1, &object.id);
+            break;
+        case gl::DeferredObject::Kind::Shader:
+            glDeleteShader(object.id);
+            break;
+        case gl::DeferredObject::Kind::Program:
+            glDeleteProgram(object.id);
+            break;
+        }
+    }
+
+    // Checks the frame fences without waiting, oldest first, and deletes the
+    // objects of every frame the GPU has completed.
+    void releaseFinishedFrames() {
+        while (!m_frameFences.empty()) {
+            const GLenum status = glClientWaitSync(m_frameFences.front().sync, 0, 0);
+            if (status != GL_ALREADY_SIGNALED && status != GL_CONDITION_SATISFIED) {
+                break;
+            }
+            m_completedSerial = m_frameFences.front().serial;
+            glDeleteSync(m_frameFences.front().sync);
+            m_frameFences.pop_front();
+        }
+        m_deferred.releaseCompleted(m_completedSerial,
+                                    [](const gl::DeferredObject& object) { deleteObject(object); });
+    }
+
     // Grows the readback buffer to at least `size` bytes. It lives in system
     // memory (client storage) and stays mapped, so reads need no extra copy.
     Result<void> ensureReadbackCapacity(usize size) {
@@ -696,38 +782,18 @@ private:
                                                      static_cast<u32>(error), what, name));
     }
 
-    // Frees what the caller forgot and names it, so leaks are easy to find.
-    // The full lifetime tracking with deferred destruction follows in E6.6.
-    void reportAndFreeLeftovers() const {
-        std::vector<std::string> leaks;
-        m_resources.buffers.forEach([&leaks](BufferHandle, const gl::Buffer& b) {
-            leaks.push_back("buffer '" + b.name + "'");
-            glDeleteBuffers(1, &b.id);
-        });
-        m_resources.textures.forEach([&leaks](TextureHandle, const gl::Texture& t) {
-            leaks.push_back("texture '" + t.name + "'");
-            glDeleteTextures(1, &t.id);
-        });
-        m_resources.samplers.forEach([](SamplerHandle, const gl::Sampler& s) { glDeleteSamplers(1, &s.id); });
-        if (m_resources.samplers.liveCount() > 0) {
-            leaks.push_back(std::format("{} samplers", m_resources.samplers.liveCount()));
-        }
-        m_resources.shaders.forEach([&leaks](ShaderHandle, const gl::Shader& sh) {
-            leaks.push_back("shader '" + sh.name + "'");
-            glDeleteShader(sh.id);
-        });
-        m_resources.pipelines.forEach([&leaks](PipelineHandle, const gl::Pipeline& pl) {
-            leaks.push_back("pipeline '" + pl.name + "'");
-            glDeleteProgram(pl.program);
-        });
+    // Frees what the caller forgot to destroy. The destructor has already
+    // logged them as leaks through liveResources().
+    void freeLeftovers() const {
+        m_resources.buffers.forEach([](BufferHandle, const gl::Buffer& b) { glDeleteBuffers(1, &b.id); });
+        m_resources.textures.forEach([](TextureHandle, const gl::Texture& t) { glDeleteTextures(1, &t.id); });
+        m_resources.samplers.forEach(
+            [](SamplerHandle, const gl::Sampler& sm) { glDeleteSamplers(1, &sm.id); });
+        m_resources.shaders.forEach([](ShaderHandle, const gl::Shader& sh) { glDeleteShader(sh.id); });
+        m_resources.pipelines.forEach(
+            [](PipelineHandle, const gl::Pipeline& pl) { glDeleteProgram(pl.program); });
         m_resources.fences.forEach([](FenceHandle, const gl::Fence& f) { glDeleteSync(f.sync); });
         m_resources.queries.forEach([](QueryHandle, const gl::Query& q) { glDeleteQueries(1, &q.id); });
-        if (m_resources.queries.liveCount() > 0) {
-            leaks.push_back(std::format("{} timestamp queries", m_resources.queries.liveCount()));
-        }
-        for (const std::string& leak : leaks) {
-            VXE_LOG_WARN(log::rhi, "OpenGL device destroyed with a live {}", leak);
-        }
     }
 
     platform::Window& m_window;
@@ -744,6 +810,20 @@ private:
         std::byte* mapped = nullptr;
     } m_readback;
     u64 m_framesPresented = 0;
+    u32 m_unnamed = 0; // Counter for "unnamed <kind> <n>" names.
+
+    // Frame tracking for deferred destruction: the serial of the frame being
+    // recorded, the newest frame the GPU has completed, and one fence per
+    // presented frame that has not signaled yet.
+    struct FrameFence {
+        u64 serial = 0;
+        GLsync sync = nullptr;
+    };
+    u64 m_frameSerial = 1;
+    u64 m_completedSerial = 0;
+    std::deque<FrameFence> m_frameFences;
+    DeferredReleaseQueue<gl::DeferredObject> m_deferred;
+
     mutable std::atomic<u64> m_apiErrors{0};
     mutable std::atomic<u64> m_apiWarnings{0};
     mutable std::atomic<bool> m_debugSelfTestSeen{false};

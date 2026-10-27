@@ -30,6 +30,7 @@ struct Texture {
 
 struct Sampler {
     GLuint id = 0;
+    std::string name;
 };
 
 struct Fence {
@@ -57,6 +58,20 @@ struct Pipeline {
 struct Query {
     GLuint id = 0;
     bool written = false; // OpenGL results are undefined for queries never written.
+};
+
+// A destroyed object waiting for the GPU to finish the frames that may use
+// it (DeferredReleaseQueue). Only the kind and the GL name are needed.
+struct DeferredObject {
+    enum class Kind : u8 {
+        Buffer,
+        Texture,
+        Sampler,
+        Shader,
+        Program
+    };
+    Kind kind = Kind::Buffer;
+    GLuint id = 0;
 };
 
 // Every object the device owns, by handle. The device creates and destroys
