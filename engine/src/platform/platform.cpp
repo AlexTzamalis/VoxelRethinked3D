@@ -135,9 +135,14 @@ usize Platform::pollEvents(std::vector<PlatformEvent>& out) {
     return count;
 }
 
-// A member on purpose: it needs SDL started, which a live Platform guarantees.
+// A member on purpose: layout names need SDL started, which a live Platform
+// guarantees. layoutKeyName is the static form for code without a Platform.
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 std::string Platform::keyName(u16 scancode) const {
+    return layoutKeyName(scancode);
+}
+
+std::string Platform::layoutKeyName(u16 scancode) {
     const SDL_Keycode key = SDL_GetKeyFromScancode(static_cast<SDL_Scancode>(scancode), SDL_KMOD_NONE, false);
     const char* name = SDL_GetKeyName(key);
     if (name != nullptr && name[0] != '\0') {
@@ -146,6 +151,28 @@ std::string Platform::keyName(u16 scancode) const {
     // Keys without a layout name (rare media keys) fall back to their scancode name.
     const char* scancodeName = SDL_GetScancodeName(static_cast<SDL_Scancode>(scancode));
     return scancodeName != nullptr ? scancodeName : std::string();
+}
+
+std::string Platform::scancodeName(u16 scancode) {
+    const char* name = SDL_GetScancodeName(static_cast<SDL_Scancode>(scancode));
+    return name != nullptr ? std::string(name) : std::string();
+}
+
+u16 Platform::scancodeFromName(std::string_view name) {
+    const std::string copy(name);
+    const SDL_Scancode code = SDL_GetScancodeFromName(copy.c_str());
+    return code == SDL_SCANCODE_UNKNOWN ? u16{0} : static_cast<u16>(code);
+}
+
+u16 Platform::scancodeFromKeyName(std::string_view keyName) {
+    const std::string copy(keyName);
+    const SDL_Keycode key = SDL_GetKeyFromName(copy.c_str());
+    if (key == SDLK_UNKNOWN) {
+        return 0;
+    }
+    SDL_Keymod modifiers = SDL_KMOD_NONE;
+    const SDL_Scancode code = SDL_GetScancodeFromKey(key, &modifiers);
+    return code == SDL_SCANCODE_UNKNOWN ? u16{0} : static_cast<u16>(code);
 }
 
 std::filesystem::path Platform::executableFolder() {

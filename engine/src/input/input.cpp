@@ -119,6 +119,7 @@ void InputSystem::applyEvent(const platform::PlatformEvent& event) {
                            m_keys.set(key.scancode);
                        } else {
                            m_keys.reset(key.scancode);
+                           m_suppressedKeys.reset(key.scancode);
                        }
                    },
                    [this](const platform::MouseButtonEvent& button) {
@@ -130,6 +131,9 @@ void InputSystem::applyEvent(const platform::PlatformEvent& event) {
                            m_mouseButtonsPressedThisFrame.set(index);
                        }
                        m_mouseButtons.set(index, button.down);
+                       if (!button.down) {
+                           m_suppressedButtons.reset(index);
+                       }
                        m_mousePosition = Vec2(button.x, button.y);
                    },
                    [this](const platform::MouseMotionEvent& motion) {
@@ -144,6 +148,8 @@ void InputSystem::applyEvent(const platform::PlatformEvent& event) {
                        if (!focus.focused) {
                            m_keys.reset();
                            m_mouseButtons.reset();
+                           m_suppressedKeys.reset();
+                           m_suppressedButtons.reset();
                        }
                    },
                    [](const auto& /*other*/) {},
@@ -161,12 +167,13 @@ bool InputSystem::isBindingActive(const Binding& binding) const noexcept {
     // "Down, or pressed during this frame": a quick tap that goes down and up
     // between two frames still counts for one frame instead of being lost.
     case BindingKind::Key:
-        return inRange(binding.code) && (m_keys[binding.code] || m_keysPressedThisFrame[binding.code]) &&
+        return inRange(binding.code) && !m_suppressedKeys[binding.code] &&
+               (m_keys[binding.code] || m_keysPressedThisFrame[binding.code]) &&
                (binding.chordKey == 0 ||
                 (inRange(binding.chordKey) &&
                  (m_keys[binding.chordKey] || m_keysPressedThisFrame[binding.chordKey])));
     case BindingKind::MouseButton:
-        return binding.code < m_mouseButtons.size() &&
+        return binding.code < m_mouseButtons.size() && !m_suppressedButtons[binding.code] &&
                (m_mouseButtons[binding.code] || m_mouseButtonsPressedThisFrame[binding.code]);
     case BindingKind::WheelUp:
         return m_wheel.y > 0.0F;
@@ -216,6 +223,13 @@ void InputSystem::update(std::span<const platform::PlatformEvent> events) {
         state.axisValue = 0.0F;
     }
 
+    // While the keybind screen listens for a new input, nothing else may
+    // react to the keys being pressed.
+    if (m_capture) {
+        processCapture(events);
+        return;
+    }
+
     // Walk the context stack from the top. A context claims the physical
     // inputs of its active actions, so contexts below never see them (the
     // menu's Escape is not also the game's pause). A blocking context hides
@@ -256,6 +270,166 @@ void InputSystem::update(std::span<const platform::PlatformEvent> events) {
         ActionState& state = m_states[i];
         if (m_actions[i].type == ActionType::Toggle && state.held && !state.wasHeld) {
             state.toggledOn = !state.toggledOn;
+        }
+    }
+}
+
+void InputSystem::resetBindings(ActionId action) {
+    VXE_ASSERT(action.isValid() && action.index < m_actions.size(), "Unknown action");
+    m_actions[action.index].bindings = m_actions[action.index].defaults;
+}
+
+usize InputSystem::resetCategory(std::string_view category) {
+    usize count = 0;
+    for (ActionInfo& info : m_actions) {
+        if (info.category == category) {
+            info.bindings = info.defaults;
+            ++count;
+        }
+    }
+    return count;
+}
+
+void InputSystem::resetAllBindings() {
+    for (ActionInfo& info : m_actions) {
+        info.bindings = info.defaults;
+    }
+}
+
+std::vector<InputSystem::Conflict> InputSystem::findConflicts(const Binding& binding, InputContextId context,
+                                                              ActionId ignore) const {
+    std::vector<Conflict> conflicts;
+    if (binding.isNone() || !context.isValid() || context.index >= m_contexts.size()) {
+        return conflicts;
+    }
+    const bool contextAlwaysActive = m_contexts[context.index].alwaysActive;
+    for (usize i = 0; i < m_actions.size(); ++i) {
+        const ActionInfo& other = m_actions[i];
+        if (ignore.isValid() && ignore.index == i) {
+            continue;
+        }
+        const bool overlapping =
+            other.context == context || contextAlwaysActive || m_contexts[other.context.index].alwaysActive;
+        if (!overlapping) {
+            continue;
+        }
+        for (usize slot = 0; slot < kMaxBindingsPerAction; ++slot) {
+            if (!other.bindings[slot].isNone() && samePhysicalInput(other.bindings[slot], binding)) {
+                conflicts.push_back(Conflict{.action = ActionId{.index = static_cast<u32>(i)}, .slot = slot});
+            }
+        }
+    }
+    return conflicts;
+}
+
+void InputSystem::swapBindings(ActionId a, usize slotA, ActionId b, usize slotB) {
+    VXE_ASSERT(a.isValid() && b.isValid() && a.index < m_actions.size() && b.index < m_actions.size() &&
+                   slotA < kMaxBindingsPerAction && slotB < kMaxBindingsPerAction,
+               "Invalid swap");
+    std::swap(m_actions[a.index].bindings[slotA], m_actions[b.index].bindings[slotB]);
+}
+
+void InputSystem::setUnknownKeybind(std::string id, std::string tomlValueText) {
+    const auto position =
+        std::ranges::lower_bound(m_unknownKeybinds, id, {}, &std::pair<std::string, std::string>::first);
+    if (position != m_unknownKeybinds.end() && position->first == id) {
+        position->second = std::move(tomlValueText);
+    } else {
+        m_unknownKeybinds.insert(position, {std::move(id), std::move(tomlValueText)});
+    }
+}
+
+void InputSystem::beginCapture(CaptureCallback onCaptured) {
+    m_capture = std::move(onCaptured);
+    m_captureModifierKey = 0;
+}
+
+void InputSystem::cancelCapture() {
+    if (m_capture) {
+        finishCapture(CaptureOutcome::Cancelled, Binding{});
+    }
+}
+
+void InputSystem::finishCapture(CaptureOutcome outcome, const Binding& binding) {
+    // Moved out first: the callback may start the next capture right away.
+    const CaptureCallback callback = std::move(m_capture);
+    m_capture = nullptr;
+    m_captureModifierKey = 0;
+    if (callback) {
+        callback(outcome, binding);
+    }
+}
+
+namespace {
+
+bool isModifierKey(u16 code) noexcept {
+    return code >= scancode::kLeftCtrl && code <= scancode::kRightGui;
+}
+
+BindingKind wheelDirection(const platform::MouseWheelEvent& wheel) noexcept {
+    if (wheel.y > 0.0F) {
+        return BindingKind::WheelUp;
+    }
+    if (wheel.y < 0.0F) {
+        return BindingKind::WheelDown;
+    }
+    if (wheel.x > 0.0F) {
+        return BindingKind::WheelRight;
+    }
+    if (wheel.x < 0.0F) {
+        return BindingKind::WheelLeft;
+    }
+    return BindingKind::None;
+}
+
+} // namespace
+
+void InputSystem::processCaptureKey(const platform::KeyEvent& key) {
+    if (!inRange(key.scancode)) {
+        return;
+    }
+    if (key.down && !key.repeat) {
+        if (key.scancode == scancode::kEscape || key.scancode == scancode::kBackspace) {
+            m_suppressedKeys.set(key.scancode);
+            finishCapture(key.scancode == scancode::kEscape ? CaptureOutcome::Cancelled
+                                                            : CaptureOutcome::Cleared,
+                          Binding{});
+        } else if (isModifierKey(key.scancode)) {
+            // Wait: this may become Ctrl+S, or Left Shift on its own.
+            if (m_captureModifierKey == 0) {
+                m_captureModifierKey = key.scancode;
+            }
+        } else {
+            m_suppressedKeys.set(key.scancode);
+            finishCapture(CaptureOutcome::Captured, Binding::key(key.scancode, heldModifiers()));
+        }
+    } else if (!key.down && key.scancode == m_captureModifierKey) {
+        finishCapture(CaptureOutcome::Captured, Binding::key(key.scancode));
+    }
+}
+
+void InputSystem::processCapture(std::span<const platform::PlatformEvent> events) {
+    for (const platform::PlatformEvent& event : events) {
+        if (!m_capture) {
+            return;
+        }
+        if (const auto* key = std::get_if<platform::KeyEvent>(&event)) {
+            processCaptureKey(*key);
+        } else if (const auto* button = std::get_if<platform::MouseButtonEvent>(&event)) {
+            if (!button->down) {
+                continue;
+            }
+            const auto index = static_cast<usize>(button->button);
+            if (index < m_suppressedButtons.size()) {
+                m_suppressedButtons.set(index);
+            }
+            Binding binding = Binding::mouse(button->button);
+            binding.modifiers = heldModifiers();
+            finishCapture(CaptureOutcome::Captured, binding);
+        } else if (const auto* wheel = std::get_if<platform::MouseWheelEvent>(&event)) {
+            if (const BindingKind direction = wheelDirection(*wheel); direction != BindingKind::None) {
+                finishCapture(CaptureOutcome::Captured, Binding::wheel(direction));
+            }
         }
     }
 }

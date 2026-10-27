@@ -4,6 +4,7 @@
 #include <vxe/core/log.hpp>
 #include <vxe/core/profile.hpp>
 #include <vxe/core/version.hpp>
+#include <vxe/input/keybinds.hpp>
 
 #include <chrono>
 #include <thread>
@@ -44,6 +45,41 @@ void limitIdleFrame(const TimePoint frameStart, u32 fpsLimit) {
     const Duration used = Clock::now() - frameStart;
     if (used < budget) {
         std::this_thread::sleep_for(budget - used);
+    }
+}
+
+// Loads one of the player's files (settings.toml, keybinds.toml). On first
+// start the file does not exist and is written with the defaults, so players
+// find a commented file to edit. Problems are logged and never stop the game.
+template <typename LoadFn, typename SaveFn>
+void loadOrCreateUserFile(const Result<std::filesystem::path>& path, const LoadFn& load, const SaveFn& save) {
+    if (!path) {
+        return;
+    }
+    const std::string name = path.value().filename().string();
+    auto loaded = load(path.value());
+    if (loaded) {
+        for (const std::string& warning : loaded.value().warnings) {
+            VXE_LOG_WARN(log::core, "{}: {}", name, warning);
+        }
+        VXE_LOG_INFO(log::core, "Loaded {} ({} entries)", name, loaded.value().applied);
+    } else if (loaded.error().code() == ErrorCode::NotFound) {
+        if (Result<void> saved = save(path.value()); !saved) {
+            VXE_LOG_WARN(log::core, "Could not write the default {}: {}", name, saved.error().describe());
+        }
+    } else {
+        VXE_LOG_ERROR(log::core, "{} was not loaded, using defaults: {}", name, loaded.error().describe());
+    }
+}
+
+template <typename SaveFn>
+void saveUserFile(const Result<std::filesystem::path>& path, const SaveFn& save) {
+    if (!path) {
+        return;
+    }
+    if (Result<void> saved = save(path.value()); !saved) {
+        VXE_LOG_WARN(log::core, "Could not save {}: {}", path.value().filename().string(),
+                     saved.error().describe());
     }
 }
 
@@ -100,6 +136,9 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
     VXE_LOG_INFO(log::core, "Job system: {} workers, {} IO threads", jobs->workerCount(),
                  jobs->ioThreadCount());
 
+    // Engine owned settings, registered before the application's own.
+    const config::Setting<bool> bindByKeyName = input::registerInputSettings(*settings);
+
     std::vector<platform::PlatformEvent> frameEvents;
     frameEvents.reserve(64);
     EngineContext context{.platform = *platform,
@@ -120,25 +159,28 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
         context.requestQuit();
     }
 
-    // Settings are loaded after onInit, because that is where they are
-    // registered (Section 6.5). On first start the file does not exist and is
-    // written with the defaults, so players find a commented file to edit.
+    // Settings and keybinds are loaded after onInit, because that is where
+    // they are registered (Section 6.5); the player's values then replace
+    // the defaults.
     const Result<std::filesystem::path> settingsPath = vfs->resolveForWrite("config:/settings.toml");
-    if (exitCode == 0 && settingsPath) {
-        Result<config::LoadReport> loaded = config::loadSettingsFromFile(*settings, settingsPath.value());
-        if (loaded) {
-            for (const std::string& warning : loaded.value().warnings) {
-                VXE_LOG_WARN(log::core, "settings.toml: {}", warning);
-            }
-            VXE_LOG_INFO(log::core, "Loaded {} settings from config/settings.toml", loaded.value().applied);
-        } else if (loaded.error().code() == ErrorCode::NotFound) {
-            if (Result<void> saved = config::saveSettingsToFile(*settings, settingsPath.value()); !saved) {
-                VXE_LOG_WARN(log::core, "Could not write default settings: {}", saved.error().describe());
-            }
-        } else {
-            VXE_LOG_ERROR(log::core, "settings.toml was not loaded, using defaults: {}",
-                          loaded.error().describe());
-        }
+    const Result<std::filesystem::path> keybindsPath = vfs->resolveForWrite("config:/keybinds.toml");
+    const auto keyNameMode = [&bindByKeyName] {
+        return bindByKeyName.get() ? input::KeyNameMode::Layout : input::KeyNameMode::Physical;
+    };
+    const auto saveSettings = [&settings](const std::filesystem::path& path) {
+        return config::saveSettingsToFile(*settings, path);
+    };
+    const auto saveKeybinds = [&input, &keyNameMode](const std::filesystem::path& path) {
+        return input::saveKeybindsToFile(*input, path, keyNameMode());
+    };
+    if (exitCode == 0) {
+        loadOrCreateUserFile(
+            settingsPath,
+            [&settings](const auto& path) { return config::loadSettingsFromFile(*settings, path); },
+            saveSettings);
+        loadOrCreateUserFile(
+            keybindsPath, [&input](const auto& path) { return input::loadKeybindsFromFile(*input, path); },
+            saveKeybinds);
     }
 
     FrameTimer frameTimer;
@@ -177,10 +219,9 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
     // Shutdown in the documented order (see application.hpp). Settings are
     // saved after onShutdown, so changes the application makes there persist.
     application->onShutdown(context);
-    if (exitCode == 0 && settingsPath) {
-        if (Result<void> saved = config::saveSettingsToFile(*settings, settingsPath.value()); !saved) {
-            VXE_LOG_WARN(log::core, "Could not save settings: {}", saved.error().describe());
-        }
+    if (exitCode == 0) {
+        saveUserFile(settingsPath, saveSettings);
+        saveUserFile(keybindsPath, saveKeybinds);
     }
     jobs.reset();
     application.reset();

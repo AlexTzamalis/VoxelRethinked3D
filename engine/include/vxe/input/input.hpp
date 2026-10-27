@@ -6,9 +6,11 @@
 
 #include <array>
 #include <bitset>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // Input: raw device state and actions (Section 17 of the plan).
@@ -191,9 +193,56 @@ public:
     [[nodiscard]] ActionId findAction(std::string_view id) const;
     [[nodiscard]] usize actionCount() const noexcept { return m_actions.size(); }
 
-    // Replaces one binding slot (0 to 2) of an action. E5.5 builds rebinding,
-    // persistence and conflict checks on top.
+    // Replaces one binding slot (0 to 2) of an action.
     void setBinding(ActionId action, usize slot, const Binding& binding);
+    void clearBinding(ActionId action, usize slot) { setBinding(action, slot, Binding{}); }
+
+    // Restores default bindings (Section 17.3: "Reset this action", "Reset
+    // category", "Reset all").
+    void resetBindings(ActionId action);
+    usize resetCategory(std::string_view category);
+    void resetAllBindings();
+
+    // One binding slot of another action that uses the same physical input.
+    struct Conflict {
+        ActionId action;
+        usize slot = 0;
+        friend bool operator==(const Conflict&, const Conflict&) = default;
+    };
+
+    // The bindings that would fight with `binding` in `context`: same
+    // physical input, in the same context or in an always active one (those
+    // see input whatever is on the stack). Actions in different stacked
+    // contexts do not conflict, because the context stack already decides
+    // who gets the input. `ignore` is usually the action being rebound.
+    [[nodiscard]] std::vector<Conflict> findConflicts(const Binding& binding, InputContextId context,
+                                                      ActionId ignore = {}) const;
+
+    // Swaps one slot of two actions, for "Swap" in the conflict dialog.
+    void swapBindings(ActionId a, usize slotA, ActionId b, usize slotB);
+
+    enum class CaptureOutcome : u8 {
+        Captured,  // `binding` holds the new input.
+        Cancelled, // Escape: keep the old binding.
+        Cleared,   // Backspace: remove the binding.
+    };
+    using CaptureCallback = std::function<void(CaptureOutcome outcome, const Binding& binding)>;
+
+    // Listens for the next physical input and reports it through `onCaptured`
+    // instead of triggering actions (the keybind screen, Section 17.3). A key
+    // is captured with the modifiers held at the time; a modifier pressed and
+    // released alone is captured as itself (Left Shift for crouch). The
+    // captured input does not trigger any action until it is released.
+    void beginCapture(CaptureCallback onCaptured);
+    void cancelCapture();
+    [[nodiscard]] bool isCapturing() const noexcept { return static_cast<bool>(m_capture); }
+
+    // Keybinds from a file that no registered action claims (older or newer
+    // versions). Kept as TOML value text so saving never deletes them.
+    void setUnknownKeybind(std::string id, std::string tomlValueText);
+    [[nodiscard]] const std::vector<std::pair<std::string, std::string>>& unknownKeybinds() const noexcept {
+        return m_unknownKeybinds;
+    }
 
 private:
     struct Context {
@@ -227,6 +276,18 @@ private:
     Vec2 m_wheel{0.0F};
     std::string m_typedText;
     std::vector<Binding> m_claimed; // Reused by update() to avoid reallocating.
+
+    // Capture state. Inputs used to finish a capture stay suppressed until
+    // released, so the new binding does not fire right away.
+    void processCapture(std::span<const platform::PlatformEvent> events);
+    void processCaptureKey(const platform::KeyEvent& key);
+    void finishCapture(CaptureOutcome outcome, const Binding& binding);
+    CaptureCallback m_capture;
+    u16 m_captureModifierKey = 0;
+    std::bitset<scancode::kCount> m_suppressedKeys;
+    std::bitset<8> m_suppressedButtons;
+
+    std::vector<std::pair<std::string, std::string>> m_unknownKeybinds; // Sorted by id.
 };
 
 } // namespace vxe::input

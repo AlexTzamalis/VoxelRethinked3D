@@ -2,6 +2,18 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#032] 2026-10-27, E5.5 Bindings, persistence, conflicts, capture
+### Added
+- vxe/input/keybinds.hpp: readable binding text ("W", "Ctrl+S", "F3+G", "Mouse Left", "Wheel Up", "key:Z", "Scancode 300") in both directions, forgiving about case and spaces, and keybinds.toml with a commented line per action (name, category, defaults), up to three bindings, unknown actions kept.
+- Controls.BindByKeyName (advanced setting): keybinds saved by key label in the current layout instead of physical position, resolved back to the matching key when loaded.
+- Conflict detection: same physical input in the same context or an always active one; stacked contexts never conflict because the stack already decides. Swap, unbind and reset (action, category, all) helpers.
+- Capture for the keybind screen: the next key with its held modifiers, mouse button or wheel direction; Escape cancels, Backspace clears, a modifier pressed and released alone is captured as itself, and the captured input stays silent until released.
+- Platform: layout independent scancode names and lookups by name or by layout label.
+- The engine loop registers the input settings and loads and saves config:/keybinds.toml next to settings.toml.
+- Tests for binding text round trips, hand written text, TOML round trips, a hand edited file with warnings and unknown actions, conflicts and resolutions, every capture case and the setting.
+### Changed
+- runApplication loads and saves the player's files through two small helpers.
+
 ## [#031] 2026-10-27, E5.4 Raw input and actions
 ### Added
 - vxe_input module (layer 6): InputSystem with per frame raw state (keys by scancode with press edges, mouse buttons, position, summed raw motion, wheel, typed text) and actions of three types: Button (pressed, held, released), Toggle and Axis (wheel notches, or 1 while a key is held).

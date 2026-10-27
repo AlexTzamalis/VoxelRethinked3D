@@ -134,10 +134,15 @@ vxe_add_module(config
 vxe_add_module(input
     SOURCES
         src/input/input.cpp
+        src/input/keybinds.cpp
     DEPENDS
         core
         math
+        io
         platform
+        config
+    PRIVATE_LIBS
+        tomlplusplus::tomlplusplus
 )
 
 # App: Application, EngineContext and the main loop (E4.5). The top layer,

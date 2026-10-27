@@ -41,6 +41,19 @@ public:
     // layout (for example "Z" for the scancode labeled Y on a German keyboard).
     [[nodiscard]] std::string keyName(u16 scancode) const;
 
+    // Same as keyName, usable without a Platform object (keybind files).
+    [[nodiscard]] static std::string layoutKeyName(u16 scancode);
+
+    // Layout independent name of a physical key, for files ("W", "Space",
+    // "Left Shift"). Works without a Platform. Empty for unknown scancodes.
+    [[nodiscard]] static std::string scancodeName(u16 scancode);
+    // The inverse of scancodeName. 0 if the name is unknown.
+    [[nodiscard]] static u16 scancodeFromName(std::string_view name);
+    // The scancode that types the key labeled `keyName` in the current
+    // layout ("Z" on a German keyboard is the physical Y key). 0 if unknown.
+    // Needs the platform started with video for layout information.
+    [[nodiscard]] static u16 scancodeFromKeyName(std::string_view keyName);
+
     // The folder of the running executable. Runtime folders such as config/
     // and textures/ live next to it (Section 5).
     [[nodiscard]] static std::filesystem::path executableFolder();
