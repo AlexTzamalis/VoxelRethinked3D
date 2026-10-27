@@ -120,6 +120,7 @@ find_package(tomlplusplus CONFIG REQUIRED)
 
 vxe_add_module(config
     SOURCES
+        src/config/console.cpp
         src/config/settings.cpp
         src/config/settings_file.cpp
     DEPENDS

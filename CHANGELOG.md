@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#030] 2026-10-27, E5.3 Console commands
+### Added
+- vxe/config/console.hpp: CommandRegistry with command descriptions, a quote aware tokenizer, case insensitive command names, "did you mean" hints and autocomplete for the word being typed.
+- Settings commands: set (strings take the rest of the line), get, reset with a single id, a category wildcard (Graphics.LOD.*) or everything (*), find over ids and display names, list by category and help.
+- parseSettingValue and displaySettingValue for typed text (on, off, yes, no, 1, 0 for booleans, option names in any case), shared with the future console and settings screens.
+- Autocomplete covers command names, setting ids (any case), categories, enum options and on or off.
+- Tests for tokenizing, every command, helpful failures, wildcard resets, search, completions and custom commands.
+
 ## [#029] 2026-10-27, E5.2 Settings persistence and presets
 ### Added
 - vxe/config/settings_file.hpp: settings saved as TOML with one table per category and a comment above every setting (name, description, default, range or options, when it takes effect), enums by name, written atomically; loaded with toml++ through the normal validated set.
