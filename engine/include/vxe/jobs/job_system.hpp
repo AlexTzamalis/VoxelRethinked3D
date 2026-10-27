@@ -2,6 +2,7 @@
 
 #include <vxe/core/inline_function.hpp>
 #include <vxe/core/types.hpp>
+#include <vxe/jobs/cancel.hpp>
 
 #include <array>
 #include <atomic>
@@ -9,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <utility>
@@ -29,6 +31,12 @@ enum class Priority : u8 {
 
 inline constexpr usize kPriorityCount = 5;
 
+// Which threads run a job.
+enum class Pool : u8 {
+    Compute, // The worker threads. For CPU work that never blocks.
+    Io,      // The IO threads. For work that blocks on the disk (Section 6.4).
+};
+
 // Bytes a job's callable may capture. 48 bytes hold six pointers or a few
 // small values; larger data is passed by pointer. The limit keeps every job
 // in a fixed size slot, so scheduling never allocates.
@@ -36,13 +44,32 @@ inline constexpr usize kJobCaptureBytes = 48;
 
 using JobFunction = InlineFunction<kJobCaptureBytes>;
 
+// How to run a job. Converts from a Priority, so the common case stays short:
+//   jobs.schedule(counter, fn, Priority::High);
+//   jobs.schedule(counter, fn, {.priority = Priority::Low, .cancel = token});
+struct JobOptions {
+    Priority priority = Priority::Normal;
+    CancelToken cancel; // A job cancelled before it starts is skipped.
+    Pool pool = Pool::Compute;
+
+    JobOptions() = default;
+    // NOLINTNEXTLINE(google-explicit-constructor, hicpp-explicit-conversions): allows passing a bare
+    // Priority.
+    JobOptions(Priority p) noexcept
+        : priority(p) {}
+    JobOptions(Priority p, CancelToken token, Pool where = Pool::Compute) noexcept
+        : priority(p)
+        , cancel(std::move(token))
+        , pool(where) {}
+};
+
 // Counts unfinished jobs. Scheduling a job with a counter increments it, and
 // finishing the job decrements it, so a counter shared by many jobs tells when
 // the whole batch is done. It lives wherever the caller wants (usually on the
 // stack), so batches need no allocation at all.
 //
-// The counter must outlive every job that uses it. Waiting on it before it
-// goes out of scope guarantees that.
+// The counter must outlive every job that uses it: wait on it, or declare it
+// before the JobSystem so the system's shutdown drain finishes first.
 class JobCounter {
 public:
     JobCounter() noexcept = default;
@@ -60,53 +87,68 @@ private:
     std::atomic<u32> m_pending{0};
 };
 
-// A handle to one scheduled job, for code that does not want to manage a
-// counter. Copyable; all copies refer to the same job. Creating one costs a
-// single small allocation, so prefer a JobCounter for large batches.
+namespace detail {
+struct JobState;
+} // namespace detail
+
+// A handle to one scheduled job. Copyable; all copies refer to the same job.
+// Unlike a JobCounter, a handle keeps its state alive on the heap, which is
+// what lets other jobs depend on it (JobSystem::scheduleAfter). Creating one
+// costs a single small allocation, so prefer a JobCounter for large batches.
 class JobHandle {
 public:
     JobHandle() noexcept = default;
 
     // True once the job has finished. An empty handle counts as done.
-    [[nodiscard]] bool isDone() const noexcept { return !m_counter || m_counter->isDone(); }
-    [[nodiscard]] bool isValid() const noexcept { return m_counter != nullptr; }
+    [[nodiscard]] bool isDone() const noexcept;
+    [[nodiscard]] bool isValid() const noexcept { return m_state != nullptr; }
 
 private:
     friend class JobSystem;
-    explicit JobHandle(std::shared_ptr<JobCounter> counter) noexcept
-        : m_counter(std::move(counter)) {}
-    std::shared_ptr<JobCounter> m_counter;
+    explicit JobHandle(std::shared_ptr<detail::JobState> state) noexcept
+        : m_state(std::move(state)) {}
+    std::shared_ptr<detail::JobState> m_state;
 };
 
 struct JobSystemConfig {
     // Number of worker threads. 0 picks hardware_concurrency - 2 (leaving the
     // main and server threads a core each, Section 6.4), but at least 1.
     u32 workerCount = 0;
+    // Number of IO threads (Section 6.4 suggests 1 to 2).
+    u32 ioThreadCount = 2;
 };
 
-// A work stealing thread pool with priorities (ADR-012).
+// A work stealing thread pool with priorities, dependencies, cancellation, a
+// main thread task queue and separate IO threads (ADR-012).
 //
-// Each worker owns one queue per priority. Jobs scheduled from a worker go to
-// its own queue, where the worker takes the newest first (good for cache, the
-// data a job just produced is still hot). Jobs scheduled from other threads
-// go to a shared queue per priority. A worker looks for work from the highest
-// priority down: its own queue, then the shared queue, then the oldest job of
-// another worker (stealing), so busy workers are relieved automatically.
+// Compute jobs: each worker owns one queue per priority. Jobs scheduled from
+// a worker go to its own queue, where the worker takes the newest first (good
+// for cache: the data a job just produced is still hot). Jobs scheduled from
+// other threads go to a shared queue per priority. A worker looks for work
+// from the highest priority down: its own queue, then the shared queue, then
+// the oldest job of another worker (stealing).
 //
-// Idle workers sleep and are woken when work arrives, so an idle engine uses
-// no CPU.
+// IO jobs run on their own threads from their own queues. They may block on
+// the disk without ever holding up a compute worker, and compute workers and
+// wait() never pick them up.
+//
+// Idle threads spin briefly, then sleep until work arrives, so an idle engine
+// uses no CPU.
 //
 // The queues are short critical sections behind a mutex rather than a lock
 // free deque. That is simple to prove correct and fast enough for chunk sized
 // jobs; a lock free version only replaces the queue type if profiling ever
 // shows contention (Section 0.2: measure before optimizing).
 //
-// Thread safety: schedule(), wait() and the queries may be called from any
-// thread, including from inside jobs.
+// Thread safety: everything may be called from any thread, including from
+// inside jobs, except runMainThreadTasks(), which belongs to the thread that
+// created the JobSystem.
 class JobSystem {
 public:
     explicit JobSystem(const JobSystemConfig& config = {});
-    // Runs every job that is still queued, then stops and joins the workers.
+    // Runs every job that is still queued (including continuations and IO
+    // jobs), then stops and joins all threads. Main thread tasks that were
+    // never run are dropped.
     ~JobSystem();
 
     JobSystem(const JobSystem&) = delete;
@@ -115,32 +157,52 @@ public:
     JobSystem& operator=(JobSystem&&) = delete;
 
     // Schedules `function` and counts it in `counter`.
-    void schedule(JobCounter& counter, JobFunction function, Priority priority = Priority::Normal);
+    void schedule(JobCounter& counter, JobFunction function, const JobOptions& options = {});
 
-    // Schedules `function` and returns a handle to wait on.
-    [[nodiscard]] JobHandle schedule(JobFunction function, Priority priority = Priority::Normal);
+    // Schedules `function` and returns a handle to wait on or depend on.
+    [[nodiscard]] JobHandle schedule(JobFunction function, const JobOptions& options = {});
+
+    // Schedules `function` to run once every job in `dependencies` has
+    // finished. Empty or finished dependencies are fine. The job does not
+    // occupy a thread while it waits; it is queued when the last dependency
+    // completes.
+    [[nodiscard]] JobHandle scheduleAfter(std::span<const JobHandle> dependencies, JobFunction function,
+                                          const JobOptions& options = {});
 
     // Blocks until the counter reaches zero. While waiting, the calling thread
-    // runs other queued jobs, so waiting inside a job cannot deadlock the pool
-    // and a waiting main thread still contributes work.
+    // runs other compute jobs, so waiting inside a job cannot deadlock the
+    // pool and a waiting main thread still contributes work.
     void wait(const JobCounter& counter);
     void wait(const JobHandle& handle);
 
+    // Queues `task` to run on the main thread during the next call to
+    // runMainThreadTasks(). Any thread may call this; it is how a job hands a
+    // result to code that must run on the main thread (GPU uploads, UI).
+    void runOnMainThread(JobFunction task);
+
+    // Runs every task posted with runOnMainThread() so far, in posting order,
+    // and returns how many ran. Tasks posted while running wait for the next
+    // call. Only the thread that created the JobSystem may call this.
+    usize runMainThreadTasks();
+
     [[nodiscard]] u32 workerCount() const noexcept { return static_cast<u32>(m_workers.size()); }
+    [[nodiscard]] u32 ioThreadCount() const noexcept { return static_cast<u32>(m_ioThreads.size()); }
 
-    // The index of the calling worker thread, or nothing on other threads.
+    // The index of the calling compute worker, or nothing on other threads.
     [[nodiscard]] std::optional<u32> currentWorkerIndex() const noexcept;
+    [[nodiscard]] bool isIoThread() const noexcept;
 
-    // Jobs scheduled but not yet started, over all queues.
+    // Compute jobs scheduled but not yet started.
     [[nodiscard]] u64 queuedJobCount() const noexcept { return m_queuedJobs.load(std::memory_order_relaxed); }
 
 private:
     struct Job {
         JobFunction function;
         JobCounter* counter = nullptr;
-        // Set for jobs scheduled with a JobHandle: keeps the counter alive even
-        // if every handle is dropped before the job finishes.
-        std::shared_ptr<JobCounter> keepAlive;
+        // Set for jobs with a JobHandle: keeps the state alive even if every
+        // handle is dropped, and holds the jobs that depend on this one.
+        std::shared_ptr<detail::JobState> state;
+        CancelToken cancel;
     };
 
     // A growable ring buffer of jobs behind a mutex. The owner pushes and pops
@@ -166,22 +228,55 @@ private:
         std::string name; // Kept here because Tracy stores the pointer for the thread's life.
     };
 
-    void enqueue(Job&& job, Priority priority);
+    // A group of threads that sleep on the same condition. Compute workers and
+    // IO threads each have one, so waking one kind never wakes the other.
+    struct SleepGroup {
+        std::mutex mutex;
+        std::condition_variable wakeUp;
+        std::atomic<u32> sleeping{0};
+    };
+
+    // A job waiting for its dependencies. Each finished dependency counts
+    // `remaining` down; the last one queues the job.
+    struct PendingJob;
+
+    friend struct detail::JobState;
+    friend class JobHandle;
+
+    void releaseDependency(const std::shared_ptr<PendingJob>& pending);
+
+    void enqueue(Job&& job, const JobOptions& options);
     [[nodiscard]] bool findJob(Job& out, std::optional<u32> self);
-    void runJob(Job& job);
+    [[nodiscard]] bool findIoJob(Job& out);
+    void runJob(Job& job, std::atomic<u64>& runningCounter);
     void workerLoop(u32 index);
+    void ioLoop(u32 index);
+    void sleepUntil(SleepGroup& group, const std::atomic<u64>& queued);
+    static void wake(SleepGroup& group);
 
     std::vector<std::unique_ptr<Worker>> m_workers;
     std::array<JobQueue, kPriorityCount> m_sharedQueues;
+    std::vector<std::thread> m_ioThreads;
+    std::vector<std::string> m_ioThreadNames;
+    std::array<JobQueue, kPriorityCount> m_ioQueues;
 
-    // Queued plus running jobs. The destructor drains until both are zero; a
-    // running job may still schedule more, so queued alone is not enough.
+    // Queued plus running jobs per pool. The destructor drains until all are
+    // zero; a running job may still schedule more, so queued alone is not enough.
     std::atomic<u64> m_queuedJobs{0};
     std::atomic<u64> m_runningJobs{0};
-    std::atomic<u32> m_sleepingWorkers{0};
+    std::atomic<u64> m_queuedIoJobs{0};
+    std::atomic<u64> m_runningIoJobs{0};
+    // Jobs waiting for dependencies. They count as outstanding work for the drain.
+    std::atomic<u64> m_waitingJobs{0};
+
+    SleepGroup m_workerSleep;
+    SleepGroup m_ioSleep;
     std::atomic<bool> m_stopping{false};
-    std::mutex m_sleepMutex;
-    std::condition_variable m_wakeUp;
+
+    std::thread::id m_ownerThread;
+    std::mutex m_mainThreadMutex;
+    std::vector<JobFunction> m_mainThreadTasks;
+    std::vector<JobFunction> m_mainThreadRunning; // Reused to avoid reallocating.
 };
 
 } // namespace vxe::jobs

@@ -2,6 +2,18 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#019] 2026-10-27, E3.2 Dependencies and cancellation
+### Added
+- JobOptions (priority, cancel token, pool), constructible from a bare Priority so existing calls stay short.
+- scheduleAfter: a job queued when all of its JobHandle dependencies finish, without holding a thread while it waits. A finished dependent always implies finished dependencies.
+- CancelSource and CancelToken (vxe/jobs/cancel.hpp): jobs cancelled before they start are skipped but still complete; running jobs can check the token and return early.
+- runOnMainThread and runMainThreadTasks: tasks from any thread run on the owner thread in posting order, double buffered so tasks may post more tasks.
+- IO threads (Pool::Io, 2 by default): IO jobs never run on compute workers or in wait(), so blocking disk work cannot stall CPU work. Without IO threads they fall back to the compute pool.
+- Shutdown drains continuations and IO jobs too.
+- Tests for chains, diamonds, finished and empty dependencies, 200 way fan out and fan in, cancellation before and during a job, main thread order and nesting, IO isolation and shutdown. Repeated 200 times in release and debug and 40 times under ASan without a failure.
+### Fixed
+- A finishing job released its dependents before counting itself as done, so a dependent could finish while its dependency still reported unfinished (found by the repeated release runs).
+
 ## [#018] 2026-10-27, E3.1 Job scheduler
 ### Added
 - vxe_jobs module (layer 2): JobSystem, a work stealing thread pool with five priorities (Critical to Background). Each worker owns a ring buffer queue per priority (LIFO for its own jobs, FIFO for thieves), other threads submit to shared queues, and the highest priority job anywhere runs first.
