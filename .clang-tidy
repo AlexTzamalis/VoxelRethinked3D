@@ -17,11 +17,13 @@
 #   *-pro-bounds-avoid-unchecked-container-access  Voxel code indexes arrays with computed indices in hot loops by
 #                                          design. Bounds are guarded by VXE_ASSERT where they are not obvious.
 #   readability-math-missing-parentheses   Math heavy code (y * 256 + z * 16 + x) reads worse with extra parentheses.
+#   clang-analyzer-optin.core.EnumCastOutOfRange  Opt in check that fires inside the MSVC standard library.
 Checks: >
   -*,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   clang-analyzer-*,
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
   concurrency-*,
   cppcoreguidelines-*,
   -cppcoreguidelines-avoid-magic-numbers,

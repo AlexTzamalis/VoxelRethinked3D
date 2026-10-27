@@ -12,7 +12,9 @@
       "default-features": false
     },
     "unordered-dense",
-    "xxhash"
+    "xxhash",
+    "lz4",
+    "zstd"
   ],
   "features": {
     "profiling": {

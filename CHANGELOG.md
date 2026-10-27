@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#023] 2026-10-27, E4.2 Async IO and compression
+### Added
+- vxe/io/binary.hpp: BinaryWriter and BinaryReader with little endian on every platform, IEEE float bits, LEB128 and ZigZag varints and length prefixed strings. The reader fails safely with a sticky error flag instead of reading out of bounds.
+- vxe/io/compression.hpp: zstd (saves, default level 3) and LZ4 (caches) with allocating and caller buffer variants, size checked decompression and per thread zstd contexts.
+- vxe/io/file_io.hpp: readFile and writeFile (atomic temp then rename by default), and AsyncFileIo running reads and writes on the IO threads with completion on the main thread, a worker or the IO thread.
+- The io module now depends on jobs; zstd and LZ4 are linked privately.
+- Tests for byte order, every value type, varint extremes, malformed input, compression round trips on compressible, random and empty data, corrupt data, buffer reuse, atomic replacement and async completion targets.
+### Changed
+- clang-tidy skips clang-analyzer-optin.core.EnumCastOutOfRange, which fires inside the MSVC standard library.
+
 ## [#022] 2026-10-27, E3.3 Fix job statistics read right after a wait
 ### Fixed
 - The waiting for dependencies count dropped only after the released job was queued, and the completed count rose only after a job counted as done, so a thread that had just waited could read stale numbers (Linux GCC CI failure). Both are now updated before the job can be observed as queued or done. Repeated 200 times in release and debug and 40 times under ASan without a failure.
