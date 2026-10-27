@@ -1,5 +1,6 @@
 #include "vxe/app/application.hpp"
 
+#include <vxe/config/settings_file.hpp>
 #include <vxe/core/log.hpp>
 #include <vxe/core/profile.hpp>
 #include <vxe/core/version.hpp>
@@ -117,6 +118,27 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
         context.requestQuit();
     }
 
+    // Settings are loaded after onInit, because that is where they are
+    // registered (Section 6.5). On first start the file does not exist and is
+    // written with the defaults, so players find a commented file to edit.
+    const Result<std::filesystem::path> settingsPath = vfs->resolveForWrite("config:/settings.toml");
+    if (exitCode == 0 && settingsPath) {
+        Result<config::LoadReport> loaded = config::loadSettingsFromFile(*settings, settingsPath.value());
+        if (loaded) {
+            for (const std::string& warning : loaded.value().warnings) {
+                VXE_LOG_WARN(log::core, "settings.toml: {}", warning);
+            }
+            VXE_LOG_INFO(log::core, "Loaded {} settings from config/settings.toml", loaded.value().applied);
+        } else if (loaded.error().code() == ErrorCode::NotFound) {
+            if (Result<void> saved = config::saveSettingsToFile(*settings, settingsPath.value()); !saved) {
+                VXE_LOG_WARN(log::core, "Could not write default settings: {}", saved.error().describe());
+            }
+        } else {
+            VXE_LOG_ERROR(log::core, "settings.toml was not loaded, using defaults: {}",
+                          loaded.error().describe());
+        }
+    }
+
     FrameTimer frameTimer;
     u64 frames = 0;
     while (!context.isQuitRequested()) {
@@ -149,8 +171,14 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
     }
     VXE_LOG_INFO(log::core, "Main loop ended after {} frames", frames);
 
-    // Shutdown in the documented order (see application.hpp).
+    // Shutdown in the documented order (see application.hpp). Settings are
+    // saved after onShutdown, so changes the application makes there persist.
     application->onShutdown(context);
+    if (exitCode == 0 && settingsPath) {
+        if (Result<void> saved = config::saveSettingsToFile(*settings, settingsPath.value()); !saved) {
+            VXE_LOG_WARN(log::core, "Could not save settings: {}", saved.error().describe());
+        }
+    }
     jobs.reset();
     application.reset();
     window.reset();

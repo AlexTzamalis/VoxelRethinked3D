@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#029] 2026-10-27, E5.2 Settings persistence and presets
+### Added
+- vxe/config/settings_file.hpp: settings saved as TOML with one table per category and a comment above every setting (name, description, default, range or options, when it takes effect), enums by name, written atomically; loaded with toml++ through the normal validated set.
+- Loading is forgiving: wrong types and impossible values become warnings that name the key, integers are accepted for float settings, enum names ignore case, and invalid TOML fails with its line and column.
+- Unknown keys are kept verbatim and written back on save, so older and newer versions do not erase each other's settings.
+- Presets: definePreset, applyPreset, presetNames and currentPreset (Custom when nothing matches).
+- Global and per world scopes save and load through separate files.
+- The engine loop loads config:/settings.toml after onInit, writes the commented defaults on first start, and saves after onShutdown.
+- Tests: round trip into a fresh registry, a hand edited file with comments, clamped values, wrong types, case insensitive enums and unknown tables, invalid TOML, files on disk, presets and scopes.
+
 ## [#028] 2026-10-27, E5.1 Settings registry
 ### Added
 - vxe_config module (layer 5) with SettingsRegistry: bool, int, float, enum and string settings with display name, description, apply mode, scope, visibility, range and step, enum options and length limits; the category comes from the dotted id.

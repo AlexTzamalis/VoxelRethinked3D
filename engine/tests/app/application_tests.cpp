@@ -116,6 +116,8 @@ TEST_CASE("runApplication drives init, frames and shutdown in order") {
     CHECK(std::filesystem::is_directory(folder / "config"));
     CHECK(std::filesystem::is_directory(folder / "saves"));
     CHECK(std::filesystem::exists(folder / "logs" / "latest.log"));
+    // First start writes the settings file with its comments.
+    CHECK(std::filesystem::exists(folder / "config" / "settings.toml"));
 }
 
 TEST_CASE("A quit request from the OS ends the loop through onQuitRequested") {

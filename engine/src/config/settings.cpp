@@ -333,6 +333,80 @@ void SettingsRegistry::unsubscribe(u64 id) noexcept {
     }
 }
 
+void SettingsRegistry::definePreset(std::string_view group, std::string_view presetName,
+                                    std::vector<std::pair<std::string, SettingValue>> values) {
+    assertOwnerThread();
+    const auto existing = std::ranges::find_if(
+        m_presets, [&](const Preset& preset) { return preset.group == group && preset.name == presetName; });
+    if (existing != m_presets.end()) {
+        existing->values = std::move(values);
+        return;
+    }
+    m_presets.push_back(
+        Preset{.group = std::string(group), .name = std::string(presetName), .values = std::move(values)});
+}
+
+Result<void> SettingsRegistry::applyPreset(std::string_view group, std::string_view presetName) {
+    const auto preset = std::ranges::find_if(m_presets, [&](const Preset& candidate) {
+        return candidate.group == group && candidate.name == presetName;
+    });
+    if (preset == m_presets.end()) {
+        return Error(ErrorCode::NotFound, std::format("No preset '{}' in group '{}'", presetName, group));
+    }
+    std::string problems;
+    for (const auto& [id, presetValue] : preset->values) {
+        if (Result<void> result = set(id, presetValue); !result) {
+            problems += problems.empty() ? "" : "; ";
+            problems += result.error().message();
+        }
+    }
+    if (!problems.empty()) {
+        return Error(ErrorCode::InvalidArgument,
+                     std::format("Preset '{}' partly applied: {}", presetName, problems));
+    }
+    return {};
+}
+
+std::vector<std::string> SettingsRegistry::presetNames(std::string_view group) const {
+    std::vector<std::string> names;
+    for (const Preset& preset : m_presets) {
+        if (preset.group == group) {
+            names.push_back(preset.name);
+        }
+    }
+    return names;
+}
+
+std::string SettingsRegistry::currentPreset(std::string_view group) const {
+    for (const Preset& preset : m_presets) {
+        if (preset.group != group) {
+            continue;
+        }
+        const bool matches = std::ranges::all_of(preset.values, [this](const auto& pair) {
+            const Result<SettingValue> current = value(pair.first);
+            return current.hasValue() && current.value() == pair.second;
+        });
+        if (matches) {
+            return preset.name;
+        }
+    }
+    return "Custom";
+}
+
+void SettingsRegistry::setUnknown(Scope scope, std::string id, std::string tomlValueText) {
+    auto& list = m_unknown[static_cast<usize>(scope)];
+    const auto position = std::ranges::lower_bound(list, id, {}, &std::pair<std::string, std::string>::first);
+    if (position != list.end() && position->first == id) {
+        position->second = std::move(tomlValueText);
+    } else {
+        list.insert(position, {std::move(id), std::move(tomlValueText)});
+    }
+}
+
+std::vector<std::pair<std::string, std::string>> SettingsRegistry::unknown(Scope scope) const {
+    return m_unknown[static_cast<usize>(scope)];
+}
+
 usize SettingsRegistry::dispatchChanges() {
     VXE_PROFILE_FUNCTION();
     assertOwnerThread();

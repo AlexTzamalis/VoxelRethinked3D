@@ -29,7 +29,8 @@
           "platform": "linux"
         }
       ]
-    }
+    },
+    "tomlplusplus"
   ],
   "features": {
     "profiling": {

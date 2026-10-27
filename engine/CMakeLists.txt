@@ -116,11 +116,17 @@ vxe_add_module(platform
 )
 
 # Config: the settings registry and, later, persistence and console commands (E5).
+find_package(tomlplusplus CONFIG REQUIRED)
+
 vxe_add_module(config
     SOURCES
         src/config/settings.cpp
+        src/config/settings_file.cpp
     DEPENDS
         core
+        io
+    PRIVATE_LIBS
+        tomlplusplus::tomlplusplus
 )
 
 # App: Application, EngineContext and the main loop (E4.5). The top layer,

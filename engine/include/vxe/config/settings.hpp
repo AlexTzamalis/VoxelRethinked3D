@@ -5,6 +5,7 @@
 #include <vxe/core/result.hpp>
 #include <vxe/core/types.hpp>
 
+#include <array>
 #include <atomic>
 #include <deque>
 #include <functional>
@@ -292,6 +293,24 @@ public:
 
     [[nodiscard]] bool isDefault(std::string_view id) const;
 
+    // Presets (Section 16.2): named sets of values for a group of settings,
+    // for example group "Graphics" with presets "Low" to "Ultra". Defining a
+    // preset again replaces it. Values are validated when applied.
+    void definePreset(std::string_view group, std::string_view presetName,
+                      std::vector<std::pair<std::string, SettingValue>> values);
+    // Sets every value of the preset. Fails if the group or preset is unknown;
+    // values that no longer validate are skipped and reported in the error.
+    Result<void> applyPreset(std::string_view group, std::string_view presetName);
+    [[nodiscard]] std::vector<std::string> presetNames(std::string_view group) const;
+    // The preset whose values all match the current ones, or "Custom".
+    [[nodiscard]] std::string currentPreset(std::string_view group) const;
+
+    // Keys found in a settings file that no setting claims (written by an
+    // older or newer version, or a removed feature). They are kept verbatim,
+    // as TOML value text, so saving the file never deletes them.
+    void setUnknown(Scope scope, std::string id, std::string tomlValueText);
+    [[nodiscard]] std::vector<std::pair<std::string, std::string>> unknown(Scope scope) const;
+
     // Runs the change callbacks for every setting that changed since the last
     // call. Several changes of one setting are merged into one callback with
     // the oldest old value and the newest new value. Returns the number of
@@ -336,6 +355,15 @@ private:
     std::vector<Subscriber> m_subscribers;
     u64 m_nextSubscriberId = 1;
     bool m_dispatching = false;
+
+    struct Preset {
+        std::string group;
+        std::string name;
+        std::vector<std::pair<std::string, SettingValue>> values;
+    };
+    std::vector<Preset> m_presets;
+    // Sorted by id per scope, so files keep a stable order.
+    std::array<std::vector<std::pair<std::string, std::string>>, 2> m_unknown;
 
     std::mutex m_pendingMutex;
     std::vector<PendingChange> m_pending;
