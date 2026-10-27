@@ -79,6 +79,14 @@ vxe_add_module(jobs
         Threads::Threads
 )
 
+# IO: virtual file system, async file IO, compression, serialization (E4).
+vxe_add_module(io
+    SOURCES
+        src/io/vfs.cpp
+    DEPENDS
+        core
+)
+
 # One target that links every engine module, for the game and tools.
 vxe_add_engine_target()
 

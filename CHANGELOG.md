@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#021] 2026-10-27, E4.1 Virtual file system
+### Added
+- vxe_io module (layer 3) with Vfs: named mounts (assets, textures, config, saves) over real folders, read only or read write, optionally created on mount, behind a shared mutex for concurrent lookups.
+- normalizeRelativePath: separators unified, dot parts removed, and anything that could leave the mount or alias another file rejected (climbing above the root, absolute and drive paths, colons and alternate streams, control and reserved characters, Windows device names, trailing dots and spaces). The same rules apply on every platform.
+- resolve, resolveForWrite (refuses read only mounts), exists and list (sorted, non throwing iteration).
+- Tests for normalization, every rejection rule, mount resolution, access control, listing and remounting.
+
 ## [#020] 2026-10-27, E3.3 Job stats
 ### Added
 - JobSystem::stats(): jobs run and busy time per compute worker, per IO thread and for helping threads, queue depth per priority for both pools, jobs waiting for dependencies, completed and cancelled totals, and jobs per second since the previous call.

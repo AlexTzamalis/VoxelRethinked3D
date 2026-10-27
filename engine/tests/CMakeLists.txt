@@ -13,6 +13,7 @@ add_executable(vxe_tests
     core/memory_tests.cpp
     core/profile_tests.cpp
     core/result_tests.cpp
+    io/vfs_tests.cpp
     jobs/job_dependency_tests.cpp
     jobs/job_stats_tests.cpp
     jobs/job_system_tests.cpp
