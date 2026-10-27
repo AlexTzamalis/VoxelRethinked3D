@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vxe/core/inline_function.hpp>
+#include <vxe/core/time.hpp>
 #include <vxe/core/types.hpp>
 #include <vxe/jobs/cancel.hpp>
 
@@ -110,6 +111,28 @@ private:
     std::shared_ptr<detail::JobState> m_state;
 };
 
+// Work done by one thread (or one group of threads) since startup.
+struct ThreadStats {
+    u64 jobsRun = 0; // Jobs finished, including cancelled ones that were skipped.
+    Duration busy{}; // Time spent inside job functions.
+};
+
+// A snapshot of the job system for the debug overlay (Section 18.2, page
+// "Streaming and Jobs") and tests. Values are read with relaxed atomics, so a
+// snapshot taken while jobs run is consistent per field, not across fields.
+struct JobSystemStats {
+    std::vector<ThreadStats> workers;           // One per compute worker, by index.
+    std::vector<ThreadStats> ioThreads;         // One per IO thread.
+    ThreadStats helpers;                        // Jobs run by waiting threads (wait(), shutdown).
+    std::array<u64, kPriorityCount> queued{};   // Compute jobs waiting, per priority.
+    std::array<u64, kPriorityCount> queuedIo{}; // IO jobs waiting, per priority.
+    u64 waitingForDependencies = 0;
+    u64 jobsCompleted = 0; // All pools, since startup.
+    u64 jobsCancelled = 0; // Skipped because their token was cancelled before they started.
+    // Completed jobs per second since the previous stats() call (0 on the first).
+    f64 jobsPerSecond = 0.0;
+};
+
 struct JobSystemConfig {
     // Number of worker threads. 0 picks hardware_concurrency - 2 (leaving the
     // main and server threads a core each, Section 6.4), but at least 1.
@@ -117,6 +140,13 @@ struct JobSystemConfig {
     // Number of IO threads (Section 6.4 suggests 1 to 2).
     u32 ioThreadCount = 2;
 };
+
+// The per thread counters are cache line aligned on purpose; MSVC warns
+// (C4324) about the padding that adds, which is the point.
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4324)
+#endif
 
 // A work stealing thread pool with priorities, dependencies, cancellation, a
 // main thread task queue and separate IO threads (ADR-012).
@@ -195,6 +225,11 @@ public:
     // Compute jobs scheduled but not yet started.
     [[nodiscard]] u64 queuedJobCount() const noexcept { return m_queuedJobs.load(std::memory_order_relaxed); }
 
+    // Takes a snapshot of the counters. Cheap enough to call every frame.
+    // Not const: it remembers the time and total of the call to compute the
+    // rate of the next one.
+    [[nodiscard]] JobSystemStats stats();
+
 private:
     struct Job {
         JobFunction function;
@@ -222,10 +257,19 @@ private:
         usize m_size = 0;
     };
 
+    // Per thread counters. Each one is written only by its own thread, so a
+    // relaxed add is enough; stats() reads them from another thread. Aligned
+    // to a cache line so threads never write to the same line.
+    struct alignas(64) ThreadCounters {
+        std::atomic<u64> jobsRun{0};
+        std::atomic<i64> busyNanoseconds{0};
+    };
+
     struct Worker {
         std::array<JobQueue, kPriorityCount> queues;
         std::thread thread;
         std::string name; // Kept here because Tracy stores the pointer for the thread's life.
+        ThreadCounters counters;
     };
 
     // A group of threads that sleep on the same condition. Compute workers and
@@ -248,7 +292,8 @@ private:
     void enqueue(Job&& job, const JobOptions& options);
     [[nodiscard]] bool findJob(Job& out, std::optional<u32> self);
     [[nodiscard]] bool findIoJob(Job& out);
-    void runJob(Job& job, std::atomic<u64>& runningCounter);
+    void runJob(Job& job, std::atomic<u64>& runningCounter, ThreadCounters& counters);
+    [[nodiscard]] ThreadCounters& countersOfCurrentThread() noexcept;
     void workerLoop(u32 index);
     void ioLoop(u32 index);
     void sleepUntil(SleepGroup& group, const std::atomic<u64>& queued);
@@ -258,6 +303,8 @@ private:
     std::array<JobQueue, kPriorityCount> m_sharedQueues;
     std::vector<std::thread> m_ioThreads;
     std::vector<std::string> m_ioThreadNames;
+    std::vector<std::unique_ptr<ThreadCounters>> m_ioCounters;
+    ThreadCounters m_helperCounters;
     std::array<JobQueue, kPriorityCount> m_ioQueues;
 
     // Queued plus running jobs per pool. The destructor drains until all are
@@ -269,6 +316,14 @@ private:
     // Jobs waiting for dependencies. They count as outstanding work for the drain.
     std::atomic<u64> m_waitingJobs{0};
 
+    // Per priority queue depths and totals for stats().
+    std::array<std::atomic<u64>, kPriorityCount> m_queuedPerPriority{};
+    std::array<std::atomic<u64>, kPriorityCount> m_queuedIoPerPriority{};
+    std::atomic<u64> m_completedJobs{0};
+    std::atomic<u64> m_cancelledJobs{0};
+    TimePoint m_lastStatsTime{};
+    u64 m_lastStatsCompleted = 0;
+
     SleepGroup m_workerSleep;
     SleepGroup m_ioSleep;
     std::atomic<bool> m_stopping{false};
@@ -278,5 +333,9 @@ private:
     std::vector<JobFunction> m_mainThreadTasks;
     std::vector<JobFunction> m_mainThreadRunning; // Reused to avoid reallocating.
 };
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 } // namespace vxe::jobs

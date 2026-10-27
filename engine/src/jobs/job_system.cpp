@@ -38,6 +38,7 @@ namespace {
 thread_local const JobSystem* workerOwner = nullptr;
 thread_local u32 workerIndex = 0;
 thread_local const JobSystem* ioOwner = nullptr;
+thread_local u32 ioIndex = 0;
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 // An idle thread yields this many times before it goes to sleep. Spinning a
@@ -119,9 +120,12 @@ JobSystem::JobSystem(const JobSystemConfig& config)
         m_workers.push_back(std::move(worker));
     }
     m_ioThreadNames.reserve(config.ioThreadCount);
+    m_ioCounters.reserve(config.ioThreadCount);
     for (u32 i = 0; i < config.ioThreadCount; ++i) {
         m_ioThreadNames.push_back(std::format("IO {}", i));
+        m_ioCounters.push_back(std::make_unique<ThreadCounters>());
     }
+    m_lastStatsTime = Clock::now();
 
     // Threads start only after every worker exists, because a worker may try
     // to steal from any other worker the moment it runs.
@@ -151,7 +155,7 @@ JobSystem::~JobSystem() {
     Job job;
     while (outstanding() > 0) {
         if (findJob(job, currentWorkerIndex())) {
-            runJob(job, m_runningJobs);
+            runJob(job, m_runningJobs, countersOfCurrentThread());
         } else {
             std::this_thread::yield();
         }
@@ -257,6 +261,7 @@ void JobSystem::enqueue(Job&& job, const JobOptions& options) {
     // compute pool rather than hanging forever.
     if (options.pool == Pool::Io && !m_ioThreads.empty()) {
         m_ioQueues[level].pushBack(std::move(job));
+        m_queuedIoPerPriority[level].fetch_add(1, std::memory_order_relaxed);
         m_queuedIoJobs.fetch_add(1, std::memory_order_seq_cst);
         wake(m_ioSleep);
         return;
@@ -267,6 +272,7 @@ void JobSystem::enqueue(Job&& job, const JobOptions& options) {
     } else {
         m_sharedQueues[level].pushBack(std::move(job));
     }
+    m_queuedPerPriority[level].fetch_add(1, std::memory_order_relaxed);
     // See sleepUntil() for why both sides use sequentially consistent order.
     m_queuedJobs.fetch_add(1, std::memory_order_seq_cst);
     wake(m_workerSleep);
@@ -297,6 +303,7 @@ bool JobSystem::findJob(Job& out, std::optional<u32> self) {
             // never sees both at zero while this job is in flight.
             m_runningJobs.fetch_add(1, std::memory_order_acq_rel);
             m_queuedJobs.fetch_sub(1, std::memory_order_acq_rel);
+            m_queuedPerPriority[level].fetch_sub(1, std::memory_order_relaxed);
             return true;
         }
     }
@@ -304,22 +311,32 @@ bool JobSystem::findJob(Job& out, std::optional<u32> self) {
 }
 
 bool JobSystem::findIoJob(Job& out) {
-    for (JobQueue& queue : m_ioQueues) {
-        if (queue.popFront(out)) {
+    for (usize level = 0; level < kPriorityCount; ++level) {
+        if (m_ioQueues[level].popFront(out)) {
             m_runningIoJobs.fetch_add(1, std::memory_order_acq_rel);
             m_queuedIoJobs.fetch_sub(1, std::memory_order_acq_rel);
+            m_queuedIoPerPriority[level].fetch_sub(1, std::memory_order_relaxed);
             return true;
         }
     }
     return false;
 }
 
-void JobSystem::runJob(Job& job, std::atomic<u64>& runningCounter) {
+void JobSystem::runJob(Job& job, std::atomic<u64>& runningCounter, ThreadCounters& counters) {
     // A job cancelled before it started is skipped, but it still completes:
     // counters and dependents must not wait forever for work nobody wants.
-    if (!job.cancel.isCancelled()) {
+    if (job.cancel.isCancelled()) {
+        m_cancelledJobs.fetch_add(1, std::memory_order_relaxed);
+    } else {
+        // Two clock reads per job (about 20 ns each) buy the per worker
+        // utilization shown in the overlay. The busy time of a job that waits
+        // for other jobs includes the jobs it helped with while waiting.
+        const TimePoint start = Clock::now();
         job.function();
+        const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
+        counters.busyNanoseconds.fetch_add(elapsed.count(), std::memory_order_relaxed);
     }
+    counters.jobsRun.fetch_add(1, std::memory_order_relaxed);
     // Captures are destroyed before the job counts as done, so a waiter that
     // continues never races with a destructor still running here.
     job.function.reset();
@@ -347,7 +364,18 @@ void JobSystem::runJob(Job& job, std::atomic<u64>& runningCounter) {
         releaseDependency(pending);
     }
     state.reset();
+    m_completedJobs.fetch_add(1, std::memory_order_relaxed);
     runningCounter.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+JobSystem::ThreadCounters& JobSystem::countersOfCurrentThread() noexcept {
+    if (const std::optional<u32> self = currentWorkerIndex()) {
+        return m_workers[*self]->counters;
+    }
+    if (isIoThread()) {
+        return *m_ioCounters[ioIndex];
+    }
+    return m_helperCounters;
 }
 
 void JobSystem::wait(const JobCounter& counter) {
@@ -356,7 +384,7 @@ void JobSystem::wait(const JobCounter& counter) {
     const std::optional<u32> self = currentWorkerIndex();
     while (!counter.isDone()) {
         if (findJob(job, self)) {
-            runJob(job, m_runningJobs);
+            runJob(job, m_runningJobs, countersOfCurrentThread());
         } else {
             std::this_thread::yield();
         }
@@ -402,7 +430,7 @@ void JobSystem::workerLoop(u32 index) {
     u32 idleSpins = 0;
     while (true) {
         if (findJob(job, index)) {
-            runJob(job, m_runningJobs);
+            runJob(job, m_runningJobs, m_workers[index]->counters);
             idleSpins = 0;
             continue;
         }
@@ -420,13 +448,14 @@ void JobSystem::workerLoop(u32 index) {
 
 void JobSystem::ioLoop(u32 index) {
     ioOwner = this;
+    ioIndex = index;
     profiling::setThreadName(m_ioThreadNames[index].c_str());
 
     Job job;
     u32 idleSpins = 0;
     while (true) {
         if (findIoJob(job)) {
-            runJob(job, m_runningIoJobs);
+            runJob(job, m_runningIoJobs, *m_ioCounters[index]);
             idleSpins = 0;
             continue;
         }
@@ -440,6 +469,51 @@ void JobSystem::ioLoop(u32 index) {
         idleSpins = 0;
         sleepUntil(m_ioSleep, m_queuedIoJobs);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Statistics
+
+namespace {
+
+ThreadStats snapshotOf(const std::atomic<u64>& jobsRun, const std::atomic<i64>& busyNanoseconds) {
+    return ThreadStats{
+        .jobsRun = jobsRun.load(std::memory_order_relaxed),
+        .busy = std::chrono::duration_cast<Duration>(
+            std::chrono::nanoseconds(busyNanoseconds.load(std::memory_order_relaxed))),
+    };
+}
+
+} // namespace
+
+JobSystemStats JobSystem::stats() {
+    JobSystemStats result;
+    result.workers.reserve(m_workers.size());
+    for (const std::unique_ptr<Worker>& worker : m_workers) {
+        result.workers.push_back(snapshotOf(worker->counters.jobsRun, worker->counters.busyNanoseconds));
+    }
+    result.ioThreads.reserve(m_ioCounters.size());
+    for (const std::unique_ptr<ThreadCounters>& counters : m_ioCounters) {
+        result.ioThreads.push_back(snapshotOf(counters->jobsRun, counters->busyNanoseconds));
+    }
+    result.helpers = snapshotOf(m_helperCounters.jobsRun, m_helperCounters.busyNanoseconds);
+    for (usize level = 0; level < kPriorityCount; ++level) {
+        result.queued[level] = m_queuedPerPriority[level].load(std::memory_order_relaxed);
+        result.queuedIo[level] = m_queuedIoPerPriority[level].load(std::memory_order_relaxed);
+    }
+    result.waitingForDependencies = m_waitingJobs.load(std::memory_order_relaxed);
+    result.jobsCompleted = m_completedJobs.load(std::memory_order_relaxed);
+    result.jobsCancelled = m_cancelledJobs.load(std::memory_order_relaxed);
+
+    // The rate covers the time since the previous call (or since startup).
+    const TimePoint now = Clock::now();
+    const f64 seconds = toSeconds(now - m_lastStatsTime);
+    if (seconds > 0.0) {
+        result.jobsPerSecond = static_cast<f64>(result.jobsCompleted - m_lastStatsCompleted) / seconds;
+    }
+    m_lastStatsTime = now;
+    m_lastStatsCompleted = result.jobsCompleted;
+    return result;
 }
 
 // ---------------------------------------------------------------------------

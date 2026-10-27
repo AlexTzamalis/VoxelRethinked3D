@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#020] 2026-10-27, E3.3 Job stats
+### Added
+- JobSystem::stats(): jobs run and busy time per compute worker, per IO thread and for helping threads, queue depth per priority for both pools, jobs waiting for dependencies, completed and cancelled totals, and jobs per second since the previous call.
+- Counters are per thread, cache line aligned and relaxed, so recording them takes no locks.
+- Tests for per thread attribution, busy time, per priority depth while a worker is blocked, cancelled and waiting counts, and the rate between calls.
+### Performance
+- 1,000,000 job stress in release: 0.42 to 0.43 s with the two clock reads per job (0.46 s before), so the timing has no measurable cost.
+
 ## [#019] 2026-10-27, E3.2 Dependencies and cancellation
 ### Added
 - JobOptions (priority, cancel token, pool), constructible from a bare Priority so existing calls stay short.
