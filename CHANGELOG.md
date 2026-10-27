@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#025] 2026-10-27, E4.3 Catch files created in new folders on Linux
+### Fixed
+- Linux has no recursive watches, so files written into a brand new sub folder before efsw watched it were missed (Linux CI failure; copying a texture pack folder would hit it). Watches now enable efsw's synthetic events, which report the files already in a newly watched folder; the per file debounce merges any duplicates.
+
 ## [#024] 2026-10-27, E4.3 File watcher
 ### Added
 - vxe/io/file_watcher.hpp: FileWatcher over efsw (hidden behind a private implementation), recursive or flat watches, unwatch, and poll() that delivers events on the calling thread.

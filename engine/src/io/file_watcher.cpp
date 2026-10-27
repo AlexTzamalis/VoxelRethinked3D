@@ -99,7 +99,15 @@ Result<WatchId> FileWatcher::watch(const std::filesystem::path& folder, bool rec
         return Error(ErrorCode::NotFound, std::format("Cannot watch '{}': not a folder", folder.string()));
     }
 
-    const efsw::WatchID efswId = m_impl->backend.addWatch(absolute.string(), m_impl.get(), recursive);
+    // Linux has no recursive watches, so efsw adds one per sub folder as they
+    // appear. Files created in a new folder before its watch exists would be
+    // missed (copying a whole texture pack into textures/ does exactly that).
+    // Synthetic events report the files already there once the watch is
+    // added; the duplicates this can cause are merged by the debounce.
+    const std::vector<efsw::WatcherOption> options{
+        efsw::WatcherOption(efsw::Options::LinuxProduceSyntheticEvents, 1)};
+    const efsw::WatchID efswId =
+        m_impl->backend.addWatch(absolute.string(), m_impl.get(), recursive, options);
     if (efswId < 0) {
         return Error(ErrorCode::IoError, std::format("Cannot watch '{}': {}", folder.string(),
                                                      efsw::Errors::Log::getLastErrorLog()));
