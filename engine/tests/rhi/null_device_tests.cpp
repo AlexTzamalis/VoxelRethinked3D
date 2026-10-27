@@ -38,7 +38,8 @@ struct Scene {
                     .value();
         indirect = device
                        ->createBuffer({.sizeBytes = 1024,
-                                       .usage = BufferUsage::Indirect | BufferUsage::Storage,
+                                       .usage = BufferUsage::Indirect | BufferUsage::Storage |
+                                                BufferUsage::TransferDst | BufferUsage::TransferSrc,
                                        .debugName = "Indirect draws"})
                        .value();
         blocks = device
@@ -140,6 +141,20 @@ TEST_CASE("Uploads are checked like on the GPU") {
     CHECK(scene.device->updateBuffer(scene.indirect, 1012, small).hasError()); // 1012 + 16 is past 1024.
     CHECK(scene.device->updateBuffer(scene.indirect, 1008, small).hasValue());
 
+    CHECK(scene.device->updateBuffer(scene.staging, 0, small).hasError()); // No TransferDst.
+
+    // What was written can be read back.
+    std::array<std::byte, 16> pattern{};
+    for (std::size_t i = 0; i < pattern.size(); ++i) {
+        pattern[i] = static_cast<std::byte>(i * 3);
+    }
+    REQUIRE(scene.device->updateBuffer(scene.indirect, 512, pattern).hasValue());
+    std::array<std::byte, 16> readBack{};
+    REQUIRE(scene.device->readBuffer(scene.indirect, 512, readBack).hasValue());
+    CHECK(readBack == pattern);
+    CHECK(scene.device->readBuffer(scene.arena, 0, readBack).hasError());       // No TransferSrc.
+    CHECK(scene.device->readBuffer(scene.indirect, 1020, readBack).hasError()); // Past the end.
+
     const std::vector<std::byte> mip0(std::size_t{16} * 16 * 4);
     CHECK(scene.device->uploadTexture(scene.blocks, {.mipLevel = 0, .layer = 63, .data = mip0}).hasValue());
     CHECK(scene.device->uploadTexture(scene.blocks, {.mipLevel = 0, .layer = 64, .data = mip0}).hasError());
@@ -208,6 +223,12 @@ TEST_CASE("Fences are signaled at once on the Null device") {
     CHECK(scene.device->isFenceSignaled(fence));
     scene.device->destroy(fence);
     CHECK_FALSE(scene.device->isFenceSignaled(fence)); // Destroyed fences are not "signaled".
+}
+
+TEST_CASE("Textures without TransferDst cannot be uploaded to") {
+    const Scene scene;
+    const std::vector<std::byte> data(std::size_t{1920} * 1080 * 4);
+    CHECK(scene.device->uploadTexture(scene.depth, {.mipLevel = 0, .layer = 0, .data = data}).hasError());
 }
 
 TEST_CASE("Textures beyond the device limits are refused") {

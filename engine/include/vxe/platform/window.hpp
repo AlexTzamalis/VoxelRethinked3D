@@ -89,7 +89,10 @@ public:
     // OpenGL only. These exist for the OpenGL RHI backend.
     [[nodiscard]] SDL_GLContextState* glContext() const noexcept { return m_glContext; }
     [[nodiscard]] GlContextInfo glContextInfo() const noexcept { return m_glInfo; }
-    [[nodiscard]] static void* glGetProcAddress(const char* name) noexcept;
+    // A function pointer as loaders such as glad expect it. The type matches
+    // SDL's and glad's, so no cast between function and object pointers is needed.
+    using GlProc = void (*)();
+    [[nodiscard]] static GlProc glGetProcAddress(const char* name) noexcept;
     // Presents the back buffer. Called by the OpenGL backend at the end of a frame.
     void swapGlBuffers();
     // 0 for immediate, 1 for vsync, -1 for adaptive vsync. Returns false if

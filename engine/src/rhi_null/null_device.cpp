@@ -42,14 +42,6 @@ struct NullPipeline {
 
 struct NullFence {};
 
-usize textureBytes(const TextureDesc& desc) {
-    usize total = 0;
-    for (u32 level = 0; level < desc.mipLevels; ++level) {
-        total += textureLevelBytes(desc, level);
-    }
-    return total * desc.layers;
-}
-
 // A Device without a GPU (Section 7.6). Everything a real backend checks is
 // checked here too, so code tested against the Null device fails the same
 // way it would on the GPU.
@@ -109,8 +101,8 @@ public:
         }
         TextureDesc stored = desc;
         stored.debugName = {};
-        return m_textures.allocate(
-            NullTexture{.desc = stored, .name = std::string(desc.debugName), .bytes = textureBytes(desc)});
+        return m_textures.allocate(NullTexture{
+            .desc = stored, .name = std::string(desc.debugName), .bytes = textureTotalBytes(desc)});
     }
 
     Result<SamplerHandle> createSampler(const SamplerDesc& desc) override {
@@ -156,12 +148,18 @@ public:
         if (buffer == nullptr) {
             return Error(ErrorCode::InvalidArgument, "updateBuffer on a destroyed or invalid buffer");
         }
-        if (offset > buffer->size || data.size() > buffer->size - offset) {
-            return Error(ErrorCode::InvalidArgument,
-                         std::format("updateBuffer writes past the end of '{}' ({} bytes at {}, size {})",
-                                     buffer->name, data.size(), offset, buffer->size));
-        }
+        VXE_TRY(validateBufferWrite(buffer->size, buffer->usage, buffer->name, offset, data.size()));
         std::ranges::copy(data, buffer->memory.begin() + static_cast<std::ptrdiff_t>(offset));
+        return {};
+    }
+
+    Result<void> readBuffer(BufferHandle handle, usize offset, std::span<std::byte> out) override {
+        const NullBuffer* buffer = m_buffers.get(handle);
+        if (buffer == nullptr) {
+            return Error(ErrorCode::InvalidArgument, "readBuffer on a destroyed or invalid buffer");
+        }
+        VXE_TRY(validateBufferRead(buffer->size, buffer->usage, buffer->name, offset, out.size()));
+        std::copy_n(buffer->memory.begin() + static_cast<std::ptrdiff_t>(offset), out.size(), out.begin());
         return {};
     }
 
@@ -170,18 +168,7 @@ public:
         if (texture == nullptr) {
             return Error(ErrorCode::InvalidArgument, "uploadTexture on a destroyed or invalid texture");
         }
-        if (upload.mipLevel >= texture->desc.mipLevels || upload.layer >= texture->desc.layers) {
-            return Error(ErrorCode::InvalidArgument,
-                         std::format("uploadTexture to '{}' names mip {} layer {}, which do not exist",
-                                     texture->name, upload.mipLevel, upload.layer));
-        }
-        const usize expected = textureLevelBytes(texture->desc, upload.mipLevel);
-        if (upload.data.size() != expected) {
-            return Error(ErrorCode::InvalidArgument,
-                         std::format("uploadTexture to '{}' mip {} needs {} bytes, got {}", texture->name,
-                                     upload.mipLevel, expected, upload.data.size()));
-        }
-        return {};
+        return validateTextureUpload(texture->desc, texture->name, upload);
     }
 
     std::span<std::byte> mappedRange(BufferHandle handle) override {

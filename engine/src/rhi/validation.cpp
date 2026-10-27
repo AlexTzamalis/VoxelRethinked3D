@@ -28,6 +28,64 @@ usize textureLevelBytes(const TextureDesc& desc, u32 mipLevel) noexcept {
     return static_cast<usize>(width) * height * bytesPerTexel(desc.format);
 }
 
+usize textureTotalBytes(const TextureDesc& desc) noexcept {
+    usize total = 0;
+    for (u32 level = 0; level < desc.mipLevels; ++level) {
+        total += textureLevelBytes(desc, level);
+    }
+    return total * desc.layers;
+}
+
+namespace {
+
+Result<void> validateBufferRange(std::string_view action, usize bufferSize, std::string_view name,
+                                 usize offset, usize size) {
+    // Two comparisons, so a huge offset cannot overflow offset + size.
+    if (offset > bufferSize || size > bufferSize - offset) {
+        return invalid("Buffer", name,
+                       std::format("{} of {} bytes at offset {} goes past the end ({} bytes)", action, size,
+                                   offset, bufferSize));
+    }
+    return {};
+}
+
+} // namespace
+
+Result<void> validateBufferWrite(usize bufferSize, BufferUsage usage, std::string_view name, usize offset,
+                                 usize size) {
+    if (!hasFlag(usage, BufferUsage::TransferDst)) {
+        return invalid("Buffer", name, "CPU writes need BufferUsage::TransferDst");
+    }
+    return validateBufferRange("write", bufferSize, name, offset, size);
+}
+
+Result<void> validateBufferRead(usize bufferSize, BufferUsage usage, std::string_view name, usize offset,
+                                usize size) {
+    if (!hasFlag(usage, BufferUsage::TransferSrc)) {
+        return invalid("Buffer", name, "reading back needs BufferUsage::TransferSrc");
+    }
+    return validateBufferRange("read", bufferSize, name, offset, size);
+}
+
+Result<void> validateTextureUpload(const TextureDesc& desc, std::string_view name,
+                                   const TextureUpload& upload) {
+    if (!hasFlag(desc.usage, TextureUsage::TransferDst)) {
+        return invalid("Texture", name, "uploads need TextureUsage::TransferDst");
+    }
+    if (upload.mipLevel >= desc.mipLevels || upload.layer >= desc.layers) {
+        return invalid("Texture", name,
+                       std::format("upload names mip {} layer {}, but the texture has {} mips and {} layers",
+                                   upload.mipLevel, upload.layer, desc.mipLevels, desc.layers));
+    }
+    const usize expected = textureLevelBytes(desc, upload.mipLevel);
+    if (upload.data.size() != expected) {
+        return invalid("Texture", name,
+                       std::format("mip {} needs exactly {} bytes, got {}", upload.mipLevel, expected,
+                                   upload.data.size()));
+    }
+    return {};
+}
+
 Result<void> validate(const BufferDesc& desc) {
     if (desc.sizeBytes == 0) {
         return invalid("Buffer", desc.debugName, "size is 0");

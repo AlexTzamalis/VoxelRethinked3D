@@ -146,7 +146,7 @@ vxe_add_module(input
 )
 
 # RHI: the backend independent graphics interface (E6, ADR-003), and the Null
-# backend for tests and headless servers. The OpenGL backend follows in E6.3.
+# backend for tests and headless servers.
 # The factory that picks a backend lives in render, above both backends
 # (ADR-015), so rhi itself never depends on a backend.
 vxe_add_module(rhi
@@ -163,6 +163,24 @@ vxe_add_module(rhi_null
     DEPENDS
         core
         rhi
+)
+
+# The OpenGL backend (E6.3 to E6.6). The only module that sees GL: the glad
+# loader is linked PRIVATE, and the include check allows GL headers only here
+# (ADR-003). The loader comes from the generated sources in third_party/glad.
+add_subdirectory(third_party/glad)
+
+vxe_add_module(rhi_gl
+    SOURCES
+        src/rhi_gl/gl_device.cpp
+        src/rhi_gl/gl_formats.cpp
+        src/rhi_gl/gl_formats.hpp
+    DEPENDS
+        core
+        platform
+        rhi
+    PRIVATE_LIBS
+        glad::glad
 )
 
 # App: Application, EngineContext and the main loop (E4.5). The top layer,

@@ -30,6 +30,7 @@ add_executable(vxe_tests
     math/geometry_tests.cpp
     math/projection_tests.cpp
     platform/platform_tests.cpp
+    rhi/gl_device_tests.cpp
     rhi/null_device_tests.cpp
     rhi/rhi_tests.cpp
 )

@@ -23,6 +23,10 @@ struct DeviceCapabilities {
     u32 maxTextureSize = 0;
     u32 maxComputeWorkGroupInvocations = 0;
     f32 maxAnisotropy = 1.0F;
+    bool debugOutput = false; // API messages (KHR_debug) are reported to the log and counted.
+    u64 videoMemoryBytes = 0; // Dedicated video memory; 0 when the driver does not say.
+    i32 apiVersionMajor = 0;  // For example 4 and 6 for OpenGL 4.6.
+    i32 apiVersionMinor = 0;
     std::string rendererName; // For example "NVIDIA GeForce RTX 3060".
     std::string vendorName;
     std::string driverVersion;
@@ -39,6 +43,8 @@ struct DeviceStats {
     u32 pipelines = 0;
     u64 commandsSubmitted = 0; // Since startup.
     u64 invalidCommands = 0;   // Commands that used destroyed resources or broke nesting rules.
+    u64 apiErrors = 0;         // Errors the graphics API reported (KHR_debug). Should stay 0.
+    u64 apiWarnings = 0;       // Performance and portability warnings it reported.
     u64 framesPresented = 0;
 };
 
@@ -76,6 +82,12 @@ public:
     // per frame uploads go through mapped staging memory (Section 7.5).
     [[nodiscard]] virtual Result<void> updateBuffer(BufferHandle buffer, usize offset,
                                                     std::span<const std::byte> data) = 0;
+
+    // Copies buffer contents back to the CPU. Slow: it waits for the GPU to
+    // finish with the buffer. Meant for tests and debug views (for example
+    // reading culling counts into the overlay), never for per frame paths.
+    [[nodiscard]] virtual Result<void> readBuffer(BufferHandle buffer, usize offset,
+                                                  std::span<std::byte> out) = 0;
 
     // Uploads one mip level of one layer of a texture.
     [[nodiscard]] virtual Result<void> uploadTexture(TextureHandle texture, const TextureUpload& upload) = 0;

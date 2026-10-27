@@ -8,6 +8,7 @@
 
 #include <doctest/doctest.h>
 
+#include <cstdlib>
 #include <format>
 #include <string>
 
@@ -42,6 +43,24 @@ public:
 private:
     AssertHandler m_previous;
 };
+
+// Real windows and GPU contexts need a display, which CI machines do not
+// have. Set VXE_GUI_TESTS=1 to run those tests locally.
+inline bool guiTestsEnabled() {
+#ifdef _MSC_VER
+    // MSVC deprecates getenv in favor of _dupenv_s, which allocates the copy.
+    char* value = nullptr;
+    usize length = 0;
+    const bool enabled =
+        _dupenv_s(&value, &length, "VXE_GUI_TESTS") == 0 && value != nullptr && value[0] == '1';
+    std::free(value); // NOLINT(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory): _dupenv_s uses
+                      // malloc.
+    return enabled;
+#else
+    const char* value = std::getenv("VXE_GUI_TESTS"); // NOLINT(concurrency-mt-unsafe): read once, no setenv.
+    return value != nullptr && value[0] == '1';
+#endif
+}
 
 } // namespace vxe::test
 

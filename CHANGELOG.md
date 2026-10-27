@@ -2,6 +2,19 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#035] 2026-10-27, E6.3 OpenGL device, buffers, textures, samplers
+### Added
+- engine/third_party/glad: the glad2 2.0.8 loader generated for OpenGL 4.6 core plus bindless textures, indirect parameters, gl_spirv, anisotropic filtering, KHR_debug and the NVX and ATI memory info extensions, with the exact regeneration command. Built as C++ and linked only by rhi_gl, privately.
+- vxe_rhi_gl module (layer 8) with createGlDevice: loads GL through SDL, requires OpenGL 4.5, detects indirect count draws, bindless textures, SPIR-V, timestamps, texture limits, anisotropy and video memory, and logs them at startup.
+- KHR_debug output with synchronous delivery by default; driver errors and warnings go to the new rhi log category and are counted in DeviceStats. A startup marker message proves the callback works before debug output is reported as active.
+- Direct State Access resources: immutable buffers (CpuWrite buffers persistently and coherently mapped), 2D and 2D array textures with per mip and per layer uploads for every RHI format, samplers with anisotropy clamped to the GPU, fences, present and present modes, object labels for debuggers.
+- Device::readBuffer for slow test and debug readback, and DeviceCapabilities fields for debug output, video memory and the API version.
+- A GPU test (VXE_GUI_TESTS=1) that checks capabilities, buffer and mapped memory round trips, uploads of all formats and mips, samplers, fences and present against the real driver with zero driver errors or warnings.
+### Changed
+- Upload and readback rules moved into rhi validation and are shared by both backends: writes need TransferDst, reads need TransferSrc, as in Vulkan.
+- Window::glGetProcAddress returns a function pointer, so loading GL needs no cast between function and object pointers.
+- The GUI test switch moved into the shared test helpers.
+
 ## [#034] 2026-10-27, E6.2 Null backend
 ### Added
 - The full Null device: CpuWrite buffers get real persistent CPU memory for mappedRange, updateBuffer and uploadTexture check ranges, mip levels, layers and data sizes like a GPU backend, and textures beyond the reported limits are refused.

@@ -109,6 +109,7 @@ std::vector<Category*> categories() {
 bool initialize(const Config& config) {
     registerCategory(core);
     registerCategory(assertion);
+    registerCategory(rhi);
 
     std::vector<spdlog::sink_ptr> sinks;
     if (config.console) {

@@ -191,10 +191,8 @@ bool Window::isRelativeMouseMode() const {
     return SDL_GetWindowRelativeMouseMode(m_window);
 }
 
-void* Window::glGetProcAddress(const char* name) noexcept {
-    // SDL returns a generic function pointer. Loaders such as glad take it as
-    // void*, which every platform the engine targets supports.
-    return reinterpret_cast<void*>(SDL_GL_GetProcAddress(name));
+Window::GlProc Window::glGetProcAddress(const char* name) noexcept {
+    return SDL_GL_GetProcAddress(name);
 }
 
 void Window::swapGlBuffers() {

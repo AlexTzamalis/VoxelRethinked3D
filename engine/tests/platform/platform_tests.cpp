@@ -1,3 +1,5 @@
+#include "../test_helpers.hpp"
+
 #include <vxe/platform/platform.hpp>
 #include <vxe/platform/window.hpp>
 
@@ -26,24 +28,6 @@ using vxe::platform::WindowDesc;
 using vxe::platform::WindowMode;
 
 namespace {
-
-// Real windows need a display, which CI machines do not have. Set
-// VXE_GUI_TESTS=1 to run the window tests locally.
-bool guiTestsEnabled() {
-#ifdef _MSC_VER
-    // MSVC deprecates getenv in favor of _dupenv_s, which allocates the copy.
-    char* value = nullptr;
-    usize length = 0;
-    const bool enabled =
-        _dupenv_s(&value, &length, "VXE_GUI_TESTS") == 0 && value != nullptr && value[0] == '1';
-    std::free(value); // NOLINT(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory): _dupenv_s uses
-                      // malloc.
-    return enabled;
-#else
-    const char* value = std::getenv("VXE_GUI_TESTS"); // NOLINT(concurrency-mt-unsafe): read once, no setenv.
-    return value != nullptr && value[0] == '1';
-#endif
-}
 
 void push(SDL_Event event) {
     REQUIRE(SDL_PushEvent(&event));
@@ -129,7 +113,7 @@ TEST_CASE("SDL events are translated into engine events") {
 }
 
 TEST_CASE("Window opens, resizes, toggles fullscreen and closes (VXE_GUI_TESTS=1)") {
-    if (!guiTestsEnabled()) {
+    if (!vxe::test::guiTestsEnabled()) {
         MESSAGE("Skipped: set VXE_GUI_TESTS=1 to run tests that open real windows");
         return;
     }

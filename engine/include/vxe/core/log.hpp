@@ -78,6 +78,7 @@ private:
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables): levels change at runtime.
 inline constinit Category core{"core", Level::Info};
 inline constinit Category assertion{"assert", Level::Trace};
+inline constinit Category rhi{"rhi", Level::Info}; // Graphics devices and driver messages.
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 // Makes a category findable by name, for the console and the settings system.
