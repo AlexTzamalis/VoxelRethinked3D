@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#034] 2026-10-27, E6.2 Null backend
+### Added
+- The full Null device: CpuWrite buffers get real persistent CPU memory for mappedRange, updateBuffer and uploadTexture check ranges, mip levels, layers and data sizes like a GPU backend, and textures beyond the reported limits are refused.
+- Pipelines are checked against their shaders: every shader must exist and sit in the right stage.
+- submit walks every command, counts it and flags invalid ones (destroyed resources, draws outside a render pass, compute or copies inside one, nested or unclosed passes) in a new DeviceStats::invalidCommands.
+- Device stats with object counts and buffer and texture memory, present counting, immediately signaled fences, and a leak report naming every live resource when the device is destroyed.
+- Tests for stats and memory sizes, mapped memory, upload checks, valid and invalid command lists, shader stage checks, fences and device limits.
+### Fixed
+- GCC 14 rejected the narrowing into the 24 bit handle index (-Wconversion); handles are now built through Handle::make, which masks the index.
+
 ## [#033] 2026-10-27, E6.1 RHI interface and handles
 ### Added
 - vxe_rhi module (layer 7): typed 32 bit handles (24 bit index, 8 bit generation) and a HandlePool that turns use after destroy into a null lookup.

@@ -38,6 +38,7 @@ struct DeviceStats {
     u32 shaders = 0;
     u32 pipelines = 0;
     u64 commandsSubmitted = 0; // Since startup.
+    u64 invalidCommands = 0;   // Commands that used destroyed resources or broke nesting rules.
     u64 framesPresented = 0;
 };
 

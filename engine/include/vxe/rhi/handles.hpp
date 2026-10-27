@@ -24,6 +24,16 @@ struct Handle {
     u32 index : 24 = kInvalidIndex;
     u32 generation : 8 = 0;
 
+    // Builds a handle. The mask lets compilers see that the index fits the
+    // 24 bit field (GCC warns about the narrowing otherwise); callers already
+    // keep indices below kInvalidIndex.
+    [[nodiscard]] static constexpr Handle make(u32 slotIndex, u8 slotGeneration) noexcept {
+        Handle handle;
+        handle.index = slotIndex & kInvalidIndex;
+        handle.generation = slotGeneration;
+        return handle;
+    }
+
     [[nodiscard]] constexpr bool isValid() const noexcept { return index != kInvalidIndex; }
     friend constexpr bool operator==(const Handle&, const Handle&) = default;
 
@@ -70,10 +80,7 @@ public:
             m_slots.push_back(Slot{.object = std::move(object), .generation = 0});
         }
         ++m_liveCount;
-        HandleType handle;
-        handle.index = index;
-        handle.generation = m_slots[index].generation;
-        return handle;
+        return HandleType::make(index, m_slots[index].generation);
     }
 
     // The object behind a handle, or null if the handle is invalid or stale.
@@ -118,10 +125,7 @@ public:
     void forEach(Fn&& fn) const {
         for (usize i = 0; i < m_slots.size(); ++i) {
             if (m_slots[i].object.has_value()) {
-                HandleType handle;
-                handle.index = static_cast<u32>(i);
-                handle.generation = m_slots[i].generation;
-                fn(handle, *m_slots[i].object);
+                fn(HandleType::make(static_cast<u32>(i), m_slots[i].generation), *m_slots[i].object);
             }
         }
     }
