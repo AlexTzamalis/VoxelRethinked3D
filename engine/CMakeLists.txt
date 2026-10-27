@@ -130,6 +130,16 @@ vxe_add_module(config
         tomlplusplus::tomlplusplus
 )
 
+# Input: raw device state, actions, contexts and later keybinds (E5.4, E5.5).
+vxe_add_module(input
+    SOURCES
+        src/input/input.cpp
+    DEPENDS
+        core
+        math
+        platform
+)
+
 # App: Application, EngineContext and the main loop (E4.5). The top layer,
 # because the loop drives every other module (ADR-015).
 vxe_add_module(app
@@ -141,6 +151,7 @@ vxe_add_module(app
         io
         platform
         config
+        input
 )
 
 # One target that links every engine module, for the game and tools.

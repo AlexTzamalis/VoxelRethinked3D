@@ -5,6 +5,7 @@
 #include <vxe/core/result.hpp>
 #include <vxe/core/time.hpp>
 #include <vxe/core/types.hpp>
+#include <vxe/input/input.hpp>
 #include <vxe/io/file_watcher.hpp>
 #include <vxe/io/vfs.hpp>
 #include <vxe/jobs/job_system.hpp>
@@ -48,6 +49,7 @@ struct EngineContext {
     io::FileWatcher& fileWatcher;
     EventBus& events;
     config::SettingsRegistry& settings;
+    input::InputSystem& input; // Updated from frameEvents before onFrame.
 
     // The OS events of the current frame, in order. Valid during onFrame.
     std::span<const platform::PlatformEvent> frameEvents;

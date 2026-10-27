@@ -79,6 +79,7 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
     auto fileWatcher = std::make_unique<io::FileWatcher>();
     auto events = std::make_unique<EventBus>();
     auto settings = std::make_unique<config::SettingsRegistry>();
+    auto input = std::make_unique<input::InputSystem>();
 
     std::unique_ptr<platform::Window> window;
     if (config.window) {
@@ -108,6 +109,7 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
                           .fileWatcher = *fileWatcher,
                           .events = *events,
                           .settings = *settings,
+                          .input = *input,
                           .frameEvents = {},
                           .quitRequested = false};
 
@@ -149,6 +151,7 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
         frameEvents.clear();
         static_cast<void>(platform->pollEvents(frameEvents));
         context.frameEvents = frameEvents;
+        input->update(frameEvents);
         for (const platform::PlatformEvent& event : frameEvents) {
             if (std::holds_alternative<platform::QuitRequested>(event)) {
                 application->onQuitRequested(context);
@@ -182,6 +185,7 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
     jobs.reset();
     application.reset();
     window.reset();
+    input.reset();
     settings.reset(); // After the application, which may hold setting subscriptions.
     events.reset();
     fileWatcher.reset();

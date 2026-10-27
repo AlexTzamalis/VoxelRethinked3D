@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#031] 2026-10-27, E5.4 Raw input and actions
+### Added
+- vxe_input module (layer 6): InputSystem with per frame raw state (keys by scancode with press edges, mouse buttons, position, summed raw motion, wheel, typed text) and actions of three types: Button (pressed, held, released), Toggle and Axis (wheel notches, or 1 while a key is held).
+- Bindings for keys with required modifiers, chords such as F3+G, mouse buttons and wheel directions; up to three per action, with defaults kept for resetting.
+- Input contexts on a stack: from the top down a context claims the physical inputs of its active actions, a blocking context (the console) hides everything below it, and always active contexts (Global) are never blocked.
+- Taps that go down and up between two frames still count once, key repeats are not new presses, and losing window focus releases everything so no key stays stuck.
+- The engine loop updates input from the frame's OS events and exposes it in EngineContext.
+- Tests for edges, taps, repeats, toggles, axes, context claiming and blocking, inactive contexts, modifiers, chords, mouse state, focus loss and rebinding.
+
 ## [#030] 2026-10-27, E5.3 Console commands
 ### Added
 - vxe/config/console.hpp: CommandRegistry with command descriptions, a quote aware tokenizer, case insensitive command names, "did you mean" hints and autocomplete for the word being typed.
