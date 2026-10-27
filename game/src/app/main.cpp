@@ -1,66 +1,59 @@
-// Entry point of Voxel Rethinked. For now it only starts logging and reports
-// the version. Later this becomes the place that creates VoxelRethinkedApp and
-// hands it to vxe::runApplication (Section 6.5 of the plan).
-#include <vxe/core/log.hpp>
-#include <vxe/core/profile.hpp>
-#include <vxe/core/version.hpp>
+// Entry point of Voxel Rethinked: builds the engine configuration from the
+// command line and hands the game application to the engine's main loop
+// (Section 6.5 of the plan).
+//
+// Command line:
+//   --frames N   Quit after N frames (smoke tests and scripted runs).
+//   --headless   Run without a window.
+#include "voxel_rethinked_app.hpp"
 
+#include <vxe/app/application.hpp>
+
+#include <charconv>
 #include <cstdio>
 #include <exception>
-#include <filesystem>
+#include <memory>
 #include <span>
 #include <string_view>
+#include <system_error>
 
 namespace {
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): the level changes at runtime.
-constinit vxe::log::Category gameLog{"game", vxe::log::Level::Info};
-
-int run(std::span<char*> arguments) {
-    vxe::profiling::setThreadName("Main");
-    VXE_PROFILE_FUNCTION();
-
-    // Runtime folders live next to the executable (Section 5 of the plan). The
-    // platform module will provide the real executable folder later; argv[0]
-    // is good enough until then.
-    const std::filesystem::path exeFolder = arguments.empty()
-                                                ? std::filesystem::path(".")
-                                                : std::filesystem::path(arguments.front()).parent_path();
-
-    vxe::log::Config logConfig;
-    logConfig.filePath = exeFolder / "logs" / "latest.log";
-    vxe::log::initialize(logConfig);
-    vxe::log::registerCategory(gameLog);
-
-    VXE_LOG_INFO(gameLog, "Voxel Rethinked {}", vxe::engineVersion());
-    if constexpr (vxe::profiling::isEnabled()) {
-        VXE_LOG_INFO(gameLog, "Tracy profiling is compiled in");
+vxe::EngineConfig configFromArguments(std::span<char*> arguments) {
+    vxe::EngineConfig config;
+    config.windowDesc.title = "Voxel Rethinked";
+    for (std::size_t i = 1; i < arguments.size(); ++i) {
+        const std::string_view argument = arguments[i];
+        if (argument == "--headless") {
+            config.window = false;
+        } else if (argument == "--frames" && i + 1 < arguments.size()) {
+            const std::string_view value = arguments[++i];
+            vxe::u64 frames = 0;
+            if (std::from_chars(value.data(), value.data() + value.size(), frames).ec == std::errc{}) {
+                config.maxFrames = frames;
+            }
+        }
     }
-    VXE_PROFILE_FRAME();
-
-    vxe::log::shutdown();
-    return 0;
+    return config;
 }
 
-// Reports an exception that reached main. Logging allocates and could throw
-// again, so a second failure falls back to a fixed stderr line.
-void reportFatal(std::string_view what) noexcept {
-    try {
-        VXE_LOG_CRITICAL(gameLog, "Unhandled exception: {}", what);
-        vxe::log::shutdown();
-    } catch (...) {
-        std::fputs("voxel_rethinked: fatal error while reporting an unhandled exception\n", stderr);
-    }
+// Reports an exception that reached main. Logging is already shut down at
+// this point (or broken), so it goes straight to stderr.
+void reportFatal(const char* what) noexcept {
+    std::fputs("voxel_rethinked: unhandled exception: ", stderr);
+    std::fputs(what, stderr);
+    std::fputs("\n", stderr);
 }
 
 } // namespace
 
 int main(int argc, char** argv) {
     // Our code does not throw (Section 23.4), but the standard library can
-    // (for example std::bad_alloc). Catching here turns that into a logged
-    // error and a failing exit code instead of an unexplained crash.
+    // (for example std::bad_alloc). Catching here turns that into a clear
+    // message and a failing exit code instead of an unexplained crash.
     try {
-        return run(std::span(argv, static_cast<std::size_t>(argc)));
+        const vxe::EngineConfig config = configFromArguments(std::span(argv, static_cast<std::size_t>(argc)));
+        return vxe::runApplication(std::make_unique<vr::VoxelRethinkedApp>(), config);
     } catch (const std::exception& error) {
         reportFatal(error.what());
     } catch (...) {

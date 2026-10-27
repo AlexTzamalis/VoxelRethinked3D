@@ -6,6 +6,7 @@ find_package(doctest CONFIG REQUIRED)
 add_executable(vxe_tests
     test_helpers.hpp
     test_main.cpp
+    app/application_tests.cpp
     core/assert_tests.cpp
     core/containers_tests.cpp
     core/event_time_tests.cpp

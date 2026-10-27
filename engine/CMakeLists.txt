@@ -115,6 +115,18 @@ vxe_add_module(platform
         SDL3::SDL3
 )
 
+# App: Application, EngineContext and the main loop (E4.5). The top layer,
+# because the loop drives every other module (ADR-015).
+vxe_add_module(app
+    SOURCES
+        src/app/application.cpp
+    DEPENDS
+        core
+        jobs
+        io
+        platform
+)
+
 # One target that links every engine module, for the game and tools.
 vxe_add_engine_target()
 

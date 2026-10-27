@@ -28,6 +28,7 @@ one table:
 | 10 | ui |
 | 11 | debug |
 | 12 | voxel |
+| 13 | app (Application, EngineContext and the main loop, which ties every other module together) |
 
 - A module may only depend on modules in **strictly lower** layers. Modules on the same layer cannot depend
   on each other (for example `rhi_gl` and `rhi_null`).
@@ -46,3 +47,5 @@ one table:
   table and this ADR together.
 - The RHI device factory cannot live in `rhi` if it must create backends from layer 8. Where it goes is
   decided in E6.1.
+- `Application` (Section 6.5 sketches it in `vxe/core`) lives in the `app` module at the top, because it
+  needs the platform, jobs and IO modules and core may depend on nothing. Added 2026-10-27 in E4.5.

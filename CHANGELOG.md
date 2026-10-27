@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#027] 2026-10-27, E4.5 Application main loop
+### Added
+- vxe_app module (new top layer 13): Application (onInit, onFrame, onQuitRequested, onShutdown), EngineContext (platform, window, jobs, file system, file watcher, event bus and the frame's OS events) and runApplication.
+- runApplication starts the log, platform, runtime folder mounts (config and saves created, assets and textures when present), file watcher, event bus, window and job system, runs the frame loop (OS events, file watcher, main thread tasks, event bus, onFrame) with an idle frame cap, and shuts down in a fixed, documented order.
+- The game runs inside the engine loop: VoxelRethinkedApp, with --frames N and --headless on the command line.
+- Tests: lifecycle order with a job reporting back on the main thread, a simulated window close ending the loop through onQuitRequested, and a failing onInit returning 1 while still shutting down.
+### Docs
+- ADR-015 gains layer 13 (app), because Application needs modules above core.
+
 ## [#026] 2026-10-27, E4.4 Platform window
 ### Added
 - vxe_platform module (layer 4) on SDL3 3.4.18, with SDL private to the module: Platform (single instance, optional video for headless use), event translation into engine events (quit, resize, pixel size, focus, minimize, display scale, keys by scancode with modifiers, mouse buttons, motion, wheel, text), key names in the current layout and the executable folder.

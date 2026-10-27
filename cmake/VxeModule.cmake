@@ -37,6 +37,7 @@ set(VXE_MODULE_LAYERS
     ui       10
     debug    11
     voxel    12
+    app      13
 )
 
 # Modules that may only depend on an explicit list, on top of the layer rule.

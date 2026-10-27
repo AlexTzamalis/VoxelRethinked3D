@@ -2,6 +2,8 @@
 
 set(vrGameSources
     src/app/main.cpp
+    src/app/voxel_rethinked_app.cpp
+    src/app/voxel_rethinked_app.hpp
 )
 
 add_executable(voxel_rethinked ${vrGameSources})
