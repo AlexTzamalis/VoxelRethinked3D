@@ -115,6 +115,14 @@ vxe_add_module(platform
         SDL3::SDL3
 )
 
+# Config: the settings registry and, later, persistence and console commands (E5).
+vxe_add_module(config
+    SOURCES
+        src/config/settings.cpp
+    DEPENDS
+        core
+)
+
 # App: Application, EngineContext and the main loop (E4.5). The top layer,
 # because the loop drives every other module (ADR-015).
 vxe_add_module(app
@@ -125,6 +133,7 @@ vxe_add_module(app
         jobs
         io
         platform
+        config
 )
 
 # One target that links every engine module, for the game and tools.

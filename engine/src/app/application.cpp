@@ -77,12 +77,14 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
 
     auto fileWatcher = std::make_unique<io::FileWatcher>();
     auto events = std::make_unique<EventBus>();
+    auto settings = std::make_unique<config::SettingsRegistry>();
 
     std::unique_ptr<platform::Window> window;
     if (config.window) {
         auto windowResult = platform::Window::create(*platform, config.windowDesc);
         if (!windowResult) {
             VXE_LOG_CRITICAL(log::core, "Startup failed: {}", windowResult.error().describe());
+            settings.reset();
             events.reset();
             fileWatcher.reset();
             platform.reset();
@@ -104,6 +106,7 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
                           .vfs = *vfs,
                           .fileWatcher = *fileWatcher,
                           .events = *events,
+                          .settings = *settings,
                           .frameEvents = {},
                           .quitRequested = false};
 
@@ -132,6 +135,7 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
 
         static_cast<void>(fileWatcher->poll());
         static_cast<void>(jobs->runMainThreadTasks());
+        static_cast<void>(settings->dispatchChanges());
         events->dispatch();
         application->onFrame(context, time);
 
@@ -150,6 +154,7 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
     jobs.reset();
     application.reset();
     window.reset();
+    settings.reset(); // After the application, which may hold setting subscriptions.
     events.reset();
     fileWatcher.reset();
     vfs.reset();

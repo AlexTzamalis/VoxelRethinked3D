@@ -2,6 +2,17 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#028] 2026-10-27, E5.1 Settings registry
+### Added
+- vxe_config module (layer 5) with SettingsRegistry: bool, int, float, enum and string settings with display name, description, apply mode, scope, visibility, range and step, enum options and length limits; the category comes from the dotted id.
+- Setting<T> handles read with one relaxed atomic load from any thread. Writes from any thread are clamped to range, NaN, unknown enum values, wrong types and too long strings are rejected, and the value is visible immediately.
+- Change callbacks with RAII subscriptions run only in dispatchChanges() on the main thread; several changes of one setting in a frame become one callback (oldest to newest), and a change back to the start value is dropped.
+- Generic access by id (value, set, reset, resetCategory by prefix, isDefault, find, all, categories) for the console, persistence and the generated settings screen.
+- The engine loop owns the registry, exposes it in EngineContext and dispatches setting changes every frame.
+- Tests for defaults and metadata, clamping, rejection, dispatch timing and merging, subscription lifetime, writes from another thread, generic access, category resets and repeated registration.
+### Changed
+- clang-tidy no longer asks for braced return values (modernize-return-braced-init-list).
+
 ## [#027] 2026-10-27, E4.5 Application main loop
 ### Added
 - vxe_app module (new top layer 13): Application (onInit, onFrame, onQuitRequested, onShutdown), EngineContext (platform, window, jobs, file system, file watcher, event bus and the frame's OS events) and runApplication.

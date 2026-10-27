@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vxe/config/settings.hpp>
 #include <vxe/core/event_bus.hpp>
 #include <vxe/core/result.hpp>
 #include <vxe/core/time.hpp>
@@ -46,6 +47,7 @@ struct EngineContext {
     io::Vfs& vfs;
     io::FileWatcher& fileWatcher;
     EventBus& events;
+    config::SettingsRegistry& settings;
 
     // The OS events of the current frame, in order. Valid during onFrame.
     std::span<const platform::PlatformEvent> frameEvents;
@@ -91,11 +93,13 @@ public:
 // exit code: 0 on a normal exit, 1 when startup failed.
 //
 // Startup order: log, platform, virtual file system, file watcher, event bus,
-// window, jobs, then Application::onInit.
+// settings, window, jobs, then Application::onInit.
 // Shutdown order: Application::onShutdown, then the job system (which
 // finishes every queued job while everything a job could touch still
-// exists), the application object, window, event bus (after the application,
-// which may hold subscriptions), file watcher, file system, platform, log.
+// exists), the application object, window, settings and event bus (after
+// the application, which may hold subscriptions to both), file watcher, file
+// system, platform, log. Setting changes are dispatched every frame, right
+// before the event bus.
 int runApplication(std::unique_ptr<Application> application, const EngineConfig& config);
 
 } // namespace vxe
