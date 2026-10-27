@@ -86,6 +86,24 @@ Result<void> validateTextureUpload(const TextureDesc& desc, std::string_view nam
     return {};
 }
 
+Result<void> validateTextureRead(const TextureDesc& desc, std::string_view name, u32 mipLevel, u32 layer,
+                                 usize outSize) {
+    if (!hasFlag(desc.usage, TextureUsage::TransferSrc)) {
+        return invalid("Texture", name, "reading back needs TextureUsage::TransferSrc");
+    }
+    if (mipLevel >= desc.mipLevels || layer >= desc.layers) {
+        return invalid("Texture", name,
+                       std::format("read names mip {} layer {}, but the texture has {} mips and {} layers",
+                                   mipLevel, layer, desc.mipLevels, desc.layers));
+    }
+    const usize expected = textureLevelBytes(desc, mipLevel);
+    if (outSize != expected) {
+        return invalid("Texture", name,
+                       std::format("mip {} needs exactly {} bytes, got {}", mipLevel, expected, outSize));
+    }
+    return {};
+}
+
 Result<void> validate(const BufferDesc& desc) {
     if (desc.sizeBytes == 0) {
         return invalid("Buffer", desc.debugName, "size is 0");

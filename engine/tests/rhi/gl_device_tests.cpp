@@ -1,15 +1,19 @@
 #include "../test_helpers.hpp"
 
+#include <vxe/math/projection.hpp>
 #include <vxe/platform/platform.hpp>
 #include <vxe/platform/window.hpp>
+#include <vxe/rhi/gpu_timer.hpp>
 #include <vxe/rhi/shader_source.hpp>
 #include <vxe/rhi/validation.hpp>
 #include <vxe/rhi_gl/gl_device.hpp>
 
 #include <doctest/doctest.h>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -384,4 +388,374 @@ TEST_CASE("OpenGL compile and link errors are readable (VXE_GUI_TESTS=1)") {
         return;
     }
     withGlDevice("vxe OpenGL error test", [](Device& device) { checkReadableErrors(device); });
+}
+
+namespace {
+
+// E6.5: rendering through the full command path, checked pixel by pixel.
+
+constexpr vxe::u32 kTargetSize = 64;
+
+struct TriangleParams {
+    vxe::Vec4 tint{1.0F};
+    vxe::Vec2 offset{0.0F};
+    float scale = 1.0F;
+    float depth = 0.5F;
+};
+static_assert(sizeof(TriangleParams) == 32);
+
+struct CubeParams {
+    vxe::Mat4 modelViewProjection{1.0F};
+    vxe::Mat4 model{1.0F};
+};
+
+constexpr std::array<std::uint16_t, 36> kCubeIndices{0, 4, 6, 0, 6, 2, 5, 1, 3, 5, 3, 7, 0, 1, 5, 0, 5, 4,
+                                                     2, 6, 7, 2, 7, 3, 0, 2, 3, 0, 3, 1, 4, 5, 7, 4, 7, 6};
+
+// The objects the render tests share: a 64x64 color and depth target and
+// pipelines for the debug shaders.
+struct RenderRig {
+    Device& device;
+    TextureHandle color;
+    TextureHandle depth;
+    BufferHandle uniforms;
+    BufferHandle cubeIndices;
+    PipelineHandle triangle;
+    PipelineHandle cube;
+    PipelineHandle fill;
+
+    explicit RenderRig(Device& target)
+        : device(target) {
+        const ShaderFileReader shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR);
+        color = device
+                    .createTexture({.format = Format::RGBA8Unorm,
+                                    .width = kTargetSize,
+                                    .height = kTargetSize,
+                                    .usage = TextureUsage::RenderTarget | TextureUsage::Sampled |
+                                             TextureUsage::TransferSrc,
+                                    .debugName = "Test color target"})
+                    .value();
+        depth = device
+                    .createTexture({.format = Format::D32Float,
+                                    .width = kTargetSize,
+                                    .height = kTargetSize,
+                                    .usage = TextureUsage::DepthTarget,
+                                    .debugName = "Test depth target"})
+                    .value();
+        uniforms = device
+                       .createBuffer({.sizeBytes = 4096,
+                                      .usage = BufferUsage::Uniform | BufferUsage::TransferDst,
+                                      .debugName = "Test uniforms"})
+                       .value();
+        cubeIndices = device
+                          .createBuffer({.sizeBytes = sizeof(kCubeIndices),
+                                         .usage = BufferUsage::Index | BufferUsage::TransferDst,
+                                         .debugName = "Test cube indices"})
+                          .value();
+        REQUIRE(device.updateBuffer(cubeIndices, 0, std::as_bytes(std::span(kCubeIndices))).hasValue());
+
+        PipelineDesc desc{.debugName = "Test triangle"};
+        desc.colorFormats[0] = Format::RGBA8Unorm;
+        desc.colorCount = 1;
+        desc.depthFormat = Format::D32Float;
+        desc.raster.cullMode = CullMode::None;
+        triangle = link(shaders, "debug/triangle.vert", "debug/triangle.frag", desc);
+        desc.debugName = "Test cube";
+        desc.raster.cullMode = CullMode::Back;
+        cube = link(shaders, "debug/cube.vert", "debug/cube.frag", desc);
+        const ShaderHandle compute = createShaderFromFile(device, "debug/fill_buffer.comp", shaders).value();
+        fill = device.createPipeline({.compute = compute, .debugName = "Test fill"}).value();
+        device.destroy(compute);
+    }
+
+    ~RenderRig() {
+        for (const PipelineHandle pipeline : {triangle, cube, fill}) {
+            device.destroy(pipeline);
+        }
+        device.destroy(uniforms);
+        device.destroy(cubeIndices);
+        device.destroy(color);
+        device.destroy(depth);
+    }
+    RenderRig(const RenderRig&) = delete;
+    RenderRig& operator=(const RenderRig&) = delete;
+    RenderRig(RenderRig&&) = delete;
+    RenderRig& operator=(RenderRig&&) = delete;
+
+    PipelineHandle link(const ShaderFileReader& shaders, std::string_view vertexPath,
+                        std::string_view fragmentPath, PipelineDesc desc) {
+        desc.vertex = createShaderFromFile(device, vertexPath, shaders).value();
+        desc.fragment = createShaderFromFile(device, fragmentPath, shaders).value();
+        const PipelineHandle pipeline = device.createPipeline(desc).value();
+        device.destroy(desc.vertex);
+        device.destroy(desc.fragment);
+        return pipeline;
+    }
+
+    void beginPass(CommandList& commands) const {
+        RenderPassDesc pass;
+        pass.colorCount = 1;
+        pass.colors[0] = {.texture = color, .clearColor = {0.0F, 0.0F, 0.0F, 1.0F}};
+        pass.hasDepth = true;
+        pass.depth = {.texture = depth};
+        commands.beginRenderPass(pass);
+    }
+
+    // Uploads triangle parameters at a 256 byte aligned slot and draws.
+    void drawTriangle(CommandList& commands, vxe::usize slot, const TriangleParams& params) const {
+        REQUIRE(device.updateBuffer(uniforms, slot * 256, std::as_bytes(std::span(&params, 1))).hasValue());
+        commands.bindPipeline(triangle);
+        commands.bindUniformBuffer(1, 0, uniforms, slot * 256, sizeof(TriangleParams));
+        commands.draw(3);
+    }
+
+    void setCubeParams() const {
+        const vxe::Mat4 projection = vxe::perspectiveReversedInfinite(1.0F, 1.0F, 0.1F);
+        const vxe::Mat4 model = glm::rotate(glm::translate(vxe::Mat4(1.0F), vxe::Vec3(0.0F, 0.0F, -4.0F)),
+                                            0.6F, vxe::Vec3(0.3F, 1.0F, 0.2F));
+        const CubeParams params{.modelViewProjection = projection * model, .model = model};
+        REQUIRE(device.updateBuffer(uniforms, 1024, std::as_bytes(std::span(&params, 1))).hasValue());
+    }
+
+    void bindCube(CommandList& commands) const {
+        commands.bindPipeline(cube);
+        commands.bindUniformBuffer(1, 1, uniforms, 1024, sizeof(CubeParams));
+        commands.bindIndexBuffer(cubeIndices, IndexType::Uint16);
+    }
+
+    [[nodiscard]] std::vector<std::byte> readColor() const {
+        std::vector<std::byte> pixels(std::size_t{kTargetSize} * kTargetSize * 4);
+        REQUIRE(device.readTexture(color, 0, 0, pixels).hasValue());
+        return pixels;
+    }
+};
+
+// Pixel (x, y), with y = 0 at the bottom (ADR-016), as 0 to 255 values.
+std::array<int, 4> pixelAt(const std::vector<std::byte>& pixels, vxe::u32 x, vxe::u32 y) {
+    const std::size_t index = (std::size_t{y} * kTargetSize + x) * 4;
+    return {std::to_integer<int>(pixels[index]), std::to_integer<int>(pixels[index + 1]),
+            std::to_integer<int>(pixels[index + 2]), std::to_integer<int>(pixels[index + 3])};
+}
+
+void checkDepthAndClipSpace(RenderRig& rig) {
+    CommandList commands;
+    rig.beginPass(commands);
+    rig.drawTriangle(commands, 0, {.tint = vxe::Vec4(1.0F), .scale = 1.5F, .depth = 0.5F});
+    // Reversed Z: smaller depth is farther, so this one is behind and rejected.
+    rig.drawTriangle(commands, 1, {.tint = vxe::Vec4(0.0F), .scale = 1.5F, .depth = 0.25F});
+    // Larger depth is nearer, so this one wins.
+    rig.drawTriangle(commands, 2, {.tint = vxe::Vec4(0.0F, 1.0F, 0.0F, 1.0F), .scale = 1.5F, .depth = 0.75F});
+    commands.endRenderPass();
+    rig.device.submit(commands);
+    auto pixels = rig.readColor();
+    const auto center = pixelAt(pixels, 32, 32);
+    CHECK(center[0] == 0);
+    CHECK(center[1] > 50);
+    CHECK(center[2] == 0);
+    CHECK(pixelAt(pixels, 0, 0) == std::array<int, 4>{0, 0, 0, 255}); // The clear color.
+
+    // Clip space depth runs from 0 to 1 (glClipControl, ADR-010), so a
+    // triangle at depth -0.5 is clipped away. With OpenGL's default -1 to 1
+    // range it would be drawn.
+    commands.reset();
+    rig.beginPass(commands);
+    rig.drawTriangle(commands, 3, {.tint = vxe::Vec4(1.0F), .scale = 1.5F, .depth = -0.5F});
+    commands.endRenderPass();
+    rig.device.submit(commands);
+    pixels = rig.readColor();
+    CHECK(pixelAt(pixels, 32, 32) == std::array<int, 4>{0, 0, 0, 255});
+}
+
+void checkCubeDraws(RenderRig& rig) {
+    rig.setCubeParams();
+    CommandList commands;
+    rig.beginPass(commands);
+    rig.bindCube(commands);
+    commands.drawIndexed(36);
+    commands.endRenderPass();
+    rig.device.submit(commands);
+    const auto direct = rig.readColor();
+    const auto center = pixelAt(direct, 32, 32);
+    CHECK(center[0] + center[1] + center[2] > 60); // A lit face.
+    CHECK(pixelAt(direct, 0, 0) == std::array<int, 4>{0, 0, 0, 255});
+
+    // The same cube through an indirect draw must give the identical image.
+    const std::array<vxe::u32, 5> command{36, 1, 0, 0,
+                                          0}; // count, instances, firstIndex, baseVertex, baseInstance
+    const BufferHandle indirect =
+        rig.device
+            .createBuffer({.sizeBytes = 128, // Room for 4 commands, the count draw's maximum.
+                           .usage = BufferUsage::Indirect | BufferUsage::TransferDst,
+                           .debugName = "Test indirect commands"})
+            .value();
+    REQUIRE(rig.device.updateBuffer(indirect, 0, std::as_bytes(std::span(command))).hasValue());
+    commands.reset();
+    rig.beginPass(commands);
+    rig.bindCube(commands);
+    commands.multiDrawIndexedIndirect(indirect, 0, 1);
+    commands.endRenderPass();
+    rig.device.submit(commands);
+    CHECK(rig.readColor() == direct);
+
+    // And through an indirect count draw, where the GPU reads the number of
+    // draws from a buffer: 1 draws the cube, 0 draws nothing.
+    if (rig.device.capabilities().multiDrawIndirectCount) {
+        const BufferHandle count =
+            rig.device
+                .createBuffer({.sizeBytes = 16,
+                               .usage = BufferUsage::Indirect | BufferUsage::TransferDst,
+                               .debugName = "Test draw count"})
+                .value();
+        for (const vxe::u32 drawCount : {1U, 0U}) {
+            REQUIRE(rig.device.updateBuffer(count, 0, std::as_bytes(std::span(&drawCount, 1))).hasValue());
+            commands.reset();
+            rig.beginPass(commands);
+            rig.bindCube(commands);
+            commands.multiDrawIndexedIndirectCount(indirect, 0, count, 0, 4);
+            commands.endRenderPass();
+            rig.device.submit(commands);
+            const auto pixels = rig.readColor();
+            if (drawCount == 1) {
+                CHECK(pixels == direct);
+            } else {
+                CHECK(pixelAt(pixels, 32, 32) == std::array<int, 4>{0, 0, 0, 255});
+            }
+        }
+        rig.device.destroy(count);
+    } else {
+        MESSAGE("Indirect count draws are not supported on this driver; skipped");
+    }
+    rig.device.destroy(indirect);
+}
+
+void checkComputeAndCopies(RenderRig& rig) {
+    constexpr vxe::u32 kCount = 1000;
+    constexpr vxe::u32 kCapacity = 1024;
+    Device& device = rig.device;
+    const BufferHandle values = device
+                                    .createBuffer({.sizeBytes = std::size_t{kCapacity} * 4,
+                                                   .usage = BufferUsage::Storage | BufferUsage::TransferDst |
+                                                            BufferUsage::TransferSrc,
+                                                   .debugName = "Test fill output"})
+                                    .value();
+    const BufferHandle copy = device
+                                  .createBuffer({.sizeBytes = std::size_t{kCapacity} * 4,
+                                                 .usage = BufferUsage::TransferDst | BufferUsage::TransferSrc,
+                                                 .debugName = "Test copy"})
+                                  .value();
+    // Storage starts undefined in OpenGL, so the test zeroes it first.
+    const std::vector<vxe::u32> zeros(kCapacity, 0);
+    REQUIRE(device.updateBuffer(values, 0, std::as_bytes(std::span(zeros))).hasValue());
+    const std::array<vxe::u32, 4> params{1000, kCount, 0, 0}; // baseValue, count, std140 padding
+    REQUIRE(device.updateBuffer(rig.uniforms, 2048, std::as_bytes(std::span(params))).hasValue());
+
+    CommandList commands;
+    commands.bindPipeline(rig.fill);
+    commands.bindStorageBuffer(0, 0, values, 0, 0); // Size 0: the whole buffer.
+    commands.bindUniformBuffer(1, 0, rig.uniforms, 2048, 16);
+    commands.dispatch(kCapacity / 64);
+    commands.resourceBarrier(BarrierScope::StorageData | BarrierScope::TransferData);
+    commands.copyBuffer(values, 0, copy, 0, std::size_t{kCapacity} * 4);
+    commands.resourceBarrier(BarrierScope::TransferData);
+    device.submit(commands);
+
+    std::vector<vxe::u32> result(kCapacity);
+    REQUIRE(device.readBuffer(values, 0, std::as_writable_bytes(std::span(result))).hasValue());
+    bool filled = true;
+    for (vxe::u32 i = 0; i < kCapacity; ++i) {
+        filled = filled && result[i] == (i < kCount ? 1000 + i : 0U);
+    }
+    CHECK(filled);
+    std::vector<vxe::u32> copied(kCapacity);
+    REQUIRE(device.readBuffer(copy, 0, std::as_writable_bytes(std::span(copied))).hasValue());
+    CHECK(copied == result);
+    device.destroy(values);
+    device.destroy(copy);
+}
+
+void checkGpuTimer(RenderRig& rig) {
+    GpuFrameTimer timer;
+    REQUIRE(timer.create(rig.device).hasValue());
+    rig.setCubeParams();
+    CommandList commands;
+    // Results arrive a few frames late by design; give the GPU enough frames.
+    for (int frame = 0; frame < 200 && !timer.lastFrameMilliseconds(); ++frame) {
+        commands.reset();
+        timer.beginFrame(rig.device, commands);
+        rig.beginPass(commands);
+        rig.bindCube(commands);
+        commands.drawIndexed(36, 64); // Some real work for the clock to see.
+        commands.endRenderPass();
+        timer.endFrame(commands);
+        rig.device.submit(commands);
+        rig.device.present();
+    }
+    REQUIRE(timer.lastFrameMilliseconds().has_value());
+    MESSAGE("GPU frame time: " << *timer.lastFrameMilliseconds() << " ms");
+    CHECK(*timer.lastFrameMilliseconds() >= 0.0);
+    CHECK(*timer.lastFrameMilliseconds() < 100.0);
+    timer.destroy(rig.device);
+}
+
+void checkInvalidCommandsAreSkipped(RenderRig& rig) {
+    Device& device = rig.device;
+    const vxe::u64 before = device.stats().invalidCommands;
+    CommandList commands;
+    commands.draw(3); // 1: outside a render pass.
+    rig.beginPass(commands);
+    commands.dispatch(1);                                    // 2: compute inside a pass.
+    commands.bindUniformBuffer(1, 0, rig.uniforms, 4, 16);   // 3: misaligned offset.
+    commands.bindStorageBuffer(0, 0, rig.uniforms, 0, 16);   // 4: not a Storage buffer.
+    commands.bindUniformBuffer(1, 0, rig.uniforms, 0, 8192); // 5: larger than the buffer.
+    commands.drawIndexed(3);                                 // 6: no pipeline bound on this fresh device.
+    commands.endRenderPass();
+    RenderPassDesc windowWithDepth;
+    windowWithDepth.colorCount = 1;
+    windowWithDepth.colors[0].swapchain = true;
+    windowWithDepth.hasDepth = true;
+    windowWithDepth.depth.texture = rig.depth;
+    commands.beginRenderPass(windowWithDepth); // 7: the window has no depth buffer.
+    commands.beginDebugGroup("Never closed");  // 8: counted at the end of the list.
+    device.submit(commands);
+    const vxe::u64 invalid = device.stats().invalidCommands - before;
+    MESSAGE("Invalid commands reported: " << invalid);
+    // doctest runs each SUBCASE on a fresh device, so nothing is bound yet.
+    CHECK(invalid == 8);
+    // None of them reached OpenGL.
+    CHECK(device.stats().apiErrors == 0);
+}
+
+} // namespace
+
+TEST_CASE("OpenGL device renders through the full command path (VXE_GUI_TESTS=1)") {
+    if (!vxe::test::guiTestsEnabled()) {
+        MESSAGE("Skipped: set VXE_GUI_TESTS=1 to run tests that open real windows");
+        return;
+    }
+    withGlDevice("vxe OpenGL render test", [](Device& device) {
+        {
+            RenderRig rig(device);
+            SUBCASE("depth test and clip space") {
+                checkDepthAndClipSpace(rig);
+            }
+            SUBCASE("indexed, indirect and indirect count draws") {
+                checkCubeDraws(rig);
+            }
+            SUBCASE("compute, barriers and copies") {
+                checkComputeAndCopies(rig);
+            }
+            SUBCASE("GPU frame timer") {
+                checkGpuTimer(rig);
+            }
+            SUBCASE("invalid commands are skipped") {
+                checkInvalidCommandsAreSkipped(rig);
+            }
+        }
+        const DeviceStats stats = device.stats();
+        CHECK(stats.apiErrors == 0);
+        CHECK(stats.apiWarnings == 0);
+        CHECK(stats.buffers == 0);
+        CHECK(stats.textures == 0);
+        CHECK(stats.pipelines == 0);
+    });
 }

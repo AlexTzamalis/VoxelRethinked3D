@@ -30,6 +30,11 @@ namespace vxe::rhi {
 [[nodiscard]] Result<void> validateTextureUpload(const TextureDesc& desc, std::string_view name,
                                                  const TextureUpload& upload);
 
+// Checks one texture read back: TransferSrc, an existing mip level and layer,
+// and an output of exactly one tightly packed level.
+[[nodiscard]] Result<void> validateTextureRead(const TextureDesc& desc, std::string_view name, u32 mipLevel,
+                                               u32 layer, usize outSize);
+
 // The byte size of one mip level of one layer, for upload checks.
 [[nodiscard]] usize textureLevelBytes(const TextureDesc& desc, u32 mipLevel) noexcept;
 

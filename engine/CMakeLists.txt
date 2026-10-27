@@ -152,6 +152,7 @@ vxe_add_module(input
 vxe_add_module(rhi
     SOURCES
         src/rhi/command_list.cpp
+        src/rhi/gpu_timer.cpp
         src/rhi/shader_source.cpp
         src/rhi/validation.cpp
     DEPENDS
@@ -173,9 +174,12 @@ add_subdirectory(third_party/glad)
 
 vxe_add_module(rhi_gl
     SOURCES
+        src/rhi_gl/gl_commands.cpp
+        src/rhi_gl/gl_commands.hpp
         src/rhi_gl/gl_device.cpp
         src/rhi_gl/gl_formats.cpp
         src/rhi_gl/gl_formats.hpp
+        src/rhi_gl/gl_resources.hpp
         src/rhi_gl/gl_state.cpp
         src/rhi_gl/gl_state.hpp
     DEPENDS

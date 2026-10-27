@@ -2,8 +2,10 @@
 
 #include <vxe/core/result.hpp>
 #include <vxe/core/types.hpp>
+#include <vxe/rhi/device.hpp>
 #include <vxe/rhi/types.hpp>
 
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <span>
@@ -46,7 +48,7 @@ struct PreprocessedShader {
 
 // Builds the full source of the shader at `path`:
 //   #version <glslVersion> core
-//   #define VXE_OPENGL 1             (VXE_VULKAN for a future Vulkan backend)
+//   #define VXE_OPENGL 1             (also for Null; a Vulkan backend would get VXE_VULKAN)
 //   #define VXE_STAGE_VERTEX 1       (or _FRAGMENT, _COMPUTE)
 //   #define <each option define>
 //   the file, with every   #include "path"   replaced by that file.
@@ -60,6 +62,17 @@ struct PreprocessedShader {
 [[nodiscard]] Result<PreprocessedShader> preprocessShader(std::string_view path,
                                                           const ShaderPreprocessOptions& options,
                                                           const ShaderFileReader& reader);
+
+// A reader for shader files under a folder on disk. Paths stay inside the
+// folder because preprocessShader only accepts root relative include paths.
+[[nodiscard]] ShaderFileReader folderShaderReader(std::filesystem::path root);
+
+// Preprocesses the shader at `path` for `device` and creates it, with file
+// names attached so compile errors read "include/x.glsl:12: ...". The stage
+// comes from the file extension.
+[[nodiscard]] Result<ShaderHandle> createShaderFromFile(Device& device, std::string_view path,
+                                                        const ShaderFileReader& reader,
+                                                        std::span<const ShaderDefine> defines = {});
 
 // The stage a shader file holds, from its extension: .vert, .frag or .comp.
 // Include files (.glsl) have no stage.

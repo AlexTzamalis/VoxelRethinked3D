@@ -42,6 +42,10 @@ struct NullPipeline {
 
 struct NullFence {};
 
+struct NullQuery {
+    bool written = false; // Set once a submitted command list wrote it.
+};
+
 // A Device without a GPU (Section 7.6). Everything a real backend checks is
 // checked here too, so code tested against the Null device fails the same
 // way it would on the GPU.
@@ -81,6 +85,8 @@ public:
         stats.commandsSubmitted = m_commandsSubmitted;
         stats.invalidCommands = m_invalidCommands;
         stats.pipelineBinds = m_pipelineBinds;
+        stats.drawCalls = m_drawCalls;
+        stats.dispatches = m_dispatches;
         stats.pipelineBindsSkipped = m_pipelineBindsSkipped;
         stats.framesPresented = m_framesPresented;
         return stats;
@@ -165,6 +171,18 @@ public:
         return {};
     }
 
+    Result<void> readTexture(TextureHandle handle, u32 mipLevel, u32 layer,
+                             std::span<std::byte> out) override {
+        const NullTexture* texture = m_textures.get(handle);
+        if (texture == nullptr) {
+            return Error(ErrorCode::InvalidArgument, "readTexture on a destroyed or invalid texture");
+        }
+        VXE_TRY(validateTextureRead(texture->desc, texture->name, mipLevel, layer, out.size()));
+        // The Null device keeps no texel data, so every texture reads as zero.
+        std::ranges::fill(out, std::byte{0});
+        return {};
+    }
+
     Result<void> uploadTexture(TextureHandle handle, const TextureUpload& upload) override {
         const NullTexture* texture = m_textures.get(handle);
         if (texture == nullptr) {
@@ -181,6 +199,18 @@ public:
         return buffer->memory;
     }
 
+    Result<QueryHandle> createTimestampQuery() override { return m_queries.allocate(NullQuery{}); }
+    void destroy(QueryHandle query) override { static_cast<void>(m_queries.release(query)); }
+    // There is no GPU clock, so every written timestamp reads as 0 and
+    // measured GPU time is always zero.
+    std::optional<u64> timestampNanoseconds(QueryHandle query) override {
+        const NullQuery* entry = m_queries.get(query);
+        if (entry == nullptr || !entry->written) {
+            return std::nullopt;
+        }
+        return u64{0};
+    }
+
     FenceHandle insertFence() override { return m_fences.allocate(NullFence{}); }
     bool isFenceSignaled(FenceHandle fence) override {
         return m_fences.isLive(fence);
@@ -193,9 +223,18 @@ public:
             ++m_commandsSubmitted;
             if (!isCommandValid(command, insidePass)) {
                 ++m_invalidCommands;
+            } else if (isDraw(command.type)) {
+                ++m_drawCalls;
+            } else if (command.type == CommandType::Dispatch) {
+                ++m_dispatches;
             }
             if (command.type == CommandType::BindPipeline) {
                 countPipelineBind(command.as<cmd::BindPipeline>().pipeline);
+            }
+            if (command.type == CommandType::WriteTimestamp) {
+                if (NullQuery* query = m_queries.get(command.as<cmd::WriteTimestamp>().query)) {
+                    query->written = true;
+                }
             }
         }
         if (insidePass) {
@@ -210,6 +249,12 @@ public:
     [[nodiscard]] u32 backBufferHeight() const noexcept override { return 0; }
 
 private:
+    static bool isDraw(CommandType type) noexcept {
+        return type == CommandType::Draw || type == CommandType::DrawIndexed ||
+               type == CommandType::MultiDrawIndexedIndirect ||
+               type == CommandType::MultiDrawIndexedIndirectCount;
+    }
+
     // Counts binds the same way the OpenGL backend filters them, so stats
     // from tests on the Null device match what a GPU backend reports.
     void countPipelineBind(PipelineHandle pipeline) {
@@ -271,8 +316,9 @@ private:
         case CommandType::Barrier:
         case CommandType::BeginDebugGroup:
         case CommandType::EndDebugGroup:
-        case CommandType::WriteTimestamp:
             return true;
+        case CommandType::WriteTimestamp:
+            return m_queries.isLive(command.as<cmd::WriteTimestamp>().query);
         case CommandType::Count:
             break;
         }
@@ -307,9 +353,12 @@ private:
     HandlePool<ShaderTag, NullShader> m_shaders;
     HandlePool<PipelineTag, NullPipeline> m_pipelines;
     HandlePool<FenceTag, NullFence> m_fences;
+    HandlePool<QueryTag, NullQuery> m_queries;
     u64 m_commandsSubmitted = 0;
     u64 m_invalidCommands = 0;
     u64 m_pipelineBinds = 0;
+    u64 m_drawCalls = 0;
+    u64 m_dispatches = 0;
     u64 m_pipelineBindsSkipped = 0;
     PipelineHandle m_boundPipeline;
     u64 m_framesPresented = 0;

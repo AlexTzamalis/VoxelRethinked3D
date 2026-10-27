@@ -7,7 +7,12 @@
   "dependencies": [
     "doctest",
     "efsw",
-    "glslang",
+    {
+      "name": "glslang",
+      "features": [
+        "rtti"
+      ]
+    },
     "glm",
     {
       "name": "spdlog",

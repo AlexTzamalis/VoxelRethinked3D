@@ -126,6 +126,7 @@ enum class TextureUsage : u32 {
     DepthTarget = 1U << 2U,
     Storage = 1U << 3U,
     TransferDst = 1U << 4U,
+    TransferSrc = 1U << 5U, // Can be read back (Device::readTexture), for tests and screenshots.
 };
 
 enum class Filter : u8 {
@@ -349,8 +350,8 @@ struct PipelineDesc {
 };
 
 struct ColorAttachment {
-    TextureHandle texture;  // Ignored when `swapchain` is set.
-    bool swapchain = false; // Draw into the window's back buffer.
+    TextureHandle texture{}; // Ignored when `swapchain` is set.
+    bool swapchain = false;  // Draw into the window's back buffer.
     LoadOp load = LoadOp::Clear;
     StoreOp store = StoreOp::Store;
     std::array<f32, 4> clearColor{0.0F, 0.0F, 0.0F, 1.0F};
@@ -378,7 +379,7 @@ struct RenderPassDesc {
 };
 
 // Data for one mip level and array layer of a texture upload. Rows are
-// tightly packed (width * bytesPerTexel bytes each).
+// tightly packed (width * bytesPerTexel bytes each), bottom row first (ADR-016).
 struct TextureUpload {
     u32 mipLevel = 0;
     u32 layer = 0;

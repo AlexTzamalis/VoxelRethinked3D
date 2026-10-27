@@ -6,6 +6,7 @@
 #include <vxe/rhi/handles.hpp>
 #include <vxe/rhi/types.hpp>
 
+#include <optional>
 #include <span>
 #include <string>
 
@@ -22,6 +23,10 @@ struct DeviceCapabilities {
     u32 maxTextureArrayLayers = 0;
     u32 maxTextureSize = 0;
     u32 maxComputeWorkGroupInvocations = 0;
+    // Offsets passed to bindUniformBuffer and bindStorageBuffer must be
+    // multiples of these (often 256 and 16 or 32 bytes).
+    u32 uniformBufferOffsetAlignment = 256;
+    u32 storageBufferOffsetAlignment = 256;
     f32 maxAnisotropy = 1.0F;
     bool debugOutput = false; // API messages (KHR_debug) are reported to the log and counted.
     u64 videoMemoryBytes = 0; // Dedicated video memory; 0 when the driver does not say.
@@ -48,6 +53,8 @@ struct DeviceStats {
     u64 pipelineBinds = 0;        // Pipeline binds submitted.
     u64 pipelineBindsSkipped = 0; // Binds of the pipeline that was already bound, filtered out.
     u64 stateChanges = 0;         // Fixed function state calls actually sent to the API.
+    u64 drawCalls = 0;            // Draws sent to the API, each indirect multi draw counting once.
+    u64 dispatches = 0;           // Compute dispatches sent to the API.
     u64 framesPresented = 0;
 };
 
@@ -92,6 +99,12 @@ public:
     [[nodiscard]] virtual Result<void> readBuffer(BufferHandle buffer, usize offset,
                                                   std::span<std::byte> out) = 0;
 
+    // Copies one mip level of one layer of a texture back to the CPU, tightly
+    // packed and bottom row first like TextureUpload. Slow, like readBuffer: for tests, screenshots
+    // and debug views only. Needs TextureUsage::TransferSrc.
+    [[nodiscard]] virtual Result<void> readTexture(TextureHandle texture, u32 mipLevel, u32 layer,
+                                                   std::span<std::byte> out) = 0;
+
     // Uploads one mip level of one layer of a texture.
     [[nodiscard]] virtual Result<void> uploadTexture(TextureHandle texture, const TextureUpload& upload) = 0;
 
@@ -106,6 +119,15 @@ public:
     [[nodiscard]] virtual FenceHandle insertFence() = 0;
     [[nodiscard]] virtual bool isFenceSignaled(FenceHandle fence) = 0;
     virtual void destroy(FenceHandle fence) = 0;
+
+    // Timestamp queries measure GPU time. CommandList::writeTimestamp records
+    // the GPU clock when the GPU reaches that point; the result arrives a few
+    // frames later. timestampNanoseconds never waits: it returns nothing until
+    // the GPU has written the newest timestamp of that query. GpuFrameTimer
+    // (gpu_timer.hpp) wraps this into a stall free frame time.
+    [[nodiscard]] virtual Result<QueryHandle> createTimestampQuery() = 0;
+    virtual void destroy(QueryHandle query) = 0;
+    [[nodiscard]] virtual std::optional<u64> timestampNanoseconds(QueryHandle query) = 0;
 
     // Executes a recorded command list. The OpenGL backend replays it at once.
     virtual void submit(const CommandList& commands) = 0;

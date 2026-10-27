@@ -61,7 +61,7 @@ TEST_CASE("Stage and backend defines follow the options") {
         {.stage = ShaderStage::Compute, .backend = Backend::Null, .glslVersion = 450, .defines = {}}, reader);
     REQUIRE(compute.hasValue());
     CHECK(compute.value().source.starts_with(
-        "#version 450 core\n#define VXE_VULKAN 1\n#define VXE_STAGE_COMPUTE 1\n"));
+        "#version 450 core\n#define VXE_OPENGL 1\n#define VXE_STAGE_COMPUTE 1\n"));
 }
 
 TEST_CASE("#pragma once files are included once, others every time") {

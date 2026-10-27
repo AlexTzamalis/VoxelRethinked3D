@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <charconv>
 #include <format>
+#include <fstream>
+#include <sstream>
 
 namespace vxe::rhi {
 namespace {
@@ -262,13 +264,55 @@ Result<PreprocessedShader> preprocessShader(std::string_view path, const ShaderP
     Preprocessor preprocessor(reader);
     std::string& source = preprocessor.source();
     source += std::format("#version {} core\n", options.glslVersion);
-    source += options.backend == Backend::OpenGL ? "#define VXE_OPENGL 1\n" : "#define VXE_VULKAN 1\n";
+    // Only OpenGL style binding exists so far; the Null device mirrors it.
+    // A Vulkan backend would add a case that defines VXE_VULKAN instead.
+    switch (options.backend) {
+    case Backend::Null:
+    case Backend::OpenGL:
+        source += "#define VXE_OPENGL 1\n";
+        break;
+    }
     source += std::format("#define {} 1\n", stageDefine(options.stage));
     for (const ShaderDefine& define : options.defines) {
         source += std::format("#define {} {}\n", define.name, define.value);
     }
     VXE_TRY(preprocessor.include(path, {}));
     return preprocessor.take();
+}
+
+ShaderFileReader folderShaderReader(std::filesystem::path root) {
+    return [root = std::move(root)](std::string_view path) -> Result<std::string> {
+        const std::filesystem::path full = root / std::filesystem::path(path);
+        const std::ifstream file(full, std::ios::binary);
+        if (!file) {
+            return Error(ErrorCode::NotFound, std::format("'{}' does not exist", full.generic_string()));
+        }
+        std::ostringstream text;
+        text << file.rdbuf();
+        return text.str();
+    };
+}
+
+Result<ShaderHandle> createShaderFromFile(Device& device, std::string_view path,
+                                          const ShaderFileReader& reader,
+                                          std::span<const ShaderDefine> defines) {
+    const auto stage = shaderStageFromPath(path);
+    if (!stage) {
+        return Error(ErrorCode::InvalidArgument,
+                     std::format("'{}' is not a shader stage file (.vert, .frag or .comp)", path));
+    }
+    const ShaderPreprocessOptions options{.stage = *stage,
+                                          .backend = device.capabilities().backend,
+                                          .defines =
+                                              std::vector<ShaderDefine>(defines.begin(), defines.end())};
+    const auto source = preprocessShader(path, options, reader);
+    if (!source) {
+        return source.error();
+    }
+    return device.createShader({.stage = *stage,
+                                .source = source.value().source,
+                                .fileNames = source.value().files,
+                                .debugName = path});
 }
 
 std::optional<ShaderStage> shaderStageFromPath(std::string_view path) noexcept {

@@ -1,6 +1,8 @@
 #include "vxe/rhi_gl/gl_device.hpp"
 
+#include "gl_commands.hpp"
 #include "gl_formats.hpp"
+#include "gl_resources.hpp"
 #include "gl_state.hpp"
 
 #include <vxe/core/log.hpp>
@@ -12,6 +14,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <bit>
 #include <format>
 #include <string>
 #include <string_view>
@@ -19,47 +22,6 @@
 
 namespace vxe::rhi {
 namespace {
-
-struct GlBuffer {
-    GLuint id = 0;
-    usize size = 0;
-    BufferUsage usage = BufferUsage::None;
-    std::byte* mapped = nullptr; // Persistent mapping of CpuWrite buffers, valid until deletion.
-    std::string name;
-};
-
-struct GlTexture {
-    GLuint id = 0;
-    TextureDesc desc; // debugName cleared; `name` owns the text.
-    std::string name;
-    usize bytes = 0;
-};
-
-struct GlSampler {
-    GLuint id = 0;
-};
-
-struct GlFence {
-    GLsync sync = nullptr;
-};
-
-struct GlShader {
-    GLuint id = 0;
-    ShaderStage stage = ShaderStage::Vertex;
-    std::string name;
-};
-
-// A linked program plus every piece of fixed function state, applied as a
-// whole on bind (through the StateCache, which skips what is already set).
-struct GlPipeline {
-    GLuint program = 0;
-    bool compute = false;
-    GLenum topology = GL_TRIANGLES; // Used by draws (E6.5).
-    RasterState raster;
-    DepthState depth;
-    std::array<BlendState, kMaxColorAttachments> blend{};
-    std::string name;
-};
 
 // Reads a shader or program info log, which OpenGL keeps per object.
 template <typename GetLength, typename GetLog>
@@ -85,6 +47,12 @@ void label(GLenum type, GLuint id, std::string_view name) {
     if (!name.empty()) {
         glObjectLabel(type, id, static_cast<GLsizei>(name.size()), name.data());
     }
+}
+
+u32 glLimit(GLenum name) {
+    GLint value = 0;
+    glGetIntegerv(name, &value);
+    return static_cast<u32>(std::max(value, 0));
 }
 
 std::string_view debugSourceName(GLenum source) {
@@ -126,6 +94,7 @@ std::string_view debugTypeName(GLenum type) {
 // The OpenGL 4.5+ device. Direct State Access only (glCreate*, glNamed*,
 // glTexture*), so no object is ever bound just to edit it, and immutable
 // storage only, so the driver knows every size up front (Section 7.5).
+// Command lists are replayed by gl::CommandReplayer (gl_commands.cpp).
 //
 // Thread safety: main thread only. The debug message counters are atomic
 // because asynchronous debug output may call back on a driver thread.
@@ -133,7 +102,8 @@ class GlDevice final : public Device {
 public:
     GlDevice(platform::Window& window, const GlDeviceOptions& options)
         : m_window(window)
-        , m_options(options) {}
+        , m_options(options)
+        , m_replayer(m_resources, m_state, m_capabilities, window) {}
 
     GlDevice(const GlDevice&) = delete;
     GlDevice& operator=(const GlDevice&) = delete;
@@ -144,6 +114,10 @@ public:
     // so terminating (what an escaping exception does here) is acceptable.
     // NOLINTNEXTLINE(bugprone-exception-escape)
     ~GlDevice() override {
+        m_replayer.shutdown();
+        if (m_readback.id != 0) {
+            glDeleteBuffers(1, &m_readback.id);
+        }
         reportAndFreeLeftovers();
         if (m_capabilities.debugOutput) {
             // The callback points at this object, so it must go first.
@@ -171,6 +145,10 @@ public:
         // must not be padded to 4 bytes, which is OpenGL's default.
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        // Reversed Z (ADR-010): depth goes from 0 to 1 instead of -1 to 1, so
+        // the float depth buffer keeps its precision all the way to the horizon.
+        glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+        m_replayer.initialize();
         logCapabilities();
         return {};
     }
@@ -179,19 +157,22 @@ public:
 
     [[nodiscard]] DeviceStats stats() const override {
         DeviceStats stats;
-        m_buffers.forEach(
-            [&stats](BufferHandle, const GlBuffer& buffer) { stats.bufferBytes += buffer.size; });
-        m_textures.forEach(
-            [&stats](TextureHandle, const GlTexture& texture) { stats.textureBytes += texture.bytes; });
-        stats.buffers = static_cast<u32>(m_buffers.liveCount());
-        stats.textures = static_cast<u32>(m_textures.liveCount());
-        stats.samplers = static_cast<u32>(m_samplers.liveCount());
-        stats.shaders = static_cast<u32>(m_shaders.liveCount());
-        stats.pipelines = static_cast<u32>(m_pipelines.liveCount());
-        stats.commandsSubmitted = m_commandsSubmitted;
-        stats.invalidCommands = m_invalidCommands;
-        stats.pipelineBinds = m_pipelineBinds;
-        stats.pipelineBindsSkipped = m_pipelineBindsSkipped;
+        m_resources.buffers.forEach(
+            [&stats](BufferHandle, const gl::Buffer& buffer) { stats.bufferBytes += buffer.size; });
+        m_resources.textures.forEach(
+            [&stats](TextureHandle, const gl::Texture& texture) { stats.textureBytes += texture.bytes; });
+        stats.buffers = static_cast<u32>(m_resources.buffers.liveCount());
+        stats.textures = static_cast<u32>(m_resources.textures.liveCount());
+        stats.samplers = static_cast<u32>(m_resources.samplers.liveCount());
+        stats.shaders = static_cast<u32>(m_resources.shaders.liveCount());
+        stats.pipelines = static_cast<u32>(m_resources.pipelines.liveCount());
+        const gl::ReplayStats& replay = m_replayer.stats();
+        stats.commandsSubmitted = replay.commands;
+        stats.invalidCommands = replay.invalidCommands;
+        stats.pipelineBinds = replay.pipelineBinds;
+        stats.pipelineBindsSkipped = replay.pipelineBindsSkipped;
+        stats.drawCalls = replay.drawCalls;
+        stats.dispatches = replay.dispatches;
         stats.stateChanges = m_state.stateChanges();
         stats.framesPresented = m_framesPresented;
         stats.apiErrors = m_apiErrors.load(std::memory_order_relaxed);
@@ -221,11 +202,11 @@ public:
             return creationError("buffer", desc.debugName, error);
         }
         label(GL_BUFFER, id, desc.debugName);
-        return m_buffers.allocate(GlBuffer{.id = id,
-                                           .size = desc.sizeBytes,
-                                           .usage = desc.usage,
-                                           .mapped = mapped,
-                                           .name = std::string(desc.debugName)});
+        return m_resources.buffers.allocate(gl::Buffer{.id = id,
+                                                       .size = desc.sizeBytes,
+                                                       .usage = desc.usage,
+                                                       .mapped = mapped,
+                                                       .name = std::string(desc.debugName)});
     }
 
     Result<TextureHandle> createTexture(const TextureDesc& desc) override {
@@ -255,7 +236,7 @@ public:
         label(GL_TEXTURE, id, desc.debugName);
         TextureDesc stored = desc;
         stored.debugName = {};
-        return m_textures.allocate(GlTexture{
+        return m_resources.textures.allocate(gl::Texture{
             .id = id, .desc = stored, .name = std::string(desc.debugName), .bytes = textureTotalBytes(desc)});
     }
 
@@ -274,7 +255,7 @@ public:
                                 std::min(desc.maxAnisotropy, m_capabilities.maxAnisotropy));
         }
         label(GL_SAMPLER, id, desc.debugName);
-        return m_samplers.allocate(GlSampler{.id = id});
+        return m_resources.samplers.allocate(gl::Sampler{.id = id});
     }
 
     Result<ShaderHandle> createShader(const ShaderDesc& desc) override {
@@ -294,8 +275,8 @@ public:
                                      desc.debugName, annotateShaderLog(log, desc.fileNames)));
         }
         label(GL_SHADER, id, desc.debugName);
-        return m_shaders.allocate(
-            GlShader{.id = id, .stage = desc.stage, .name = std::string(desc.debugName)});
+        return m_resources.shaders.allocate(
+            gl::Shader{.id = id, .stage = desc.stage, .name = std::string(desc.debugName)});
     }
 
     Result<PipelineHandle> createPipeline(const PipelineDesc& desc) override {
@@ -306,7 +287,7 @@ public:
             if (!handle.isValid()) {
                 return {};
             }
-            const GlShader* shader = m_shaders.get(handle);
+            const gl::Shader* shader = m_resources.shaders.get(handle);
             if (shader == nullptr || shader->stage != stage) {
                 return Error(ErrorCode::InvalidArgument,
                              std::format("Pipeline '{}' uses a missing {} shader or one of another stage",
@@ -338,49 +319,50 @@ public:
                          std::format("Pipeline '{}' does not link:\n{}", desc.debugName, log));
         }
         label(GL_PROGRAM, program, desc.debugName);
-        return m_pipelines.allocate(GlPipeline{.program = program,
-                                               .compute = desc.compute.isValid(),
-                                               .topology = gl::primitiveTopology(desc.topology),
-                                               .raster = desc.raster,
-                                               .depth = desc.depth,
-                                               .blend = desc.blend,
-                                               .name = std::string(desc.debugName)});
+        return m_resources.pipelines.allocate(gl::Pipeline{.program = program,
+                                                           .compute = desc.compute.isValid(),
+                                                           .topology = gl::primitiveTopology(desc.topology),
+                                                           .raster = desc.raster,
+                                                           .depth = desc.depth,
+                                                           .blend = desc.blend,
+                                                           .name = std::string(desc.debugName)});
     }
 
     void destroy(BufferHandle handle) override {
-        if (auto buffer = m_buffers.release(handle)) {
+        if (auto buffer = m_resources.buffers.release(handle)) {
             // Deleting also ends a persistent mapping. OpenGL keeps the memory
             // alive until the GPU is done with it, so this is safe right away.
             glDeleteBuffers(1, &buffer->id);
         }
     }
     void destroy(TextureHandle handle) override {
-        if (auto texture = m_textures.release(handle)) {
+        if (auto texture = m_resources.textures.release(handle)) {
+            m_replayer.onTextureDestroyed(texture->id);
             glDeleteTextures(1, &texture->id);
         }
     }
     void destroy(SamplerHandle handle) override {
-        if (auto sampler = m_samplers.release(handle)) {
+        if (auto sampler = m_resources.samplers.release(handle)) {
             glDeleteSamplers(1, &sampler->id);
         }
     }
     void destroy(ShaderHandle handle) override {
-        if (auto shader = m_shaders.release(handle)) {
+        if (auto shader = m_resources.shaders.release(handle)) {
             glDeleteShader(shader->id);
         }
     }
     void destroy(PipelineHandle handle) override {
-        if (auto pipeline = m_pipelines.release(handle)) {
+        if (auto pipeline = m_resources.pipelines.release(handle)) {
+            // OpenGL may hand the program name to a new program, which the
+            // caches must not mistake for this one.
             m_state.forgetProgram(pipeline->program);
-            if (m_boundPipeline == handle) {
-                m_boundPipeline = {};
-            }
+            m_replayer.onPipelineDestroyed(handle);
             glDeleteProgram(pipeline->program);
         }
     }
 
     Result<void> updateBuffer(BufferHandle handle, usize offset, std::span<const std::byte> data) override {
-        const GlBuffer* buffer = m_buffers.get(handle);
+        const gl::Buffer* buffer = m_resources.buffers.get(handle);
         if (buffer == nullptr) {
             return Error(ErrorCode::InvalidArgument, "updateBuffer on a destroyed or invalid buffer");
         }
@@ -391,19 +373,44 @@ public:
     }
 
     Result<void> readBuffer(BufferHandle handle, usize offset, std::span<std::byte> out) override {
-        const GlBuffer* buffer = m_buffers.get(handle);
+        const gl::Buffer* buffer = m_resources.buffers.get(handle);
         if (buffer == nullptr) {
             return Error(ErrorCode::InvalidArgument, "readBuffer on a destroyed or invalid buffer");
         }
         VXE_TRY(validateBufferRead(buffer->size, buffer->usage, buffer->name, offset, out.size()));
-        // Waits for every earlier GPU write to the buffer, which is why this is slow.
-        glGetNamedBufferSubData(buffer->id, static_cast<GLintptr>(offset),
-                                static_cast<GLsizeiptr>(out.size()), out.data());
+        // Reading a GPU buffer directly (glGetNamedBufferSubData) makes some
+        // drivers move the whole buffer to system memory for good, which
+        // slows down every later GPU use. So the range is copied into a host
+        // side readback buffer instead, the way a Vulkan backend reads back,
+        // and the CPU waits for that copy only. Still slow: it waits for the GPU.
+        VXE_TRY(ensureReadbackCapacity(out.size()));
+        glCopyNamedBufferSubData(buffer->id, m_readback.id, static_cast<GLintptr>(offset), 0,
+                                 static_cast<GLsizeiptr>(out.size()));
+        glMemoryBarrier(GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
+        VXE_TRY(waitForGpu());
+        std::copy_n(m_readback.mapped, out.size(), out.begin());
+        return {};
+    }
+
+    Result<void> readTexture(TextureHandle handle, u32 mipLevel, u32 layer,
+                             std::span<std::byte> out) override {
+        const gl::Texture* texture = m_resources.textures.get(handle);
+        if (texture == nullptr) {
+            return Error(ErrorCode::InvalidArgument, "readTexture on a destroyed or invalid texture");
+        }
+        VXE_TRY(validateTextureRead(texture->desc, texture->name, mipLevel, layer, out.size()));
+        const gl::FormatInfo format = gl::formatInfo(texture->desc.format);
+        const auto width = static_cast<GLsizei>(std::max(texture->desc.width >> mipLevel, 1U));
+        const auto height = static_cast<GLsizei>(std::max(texture->desc.height >> mipLevel, 1U));
+        // Rows come back bottom row first, OpenGL's lower left origin (ADR-016).
+        glGetTextureSubImage(texture->id, static_cast<GLint>(mipLevel), 0, 0, static_cast<GLint>(layer),
+                             width, height, 1, format.format, format.type, static_cast<GLsizei>(out.size()),
+                             out.data());
         return {};
     }
 
     Result<void> uploadTexture(TextureHandle handle, const TextureUpload& upload) override {
-        const GlTexture* texture = m_textures.get(handle);
+        const gl::Texture* texture = m_resources.textures.get(handle);
         if (texture == nullptr) {
             return Error(ErrorCode::InvalidArgument, "uploadTexture on a destroyed or invalid texture");
         }
@@ -423,7 +430,7 @@ public:
     }
 
     std::span<std::byte> mappedRange(BufferHandle handle) override {
-        const GlBuffer* buffer = m_buffers.get(handle);
+        const gl::Buffer* buffer = m_resources.buffers.get(handle);
         if (buffer == nullptr || buffer->mapped == nullptr) {
             return {};
         }
@@ -431,11 +438,11 @@ public:
     }
 
     FenceHandle insertFence() override {
-        return m_fences.allocate(GlFence{.sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0)});
+        return m_resources.fences.allocate(gl::Fence{.sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0)});
     }
 
     bool isFenceSignaled(FenceHandle fence) override {
-        const GlFence* entry = m_fences.get(fence);
+        const gl::Fence* entry = m_resources.fences.get(fence);
         if (entry == nullptr) {
             return false;
         }
@@ -446,21 +453,42 @@ public:
     }
 
     void destroy(FenceHandle fence) override {
-        if (auto entry = m_fences.release(fence)) {
+        if (auto entry = m_resources.fences.release(fence)) {
             glDeleteSync(entry->sync);
         }
     }
 
-    void submit(const CommandList& commands) override {
-        // E6.4 replays pipeline binds only; render passes, binds, draws and
-        // dispatches follow in E6.5.
-        for (const CommandView command : commands) {
-            ++m_commandsSubmitted;
-            if (command.type == CommandType::BindPipeline) {
-                bindPipeline(command.as<cmd::BindPipeline>().pipeline);
-            }
+    Result<QueryHandle> createTimestampQuery() override {
+        if (!m_capabilities.timestampQueries) {
+            return Error(ErrorCode::Unsupported, "This driver has no timestamp queries");
+        }
+        GLuint id = 0;
+        glCreateQueries(GL_TIMESTAMP, 1, &id);
+        return m_resources.queries.allocate(gl::Query{.id = id});
+    }
+
+    void destroy(QueryHandle query) override {
+        if (auto entry = m_resources.queries.release(query)) {
+            glDeleteQueries(1, &entry->id);
         }
     }
+
+    std::optional<u64> timestampNanoseconds(QueryHandle query) override {
+        const gl::Query* entry = m_resources.queries.get(query);
+        if (entry == nullptr || !entry->written) {
+            return std::nullopt;
+        }
+        GLint available = GL_FALSE;
+        glGetQueryObjectiv(entry->id, GL_QUERY_RESULT_AVAILABLE, &available);
+        if (available == GL_FALSE) {
+            return std::nullopt;
+        }
+        GLuint64 nanoseconds = 0;
+        glGetQueryObjectui64v(entry->id, GL_QUERY_RESULT, &nanoseconds);
+        return static_cast<u64>(nanoseconds);
+    }
+
+    void submit(const CommandList& commands) override { m_replayer.submit(commands); }
 
     void beginFrame() override {}
 
@@ -513,13 +541,11 @@ private:
         glGetQueryiv(GL_TIMESTAMP, GL_QUERY_COUNTER_BITS, &timestampBits);
         caps.timestampQueries = timestampBits > 0;
 
-        GLint value = 0;
-        glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &value);
-        caps.maxTextureArrayLayers = static_cast<u32>(value);
-        glGetIntegerv(GL_MAX_TEXTURE_SIZE, &value);
-        caps.maxTextureSize = static_cast<u32>(value);
-        glGetIntegerv(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &value);
-        caps.maxComputeWorkGroupInvocations = static_cast<u32>(value);
+        caps.maxTextureArrayLayers = glLimit(GL_MAX_ARRAY_TEXTURE_LAYERS);
+        caps.maxTextureSize = glLimit(GL_MAX_TEXTURE_SIZE);
+        caps.maxComputeWorkGroupInvocations = glLimit(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS);
+        caps.uniformBufferOffsetAlignment = std::max(glLimit(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT), 1U);
+        caps.storageBufferOffsetAlignment = std::max(glLimit(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT), 1U);
 
         // Core in 4.6; the ARB and EXT extensions use the same enum value.
         if (gl46 || GLAD_GL_ARB_texture_filter_anisotropic != 0 ||
@@ -596,28 +622,6 @@ private:
         }
     }
 
-    // Makes a pipeline current. Binding the pipeline that is already bound
-    // costs nothing, and switching only sends the state that differs.
-    void bindPipeline(PipelineHandle handle) {
-        ++m_pipelineBinds;
-        const GlPipeline* pipeline = m_pipelines.get(handle);
-        if (pipeline == nullptr) {
-            ++m_invalidCommands;
-            return;
-        }
-        if (handle == m_boundPipeline) {
-            ++m_pipelineBindsSkipped;
-            return;
-        }
-        m_state.useProgram(pipeline->program);
-        if (!pipeline->compute) {
-            m_state.applyRaster(pipeline->raster);
-            m_state.applyDepth(pipeline->depth);
-            m_state.applyBlend(pipeline->blend);
-        }
-        m_boundPipeline = handle;
-    }
-
     void logCapabilities() const {
         constexpr u64 kBytesPerMiB = u64{1024} * 1024;
         const DeviceCapabilities& caps = m_capabilities;
@@ -634,6 +638,47 @@ private:
             "Max texture {} px, {} array layers, {} compute invocations, anisotropy {}x, video memory {} MiB",
             caps.maxTextureSize, caps.maxTextureArrayLayers, caps.maxComputeWorkGroupInvocations,
             caps.maxAnisotropy, caps.videoMemoryBytes / kBytesPerMiB);
+    }
+
+    // Grows the readback buffer to at least `size` bytes. It lives in system
+    // memory (client storage) and stays mapped, so reads need no extra copy.
+    Result<void> ensureReadbackCapacity(usize size) {
+        if (m_readback.size >= size) {
+            return {};
+        }
+        if (m_readback.id != 0) {
+            glDeleteBuffers(1, &m_readback.id);
+            m_readback = {};
+        }
+        const usize capacity = std::max<usize>(std::bit_ceil(size), usize{64} * 1024);
+        constexpr GLbitfield kMapFlags = GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+        clearErrors();
+        glCreateBuffers(1, &m_readback.id);
+        glNamedBufferStorage(m_readback.id, static_cast<GLsizeiptr>(capacity), nullptr,
+                             kMapFlags | GL_CLIENT_STORAGE_BIT);
+        m_readback.mapped = static_cast<std::byte*>(
+            glMapNamedBufferRange(m_readback.id, 0, static_cast<GLsizeiptr>(capacity), kMapFlags));
+        if (const GLenum error = glGetError(); error != GL_NO_ERROR || m_readback.mapped == nullptr) {
+            glDeleteBuffers(1, &m_readback.id);
+            m_readback = {};
+            return creationError("buffer", "Readback", error);
+        }
+        label(GL_BUFFER, m_readback.id, "Readback");
+        m_readback.size = capacity;
+        return {};
+    }
+
+    // Blocks until the GPU has executed every command sent so far.
+    static Result<void> waitForGpu() {
+        auto* const fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        constexpr GLuint64 kTimeoutNanoseconds = 10'000'000'000; // Far beyond any sane frame.
+        const GLenum status = glClientWaitSync(fence, GL_SYNC_FLUSH_COMMANDS_BIT, kTimeoutNanoseconds);
+        glDeleteSync(fence);
+        if (status != GL_ALREADY_SIGNALED && status != GL_CONDITION_SATISFIED) {
+            return Error(ErrorCode::Timeout,
+                         "The GPU did not finish within 10 seconds (device lost or hung)");
+        }
+        return {};
     }
 
     // Errors from earlier calls must not be blamed on the next creation.
@@ -653,29 +698,33 @@ private:
 
     // Frees what the caller forgot and names it, so leaks are easy to find.
     // The full lifetime tracking with deferred destruction follows in E6.6.
-    void reportAndFreeLeftovers() {
+    void reportAndFreeLeftovers() const {
         std::vector<std::string> leaks;
-        m_buffers.forEach([&leaks](BufferHandle, const GlBuffer& b) {
+        m_resources.buffers.forEach([&leaks](BufferHandle, const gl::Buffer& b) {
             leaks.push_back("buffer '" + b.name + "'");
             glDeleteBuffers(1, &b.id);
         });
-        m_textures.forEach([&leaks](TextureHandle, const GlTexture& t) {
+        m_resources.textures.forEach([&leaks](TextureHandle, const gl::Texture& t) {
             leaks.push_back("texture '" + t.name + "'");
             glDeleteTextures(1, &t.id);
         });
-        m_samplers.forEach([](SamplerHandle, const GlSampler& s) { glDeleteSamplers(1, &s.id); });
-        if (m_samplers.liveCount() > 0) {
-            leaks.push_back(std::format("{} samplers", m_samplers.liveCount()));
+        m_resources.samplers.forEach([](SamplerHandle, const gl::Sampler& s) { glDeleteSamplers(1, &s.id); });
+        if (m_resources.samplers.liveCount() > 0) {
+            leaks.push_back(std::format("{} samplers", m_resources.samplers.liveCount()));
         }
-        m_shaders.forEach([&leaks](ShaderHandle, const GlShader& sh) {
+        m_resources.shaders.forEach([&leaks](ShaderHandle, const gl::Shader& sh) {
             leaks.push_back("shader '" + sh.name + "'");
             glDeleteShader(sh.id);
         });
-        m_pipelines.forEach([&leaks](PipelineHandle, const GlPipeline& pl) {
+        m_resources.pipelines.forEach([&leaks](PipelineHandle, const gl::Pipeline& pl) {
             leaks.push_back("pipeline '" + pl.name + "'");
             glDeleteProgram(pl.program);
         });
-        m_fences.forEach([](FenceHandle, const GlFence& f) { glDeleteSync(f.sync); });
+        m_resources.fences.forEach([](FenceHandle, const gl::Fence& f) { glDeleteSync(f.sync); });
+        m_resources.queries.forEach([](QueryHandle, const gl::Query& q) { glDeleteQueries(1, &q.id); });
+        if (m_resources.queries.liveCount() > 0) {
+            leaks.push_back(std::format("{} timestamp queries", m_resources.queries.liveCount()));
+        }
         for (const std::string& leak : leaks) {
             VXE_LOG_WARN(log::rhi, "OpenGL device destroyed with a live {}", leak);
         }
@@ -684,18 +733,16 @@ private:
     platform::Window& m_window;
     GlDeviceOptions m_options;
     DeviceCapabilities m_capabilities;
-    HandlePool<BufferTag, GlBuffer> m_buffers;
-    HandlePool<TextureTag, GlTexture> m_textures;
-    HandlePool<SamplerTag, GlSampler> m_samplers;
-    HandlePool<FenceTag, GlFence> m_fences;
-    HandlePool<ShaderTag, GlShader> m_shaders;
-    HandlePool<PipelineTag, GlPipeline> m_pipelines;
+    gl::Resources m_resources;
     gl::StateCache m_state;
-    PipelineHandle m_boundPipeline;
-    u64 m_commandsSubmitted = 0;
-    u64 m_invalidCommands = 0;
-    u64 m_pipelineBinds = 0;
-    u64 m_pipelineBindsSkipped = 0;
+    gl::CommandReplayer m_replayer;
+    // Host side buffer for readBuffer, grown on demand. Not a handle: it
+    // belongs to the device, not to any caller.
+    struct Readback {
+        GLuint id = 0;
+        usize size = 0;
+        std::byte* mapped = nullptr;
+    } m_readback;
     u64 m_framesPresented = 0;
     mutable std::atomic<u64> m_apiErrors{0};
     mutable std::atomic<u64> m_apiWarnings{0};

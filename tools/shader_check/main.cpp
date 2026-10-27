@@ -19,9 +19,7 @@
 #include <exception>
 #include <filesystem>
 #include <format>
-#include <fstream>
 #include <iostream>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -58,17 +56,6 @@ bool parseArguments(int argc, char** argv, Arguments& out) {
     return !out.root.empty() && !out.shaders.empty();
 }
 
-vxe::Result<std::string> readText(const std::filesystem::path& path) {
-    const std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        return vxe::Error(vxe::ErrorCode::NotFound,
-                          std::format("'{}' does not exist", path.generic_string()));
-    }
-    std::ostringstream text;
-    text << file.rdbuf();
-    return text.str();
-}
-
 EShLanguage glslangStage(ShaderStage stage) {
     switch (stage) {
     case ShaderStage::Vertex:
@@ -90,9 +77,7 @@ bool checkShader(const Arguments& args, const std::string& path) {
                                  absolute.generic_string());
         return false;
     }
-    const vxe::rhi::ShaderFileReader reader = [&args](std::string_view file) {
-        return readText(args.root / std::filesystem::path(file));
-    };
+    const vxe::rhi::ShaderFileReader reader = vxe::rhi::folderShaderReader(args.root);
     const vxe::rhi::ShaderPreprocessOptions options{.stage = *stage, .defines = args.defines};
     const auto preprocessed = vxe::rhi::preprocessShader(path, options, reader);
     if (!preprocessed) {

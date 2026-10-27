@@ -22,3 +22,4 @@ then update the record (or add a new one that supersedes it) in the same commit 
 | [ADR-013](0013-imgui-for-tools-custom-game-ui.md) | Dear ImGui for tools, custom UI for the game |
 | [ADR-014](0014-toml-settings-and-keybinds.md) | Settings and keybinds persisted as TOML |
 | [ADR-015](0015-module-layer-order.md) | Engine modules in a strict layer order, enforced by CMake |
+| [ADR-016](0016-rhi-coordinate-conventions.md) | RHI coordinate conventions follow OpenGL with zero to one depth |

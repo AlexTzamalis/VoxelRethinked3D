@@ -2,6 +2,26 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#037] 2026-10-27, E6.5 GL command execution, sync, queries, swapchain
+### Added
+- gl::CommandReplayer: full command list replay for the OpenGL backend. Render passes to the window or to cached framebuffer objects, clears (float, integer, depth, depth stencil), LoadOp and StoreOp DontCare invalidation, viewport and scissor, uniform, storage and texture binds through the set * 16 + slot rule, index buffers on one engine VAO, draw, drawIndexed, multi draw indirect and indirect count (core 4.6 or ARB), compute dispatch, buffer copies, barriers mapped to glMemoryBarrier bits, debug groups and timestamps.
+- Every command is checked before it reaches OpenGL (live handles, usage flags, offset alignment, ranges, binding limits, pass rules); invalid ones are counted and skipped. Unclosed passes and debug groups are closed and counted at the end of a list.
+- Reversed Z clip space: glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE) at device start (ADR-010).
+- Timestamp queries that never wait (createTimestampQuery, timestampNanoseconds) and rhi::GpuFrameTimer, a 4 frame ring that reads results 3 frames later.
+- Device::readTexture and TextureUsage::TransferSrc for tests and screenshots; capabilities report uniform and storage offset alignment; DeviceStats counts draw calls and dispatches.
+- shader_source helpers folderShaderReader and createShaderFromFile, shared by the checker, the demo and the tests.
+- Engine shaders debug/cube (an indexed 8 corner cube with derivative based flat shading) and debug/blit (fullscreen triangle copy).
+- tools/rhi_demo (vxe_rhi_demo): a spinning cube rendered offscreen with depth, copied to the window, with the triangle on top and GPU and CPU frame times in the title. --frames N runs a scripted check. Measured on an RTX 4060, release: 0.27 ms CPU and 0.05 ms GPU per frame, 0 invalid commands, 0 driver errors.
+- GPU tests with pixel readback: reversed Z depth rejection, clipping below depth 0, identical images from direct, indirect and indirect count draws (count 0 draws nothing), compute fill with barriers and copies, the GPU frame timer, and exactly 8 invalid commands skipped without driver errors. Null device tests for timestamps, the timer and texture readback.
+### Changed
+- The OpenGL backend is split into gl_resources, gl_commands and gl_device.
+- readBuffer copies into a host side readback buffer and waits on a fence, instead of reading the GPU buffer directly, which made NVIDIA move the source buffer to system memory.
+- Shaders for the Null backend get VXE_OPENGL, since it follows OpenGL's binding model.
+### Fixed
+- The Linux Clang asan job failed to link vxe_shader_check because UBSan's vptr check needs RTTI; glslang is now built with its rtti feature.
+### Docs
+- ADR-016: RHI coordinate conventions (lower left origin, bottom row first, 0 to 1 depth, window shows values as written).
+
 ## [#036] 2026-10-27, E6.4 OpenGL shaders and pipelines
 ### Added
 - rhi/shader_source: the GLSL preprocessor shared by runtime and build. It resolves #include "path" relative to the shader root, honors #pragma once, rejects cycles, unsafe paths and #version in files with file:line messages, writes #version 460 core plus backend and stage defines, and emits #line directives so every line maps back to its file.

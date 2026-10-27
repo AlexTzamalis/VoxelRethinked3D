@@ -1,3 +1,4 @@
+#include <vxe/rhi/gpu_timer.hpp>
 #include <vxe/rhi_null/null_device.hpp>
 
 #include <doctest/doctest.h>
@@ -244,4 +245,60 @@ TEST_CASE("Textures without TransferDst cannot be uploaded to") {
 TEST_CASE("Textures beyond the device limits are refused") {
     const auto device = createNullDevice();
     CHECK(device->createTexture({.format = Format::RGBA8Unorm, .width = 32768, .height = 4}).hasError());
+}
+
+TEST_CASE("The GPU frame timer reads results kFrames frames later and never stalls") {
+    const auto device = createNullDevice();
+    GpuFrameTimer timer;
+    REQUIRE(timer.create(*device).hasValue());
+    CommandList list;
+    for (std::size_t frame = 0; frame <= GpuFrameTimer::kFrames; ++frame) {
+        // Each frame reads the slot written kFrames frames earlier; until the
+        // first slot comes around again, nothing has been measured.
+        CHECK_FALSE(timer.lastFrameMilliseconds().has_value());
+        list.reset();
+        timer.beginFrame(*device, list);
+        timer.endFrame(list);
+        device->submit(list);
+    }
+    REQUIRE(timer.lastFrameMilliseconds().has_value());
+    CHECK(*timer.lastFrameMilliseconds() == 0.0); // The Null device has no GPU clock.
+    CHECK(timer.missedResults() == 0);
+    timer.destroy(*device);
+}
+
+TEST_CASE("Null timestamps and texture readback follow the device rules") {
+    const auto device = createNullDevice();
+    const QueryHandle query = device->createTimestampQuery().value();
+    CHECK_FALSE(device->timestampNanoseconds(query).has_value()); // Never written yet.
+    CommandList list;
+    list.writeTimestamp(query);
+    device->submit(list);
+    CHECK(device->timestampNanoseconds(query) == 0U);
+    device->destroy(query);
+    list.reset();
+    list.writeTimestamp(query); // Destroyed: invalid.
+    device->submit(list);
+    CHECK(device->stats().invalidCommands == 1);
+
+    const TextureHandle readable =
+        device
+            ->createTexture({.format = Format::RGBA8Unorm,
+                             .width = 4,
+                             .height = 4,
+                             .usage = TextureUsage::RenderTarget | TextureUsage::TransferSrc,
+                             .debugName = "Readable"})
+            .value();
+    const TextureHandle hidden =
+        device->createTexture({.format = Format::RGBA8Unorm, .width = 4, .height = 4, .debugName = "Hidden"})
+            .value();
+    std::vector<std::byte> pixels(std::size_t{4} * 4 * 4, std::byte{0xAB});
+    REQUIRE(device->readTexture(readable, 0, 0, pixels).hasValue());
+    CHECK(pixels == std::vector<std::byte>(pixels.size(), std::byte{0})); // The Null device keeps no texels.
+    CHECK(device->readTexture(hidden, 0, 0, pixels).hasError());          // No TransferSrc.
+    CHECK(device->readTexture(readable, 1, 0, pixels).hasError());        // No mip 1.
+    pixels.resize(8);
+    CHECK(device->readTexture(readable, 0, 0, pixels).hasError()); // Wrong size.
+    device->destroy(readable);
+    device->destroy(hidden);
 }
