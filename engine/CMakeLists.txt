@@ -201,6 +201,7 @@ vxe_add_module(render
         src/render/debug_draw.cpp
         src/render/frame_constants.cpp
         src/render/frame_graph.cpp
+        src/render/sky.cpp
     DEPENDS
         core
         math

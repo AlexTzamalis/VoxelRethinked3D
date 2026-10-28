@@ -13,7 +13,9 @@
 // The scene is flown with a free camera (E8.2): W, A, S, D, Space and Left
 // Shift move, Left Ctrl is fast, the right mouse button looks, the wheel
 // changes the speed. A debug grid lies under the start position and F3+G
-// shows chunk borders. --origin N starts the camera N blocks from the world
+// shows chunk borders. The sky, sun and height fog (E8.3) follow the
+// Graphics.Sky settings live, for example --exec "set Graphics.Sky.TimeOfDay 18"
+// or a running day with Graphics.Sky.DayLengthMinutes. --origin N starts the camera N blocks from the world
 // origin on X and Z, to check that nothing shakes far away (try 10000000). The window title shows the GPU
 // frame time (measured with timestamp queries, without stalls), the CPU frame time and the frame rate. With
 // --frames the demo stops after N frames and prints a summary; the exit code is non zero if the device
@@ -44,6 +46,7 @@
 #include <vxe/render/debug_draw.hpp>
 #include <vxe/render/frame_constants.hpp>
 #include <vxe/render/frame_graph.hpp>
+#include <vxe/render/sky.hpp>
 #include <vxe/rhi/gpu_timer.hpp>
 #include <vxe/rhi/shader_source.hpp>
 #include <vxe/rhi_gl/gl_device.hpp>
@@ -257,6 +260,7 @@ struct WorldView {
     render::Camera camera;
     std::unique_ptr<render::FreeCameraController> controller;
     std::unique_ptr<render::DebugDraw> debugDraw;
+    std::unique_ptr<render::SkyRenderer> sky;
     render::FrameConstantsBuffer constants;
     DVec3 start{0.0};
     bool looking = false;
@@ -284,6 +288,14 @@ Result<std::unique_ptr<WorldView>> createWorldView(Device& device, config::Setti
         return draw.error();
     }
     view->debugDraw = std::move(draw.value());
+    auto sky = render::SkyRenderer::create({.device = &device,
+                                            .settings = &settings,
+                                            .stats = &statRegistry,
+                                            .shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR)});
+    if (!sky) {
+        return sky.error();
+    }
+    view->sky = std::move(sky.value());
     VXE_TRY(view->constants.create(device));
     return view;
 }
@@ -297,6 +309,7 @@ void updateWorldView(WorldView& view, Device& device, platform::Window& window, 
         view.looking = view.controller->isLooking();
         static_cast<void>(window.setRelativeMouseMode(view.looking));
     }
+    view.sky->update(time.deltaSeconds);
     render::DebugDraw& draw = *view.debugDraw;
     draw.handleInput();
     draw.beginFrame(view.camera);
@@ -332,6 +345,14 @@ Result<void> buildFrameGraph(render::FrameGraph& graph, const Scene& scene, Worl
     cube.colorAttachment(color, LoadOp::Clear, {0.05F, 0.06F, 0.09F, 1.0F});
     const render::TextureRef depth = cube.createTexture("SceneDepth", {.format = Format::D32Float});
     cube.depthAttachment(depth);
+
+    // Sky where nothing was drawn and height fog over the rest (E8.3).
+    auto skyPass = graph.addPass({.name = "Sky", .record = [&view, depth](render::PassContext& context) {
+                                      view.constants.bind(context.commands);
+                                      view.sky->record(context.commands, context.texture(depth));
+                                  }});
+    skyPass.colorAttachment(color, LoadOp::Load);
+    skyPass.sampleTexture(depth);
 
     // Debug lines on top of the cube, hidden by it where it is in front.
     auto lines = graph.addPass({.name = "DebugDraw", .record = [&view](render::PassContext& context) {

@@ -2,6 +2,19 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#049] 2026-10-28, E8.3 Sky and fog
+### Added
+- render::SkyRenderer (Section 8.1 pass 6): one fullscreen pass over the scene color that samples the scene depth. Where nothing was drawn it outputs the analytical sky (horizon to zenith gradient, a sun disk with a glow, darker haze below the horizon); over geometry it blends exponential height fog in closed form, colored like the sky towards the horizon so distant terrain fades into it.
+- render::computeSkyParams: the sun's path from the time of day (rises east at 6, sets west at 18, tilted towards -Z) and day, dusk and night colors from the sun's height.
+- Settings, all live: Graphics.Sky.Enabled, TimeOfDay, DayLengthMinutes (0 stops the clock; setting TimeOfDay by hand restarts the cycle there), SunSize, FogEnabled, FogStart, FogDensity, FogHeightFalloff and FogBaseHeight. Stats Render.Sky.TimeOfDay and Render.Sky.SunElevation.
+- Shaders render/sky.vert and render/sky.frag.
+- vxe_rhi_demo draws a Sky pass after the cube.
+- Tests: sun direction and colors over the day, live settings and the day cycle, and on the GPU (VXE_GUI_TESTS=1) a blue noon sky, thick fog turning a red scene into the horizon color, and fog switched off live.
+### Performance
+- Sky pass at 1280x720: 0.042 ms GPU on the RTX 4060.
+### Docs
+- docs/perf/render.md: E8.3 measurements.
+
 ## [#048] 2026-10-28, E8.2 Camera, frame constants, debug draw
 ### Added
 - render::Camera: double precision world position, yaw and pitch, reversed Z infinite projection. view() only rotates; positions become camera relative in double (relative()) or on the GPU from the camera's chunk and fraction (renderPosition()), per ADR-011.

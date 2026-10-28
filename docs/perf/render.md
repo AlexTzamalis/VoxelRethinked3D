@@ -45,3 +45,17 @@ bit identical pixels on the RTX 4060 (test "Debug lines render the same far
 from the origin"). The first frame after creating the line pipelines differs
 in 12 pixels where lines converge near the horizon, whatever the camera
 position; every later frame matches exactly.
+
+## E8.3 Sky and fog (2026-10-28)
+
+Budget: one fullscreen pass with a few dozen instructions per pixel; it must
+stay well under 0.1 ms at 1080p on the reference GPU class.
+
+| Case | Result |
+|------|--------|
+| vxe_rhi_demo Sky pass, 1280x720, noon, fog on | 0.042 ms GPU (average of 60), max 0.043 ms |
+| Same frame, other passes | Cube 0.015 ms, DebugDraw 0.038 ms, Composite 0.028 ms, DebugUi 0.009 ms |
+
+The pass reads the depth once per pixel with texelFetch and computes the
+height fog in closed form, so its cost is flat per pixel and does not grow
+with view distance.
