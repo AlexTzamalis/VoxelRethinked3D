@@ -13,6 +13,13 @@
         "rtti"
       ]
     },
+    {
+      "name": "imgui",
+      "features": [
+        "docking-experimental"
+      ]
+    },
+    "implot",
     "glm",
     {
       "name": "spdlog",

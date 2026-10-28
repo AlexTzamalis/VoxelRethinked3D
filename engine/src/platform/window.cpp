@@ -187,6 +187,21 @@ Result<void> Window::setRelativeMouseMode(bool enabled) {
     return {};
 }
 
+void Window::setTextInputEnabled(bool enabled) {
+    if (enabled == SDL_TextInputActive(m_window)) {
+        return;
+    }
+    if (enabled) {
+        static_cast<void>(SDL_StartTextInput(m_window));
+    } else {
+        static_cast<void>(SDL_StopTextInput(m_window));
+    }
+}
+
+bool Window::isTextInputEnabled() const {
+    return SDL_TextInputActive(m_window);
+}
+
 bool Window::isRelativeMouseMode() const {
     return SDL_GetWindowRelativeMouseMode(m_window);
 }

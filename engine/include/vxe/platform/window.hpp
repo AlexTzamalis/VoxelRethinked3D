@@ -86,6 +86,13 @@ public:
     Result<void> setRelativeMouseMode(bool enabled);
     [[nodiscard]] bool isRelativeMouseMode() const;
 
+    // SDL only delivers TextInputEvents while text input is on, and on some
+    // platforms turning it on shows an on screen keyboard or an input method
+    // window. So it is on only while a text field has focus (the debug UI
+    // asks for it through DebugUi::wantsTextInput()).
+    void setTextInputEnabled(bool enabled);
+    [[nodiscard]] bool isTextInputEnabled() const;
+
     // OpenGL only. These exist for the OpenGL RHI backend.
     [[nodiscard]] SDL_GLContextState* glContext() const noexcept { return m_glContext; }
     [[nodiscard]] GlContextInfo glContextInfo() const noexcept { return m_glInfo; }

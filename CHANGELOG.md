@@ -2,6 +2,19 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#041] 2026-10-28, E7.2 ImGui and ImPlot integration
+### Added
+- Dear ImGui 1.93 (docking) and ImPlot 1.0 from vcpkg, in a new debug module (layer 11) that links them PUBLIC for developer panels.
+- debug::ImGuiRenderer: draws ImGui through the RHI instead of ImGui's OpenGL backend. Vertices are pulled from a storage buffer (debug/imgui.vert reads 5 words per vertex), indices are 16 bit, and both live in a 3 frame ring of persistently mapped buffers guarded by fences. Implements ImGui's 1.92+ texture protocol (create, update, destroy, Alpha8 expanded to RGBA8). Scissors are flipped to the RHI's lower left origin.
+- debug::DebugUi: owns the ImGui and ImPlot contexts, feeds them platform events (scancodes mapped to ImGuiKey, mouse, wheel, text, focus), and routes input: while ImGui wants the mouse or keyboard it pushes a "Debug UI" input context that blocks gameplay contexts below it.
+- Window::setTextInputEnabled, since SDL only delivers typed text while text input is on; the UI asks for it only while a text field is active.
+- vxe_rhi_demo shows the ImGui demo window, the ImPlot demo and a CPU, GPU and draw call readout on top of the cube (--no-ui turns them off).
+- Tests: key mapping, the demo windows over 8 frames on the Null device with no invalid commands and no leaks, input capture and release, typed text reaching a text field, and a GPU test that reads back exactly 160,000 drawn pixels for a 400x400 window with 0 driver errors.
+### Changed
+- Keyboard navigation is off in the debug UI: with it, ImGui claims the keyboard whenever a debug window has focus, which would block gameplay keys while the overlay is open.
+### Performance
+- vxe_rhi_demo in release with both demo windows open: 0.40 ms CPU and 0.10 ms GPU per frame (0.27 ms and 0.03 ms without the UI).
+
 ## [#040] 2026-10-28, E7.1 Stat registry
 ### Added
 - vxe::stats::StatRegistry in core (vxe/core/stats.hpp): counters, gauges, timers and histograms registered by dotted name (the prefix is the overlay category), up to 2048 stats.

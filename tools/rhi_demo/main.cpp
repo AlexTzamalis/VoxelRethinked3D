@@ -1,7 +1,7 @@
 // vxe_rhi_demo: a spinning cube and a colored triangle drawn through the RHI
 // (Section 7, the E6.5 acceptance demo).
 //
-// Usage: vxe_rhi_demo [--frames N] [--vsync]
+// Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui]
 //
 // The cube is drawn into an offscreen color and depth target with reversed Z,
 // then copied to the window with a fullscreen triangle, and the triangle is
@@ -9,10 +9,13 @@
 // timestamp queries, without stalls), the CPU frame time and the frame rate.
 // With --frames the demo stops after N frames and prints a summary; the exit
 // code is non zero if the device reported invalid commands or driver errors,
-// so the demo also works as a scripted check.
+// so the demo also works as a scripted check. The Dear ImGui and ImPlot demo
+// windows run on top, drawn through the RHI (E7.2); --no-ui turns them off.
 
 #include <vxe/core/log.hpp>
 #include <vxe/core/time.hpp>
+#include <vxe/debug/debug_ui.hpp>
+#include <vxe/input/input.hpp>
 #include <vxe/math/projection.hpp>
 #include <vxe/platform/platform.hpp>
 #include <vxe/platform/window.hpp>
@@ -21,6 +24,8 @@
 #include <vxe/rhi_gl/gl_device.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <imgui.h>
+#include <implot.h>
 
 #include <array>
 #include <charconv>
@@ -70,6 +75,7 @@ constexpr std::array<u16, 36> kCubeIndices{0, 4, 6, 0, 6, 2, 5, 1, 3, 5, 3, 7, 0
 struct Options {
     std::optional<u64> frames;
     bool vsync = false;
+    bool ui = true;
 };
 
 std::optional<Options> parseOptions(int argc, char** argv) {
@@ -78,6 +84,8 @@ std::optional<Options> parseOptions(int argc, char** argv) {
     for (usize i = 0; i < args.size(); ++i) {
         if (args[i] == "--vsync") {
             options.vsync = true;
+        } else if (args[i] == "--no-ui") {
+            options.ui = false;
         } else if (args[i] == "--frames" && i + 1 < args.size()) {
             u64 frames = 0;
             const std::string_view text = args[++i];
@@ -224,8 +232,9 @@ void destroyScene(Device& device, Scene& scene) {
     device.destroy(scene.depth);
 }
 
-// Records one frame: the cube offscreen, then the window pass.
-void recordFrame(CommandList& commands, const Scene& scene) {
+// Records one frame: the cube offscreen, then the window pass with the
+// triangle and the debug UI on top.
+void recordFrame(CommandList& commands, const Scene& scene, debug::DebugUi* ui) {
     commands.beginDebugGroup("Cube pass");
     RenderPassDesc offscreen;
     offscreen.colorCount = 1;
@@ -251,6 +260,9 @@ void recordFrame(CommandList& commands, const Scene& scene) {
     commands.bindPipeline(scene.trianglePipeline);
     commands.bindUniformBuffer(1, 0, scene.uniforms, kTriangleParamsOffset, sizeof(TriangleParams));
     commands.draw(3);
+    if (ui != nullptr) {
+        ui->record(commands);
+    }
     commands.endRenderPass();
     commands.endDebugGroup();
 }
@@ -271,6 +283,22 @@ Result<void> updateUniforms(Device& device, const Scene& scene, f64 seconds) {
                                   .scale = 0.22F + 0.02F * std::sin(time * 2.0F),
                                   .depth = 0.5F};
     return device.updateBuffer(scene.uniforms, kTriangleParamsOffset, std::as_bytes(std::span(&triangle, 1)));
+}
+
+// The debug UI content: both library demos and a small readout.
+void buildUi(const DeviceStats& stats, std::optional<f64> gpuMilliseconds, f64 cpuMilliseconds) {
+    ImGui::ShowDemoWindow();
+    ImPlot::ShowDemoWindow();
+    ImGui::SetNextWindowPos({16.0F, 16.0F}, ImGuiCond_FirstUseEver);
+    ImGui::Begin("RHI demo");
+    // std::format instead of ImGui::Text: type checked, no C style varargs.
+    const auto line = [](const std::string& text) { ImGui::TextUnformatted(text.c_str()); };
+    line(std::format("CPU frame: {:.3f} ms", cpuMilliseconds));
+    line(gpuMilliseconds ? std::format("GPU frame: {:.3f} ms", *gpuMilliseconds)
+                         : std::string("GPU frame: not measured yet"));
+    line(std::format("Draw calls: {}", stats.drawCalls));
+    line(std::format("Invalid commands: {}", stats.invalidCommands));
+    ImGui::End();
 }
 
 int run(const Options& options) {
@@ -310,6 +338,19 @@ int run(const Options& options) {
     if (device.capabilities().timestampQueries) {
         static_cast<void>(gpuTimer.create(device));
     }
+    input::InputSystem input;
+    std::unique_ptr<debug::DebugUi> ui;
+    if (options.ui) {
+        auto uiCreated =
+            debug::DebugUi::create(device, input, {.shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR)});
+        if (!uiCreated) {
+            VXE_LOG_ERROR(log::core, "{}", uiCreated.error().describe());
+            gpuTimer.destroy(device);
+            destroyScene(device, scene);
+            return 1;
+        }
+        ui = std::move(uiCreated.value());
+    }
 
     FrameTimer frameTimer;
     CommandList commands;
@@ -328,6 +369,16 @@ int run(const Options& options) {
                 running = false;
             }
         }
+        input.update(events);
+        if (ui) {
+            ui->processEvents(events);
+            const IVec2 logical = window.value()->size();
+            const IVec2 pixels = window.value()->pixelSize();
+            ui->beginFrame(time.deltaSeconds, Vec2(logical), Vec2(pixels));
+            buildUi(device.stats(), gpuTimer.lastFrameMilliseconds(), time.deltaSeconds * 1000.0);
+            ui->endFrame();
+            window.value()->setTextInputEnabled(ui->wantsTextInput());
+        }
         const u32 width = std::max(device.backBufferWidth(), 1U);
         const u32 height = std::max(device.backBufferHeight(), 1U);
         if (width != scene.width || height != scene.height) {
@@ -343,7 +394,7 @@ int run(const Options& options) {
 
         commands.reset();
         gpuTimer.beginFrame(device, commands);
-        recordFrame(commands, scene);
+        recordFrame(commands, scene, ui.get());
         gpuTimer.endFrame(commands);
         device.beginFrame();
         device.submit(commands);
@@ -377,6 +428,7 @@ int run(const Options& options) {
                  frames, frames > 1 ? cpuMillisecondsTotal / static_cast<f64>(frames - 1) : 0.0,
                  gpu ? std::format("{:.3f} ms", *gpu) : std::string("not measured"), stats.drawCalls,
                  stats.invalidCommands, stats.apiErrors);
+    ui.reset();
     gpuTimer.destroy(device);
     destroyScene(device, scene);
     // The leak report (E6.6): everything the demo created must be gone now.
@@ -395,7 +447,7 @@ int main(int argc, char** argv) {
     try {
         const auto options = parseOptions(argc, argv);
         if (!options) {
-            std::fputs("Usage: vxe_rhi_demo [--frames N] [--vsync]\n", stderr);
+            std::fputs("Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui]\n", stderr);
             return 2;
         }
         return run(*options);

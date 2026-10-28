@@ -195,6 +195,28 @@ vxe_add_module(rhi_gl
 # glslang on every build, so a broken shader fails the build (E6.4).
 vxe_add_shader_check(vxe_engine_shaders ROOT "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 
+# Debug: developer tools on Dear ImGui and ImPlot (E7, ADR-013), drawn
+# through the RHI. ImGui is linked PUBLIC because debug pages and game
+# developer panels call ImGui directly. The stat registry itself lives in
+# core (ADR-017).
+find_package(imgui CONFIG REQUIRED)
+find_package(implot CONFIG REQUIRED)
+
+vxe_add_module(debug
+    SOURCES
+        src/debug/debug_ui.cpp
+        src/debug/imgui_renderer.cpp
+    DEPENDS
+        core
+        math
+        platform
+        input
+        rhi
+    PUBLIC_LIBS
+        imgui::imgui
+        implot::implot
+)
+
 # App: Application, EngineContext and the main loop (E4.5). The top layer,
 # because the loop drives every other module (ADR-015).
 vxe_add_module(app
