@@ -252,9 +252,11 @@ vxe_add_module(voxel
         src/voxel/block_registry.cpp
         src/voxel/chunk_storage.cpp
         src/voxel/voxel_world.cpp
+        src/voxel/mesher.cpp
     DEPENDS
         core
         math
+        config
 )
 
 # App: Application, EngineContext and the main loop (E4.5). The top layer,

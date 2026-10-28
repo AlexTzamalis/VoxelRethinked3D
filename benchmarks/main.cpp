@@ -11,6 +11,7 @@ int main() {
     try {
         vxe::bench::runStorageBenchmarks();
         vxe::bench::runWorldBenchmarks();
+        vxe::bench::runMeshingBenchmarks();
         return 0;
     } catch (const std::exception& error) {
         std::fputs("vxe_benchmarks: ", stderr);

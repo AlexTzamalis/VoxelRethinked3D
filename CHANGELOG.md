@@ -2,6 +2,22 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#056] 2026-10-29, E9.4 Binary greedy mesher
+### Added
+- voxel::Mesher (Section 10): binary greedy meshing of a chunk snapshot. Opaque row masks give visible faces with shifts and ANDs; cutout and translucent blocks hide faces against opaque neighbors and against their own state when it culls its own type; a greedy merge over 16 x 16 face planes grows rectangles of faces with the same state, texture, AO and light. Reuses its scratch memory, one Mesher per worker thread.
+- voxel::PackedQuad: the 8 byte quad of Section 10.4 (position, size, face, AO flip bit, texture layer, AO per corner, sky and block light) with accessors, and faceAxes() for the U and V axes per face.
+- voxel::ChunkMesh: quads in 18 face groups (opaque, cutout, translucent, times 6 directions), the 15 bit cave culling connectivity mask from a flood fill over rows of open blocks, tight bounds, and the snapshot's position and version.
+- Per vertex voxel AO with the diagonal flipped through the darker corner pair (Section 10.3). Light is full sky light and no block light until E10.
+- voxel::sortBackToFront for translucent quads.
+- Settings Graphics.Terrain.GreedyMerge, MergeAcrossLight and FancyLeaves (RequiresRemesh) through voxel::MesherSettings; the voxel module now depends on config.
+- Stats Voxel.Mesher.Chunks, Quads and Time.
+- Tests: single blocks, merging, border culling through the snapshot, water, glass and leaves rules, AO values and flips, the connectivity of walls, tunnels, pockets and bends, reuse, settings and stats, sorting, a checkerboard, and 40 random chunks checked face by face (coverage, texture and AO) against a brute force mesher.
+- Meshing benchmarks: all air, all stone, random 50%, checkerboard, a surface chunk and the average over the terrain sample.
+### Performance
+- Terrain sample: 0.0224 ms per chunk on average (budget 0.06 ms), 225 quads and 1802 bytes per non empty chunk. All air 1.9 us, surface chunk 26 us, worst case checkerboard 482 us.
+### Docs
+- docs/perf/meshing.md.
+
 ## [#055] 2026-10-29, E9.3 Voxel world and snapshots
 ### Added
 - voxel::VoxelWorld (Section 9.5): chunks from a pool allocator, a hash map from ChunkPos to chunk, insert (or replace), remove, find, block get and set by world position, and iteration. Reads of unloaded chunks return a given state; writes to them are refused.

@@ -9,4 +9,7 @@ void runStorageBenchmarks();
 // Voxel world and snapshots (world_bench.cpp, E9.3).
 void runWorldBenchmarks();
 
+// Binary greedy meshing (meshing_bench.cpp, E9.4).
+void runMeshingBenchmarks();
+
 } // namespace vxe::bench

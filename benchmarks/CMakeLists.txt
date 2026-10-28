@@ -7,6 +7,7 @@ find_package(nanobench CONFIG REQUIRED)
 
 add_executable(vxe_benchmarks
     main.cpp
+    meshing_bench.cpp
     storage_bench.cpp
     world_bench.cpp
 )
