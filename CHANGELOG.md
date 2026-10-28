@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#050] 2026-10-28, Give CPU budget tests more room on CI machines
+### Fixed
+- The E7.1 stat registry budget test failed in the Windows MSVC relwithdebinfo CI job of #048 (0.069 ms measured against 0.05 ms; 0.0073 ms locally). The stat registry and overlay budget tests keep their exact budgets on real machines and allow ten times as much where the CI variable is set, like the frame limiter tests since #046.
+
 ## [#049] 2026-10-28, E8.3 Sky and fog
 ### Added
 - render::SkyRenderer (Section 8.1 pass 6): one fullscreen pass over the scene color that samples the scene depth. Where nothing was drawn it outputs the analytical sky (horizon to zenith gradient, a sun disk with a glow, darker haze below the horizon); over geometry it blends exponential height fog in closed form, colored like the sky towards the horizon so distant terrain fades into it.

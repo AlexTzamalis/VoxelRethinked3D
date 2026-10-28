@@ -1,3 +1,5 @@
+#include "../test_helpers.hpp"
+
 #include <vxe/core/stats.hpp>
 
 #include <doctest/doctest.h>
@@ -217,7 +219,9 @@ TEST_CASE("Closing a frame with 500 stats stays within budget") {
     const f64 averageMs = toMilliseconds(closing) / kFrames;
     MESSAGE("endFrame with 500 stats and 5 recording threads: " << averageMs << " ms");
 #if defined(NDEBUG) && !defined(VXE_SANITIZER_ACTIVE)
-    CHECK(averageMs < 0.05); // The E7.1 budget.
+    // The E7.1 budget, on real machines. Shared CI machines get ten times
+    // the room: they stall threads for milliseconds at random.
+    CHECK(averageMs < (test::timingIsReliable() ? 0.05 : 0.5));
 #endif
     CHECK(registry.average(registry.find("Debug.Stats.MergeTime"), 100) > 0.0);
 }
