@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#044] 2026-10-28, Make the allocation counter test immune to allocation elision
+### Fixed
+- "Every global operator new is counted" failed in the Linux Clang release and relwithdebinfo CI jobs: C++ allows optimizers to remove the allocations of new expressions and std::allocator, and optimized Clang did that for the test's small objects, so fewer than 3 allocations were counted. The test now calls ::operator new directly, which cannot be elided, and checks for exactly 3. The counter itself was correct.
+
 ## [#043] 2026-10-28, E7.3 Overlay framework and first pages
 ### Added
 - debug::DebugOverlay, the F3 performance overlay (Section 18.2): a compact Overview (FPS, 1% and 0.1% lows, CPU and GPU time, tracked memory, allocations and draw calls per frame, lines added by other systems), refreshed at Debug.Overlay.UpdateRate so it stays readable.

@@ -186,12 +186,15 @@ TEST_CASE("Every global operator new is counted") {
         MESSAGE("Skipped: sanitizer builds keep their own operator new");
         return;
     }
+    // Direct calls to ::operator new, because optimizers may remove the
+    // allocations of new expressions and std::allocator entirely (C++ allows
+    // that), which optimized Clang does for small unused objects.
     const vxe::u64 before = vxe::memory::globalAllocationCount();
-    auto single = std::make_unique<int>(7);
-    auto array = std::make_unique<int[]>(16);
-    const std::vector<int> vector(100);
-    CHECK(vxe::memory::globalAllocationCount() - before >= 3);
-    CHECK(*single == 7);
-    CHECK(array[15] == 0);
-    CHECK(vector.size() == 100);
+    void* first = ::operator new(64);
+    void* second = ::operator new(128);
+    void* third = ::operator new[](256);
+    CHECK(vxe::memory::globalAllocationCount() - before == 3);
+    ::operator delete(first);
+    ::operator delete(second);
+    ::operator delete[](third);
 }
