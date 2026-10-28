@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#052] 2026-10-28, E9.1 Block registry interface
+### Added
+- The voxel module (layer 12) with the block registry interface of Section 6.3: BlockStateId (16 bit, air is 0), RenderLayer, BlockFace (+X, -X, +Y, -Y, +Z, -Z) and BlockRenderInfo (layer, emitted light, light opacity, same type culling, texture layer per face, tint index).
+- BlockRegistryBuilder: air at id 0, ids handed out in order, light values checked (0 to 15), a clear error when all 65,536 ids are used.
+- BlockRegistryView: an immutable table that worker threads read without locks; unknown ids read as air.
+- BlockRegistry: holds the current view and swaps it atomically on publish, numbering views by generation; jobs keep the view they took until they finish. Stat Voxel.BlockRegistry.States.
+- Tests: ids and lookups, rejected light values, the id limit, publishing while old views stay valid, and four reader threads racing 200 publishes (repeated 200 times in release, all consistent).
+
 ## [#051] 2026-10-28, E8.4 Post and present
 ### Added
 - render::PostProcess (Section 8.1 pass 9): one fullscreen pass from the HDR scene to the window with exposure, a tonemapping curve, optional FXAA on the tonemapped image and sRGB encoding (shader render/post.frag). Settings, all live: Graphics.Post.Tonemapper (None, Reinhard, Aces; default Aces, Narkowicz's fit with its 0.6 reference exposure), Graphics.Post.Exposure and Graphics.Post.Fxaa.

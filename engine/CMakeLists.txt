@@ -244,6 +244,16 @@ vxe_add_module(debug
         implot::implot
 )
 
+# Voxel: generic voxel technology (E9): block registry interface, chunk
+# storage, world, meshing, streaming, LOD and light (Section 6.3). It knows
+# block state ids and their render info, never what a block is.
+vxe_add_module(voxel
+    SOURCES
+        src/voxel/block_registry.cpp
+    DEPENDS
+        core
+)
+
 # App: Application, EngineContext and the main loop (E4.5). The top layer,
 # because the loop drives every other module (ADR-015).
 vxe_add_module(app
