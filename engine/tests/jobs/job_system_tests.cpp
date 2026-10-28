@@ -134,9 +134,12 @@ TEST_CASE("Destroying the job system runs every queued job first") {
         JobSystem jobs(JobSystemConfig{.workerCount = 2});
         for (int i = 0; i < 500; ++i) {
             jobs.schedule(counter, [&ran, &jobs, &counter] {
-                ran.fetch_add(1);
-                // Jobs scheduled while shutting down still run.
-                if (ran.load() == 1) {
+                // Jobs scheduled while shutting down still run. The value
+                // fetch_add returns is unique per job, so exactly one job
+                // schedules the extra one (reading `ran` again afterwards
+                // raced: two workers could both have counted before either
+                // looked, and then neither saw 1).
+                if (ran.fetch_add(1) == 0) {
                     jobs.schedule(counter, [&ran] { ran.fetch_add(1); });
                 }
             });

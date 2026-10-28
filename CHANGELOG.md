@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#039] 2026-10-28, Fix a racy job system shutdown test
+### Fixed
+- The test "Destroying the job system runs every queued job first" read the counter again after incrementing it, so with two workers both increments could land before either read and no job scheduled the extra one (500 instead of 501, seen once under TSan in CI). It now uses the value fetch_add returns, which is unique per job. The job system itself was correct.
+
 ## [#038] 2026-10-27, E6.6 RHI hardening
 ### Added
 - rhi::DeferredReleaseQueue: destroyed objects wait until the GPU has completed the frame that may still use them, the rule a Vulkan backend needs, shared by every backend.
