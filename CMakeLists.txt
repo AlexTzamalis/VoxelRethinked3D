@@ -47,6 +47,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
 option(VXE_BUILD_TESTS "Build the unit test executables" ON)
+option(VXE_BUILD_BENCHMARKS "Build the nanobench micro benchmarks (benchmarks/)" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(Warnings)
@@ -63,6 +64,10 @@ add_subdirectory(engine)
 # Developer tools. Some run during the build (the shader checker).
 add_subdirectory(tools)
 add_subdirectory(game)
+# Micro benchmarks (Section 24): built always so they never rot, run by hand.
+if(VXE_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
 
 if(VXE_BUILD_TESTS)
     # Script tests for the build rules themselves (layer order, include rules).

@@ -250,8 +250,10 @@ vxe_add_module(debug
 vxe_add_module(voxel
     SOURCES
         src/voxel/block_registry.cpp
+        src/voxel/chunk_storage.cpp
     DEPENDS
         core
+        math
 )
 
 # App: Application, EngineContext and the main loop (E4.5). The top layer,

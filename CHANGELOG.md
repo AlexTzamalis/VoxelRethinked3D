@@ -2,6 +2,18 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#054] 2026-10-28, E9.2 Chunk storage
+### Added
+- voxel::ChunkStorage (Section 9.4): the 4096 states of a chunk in uniform, palette (1, 2, 4 or 8 bit indices that never cross a 64 bit word) or raw mode, switching on writes. A 16 byte object with one heap block (Chunks memory tag) holding the indices and the palette.
+- get and set by LocalPos or block index, fill, assign (builds the smallest storage from a full array in one pass), decompressTo (whole words at a time), compact (drops unused palette entries, shrinks the index width, back to uniform, raw back to palette), deep copies and moves, and memory accounting (dataBytes, memoryBytes).
+- benchmarks/: the vxe_benchmarks target with nanobench (new vcpkg dependency) and the chunk storage benchmarks; option VXE_BUILD_BENCHMARKS.
+- A synthetic terrain sample shared by tests and benchmarks.
+- Tests: uniform size, every mode transition, random writes with up to 300 states against a reference, compaction, assign, copy, move and freed memory, and the Section 2 memory targets.
+### Performance
+- Uniform chunks 16 bytes (target 32); mixed chunks of the terrain sample 2003.4 bytes of block data on average (target 2048). get 1.9 ns, set 7.1 ns, palette decompression 2.3 us per chunk, assign 6.6 to 7.7 us per chunk.
+### Docs
+- docs/perf/storage.md.
+
 ## [#053] 2026-10-28, Ignore Tracy capture files
 ### Changed
 - .gitignore ignores *.tracy, so profiler captures saved anywhere in the repository (not only in captures/) never get committed.

@@ -28,6 +28,7 @@
     "unordered-dense",
     "xxhash",
     "lz4",
+    "nanobench",
     "zstd",
     {
       "name": "sdl3",
