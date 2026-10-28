@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#045] 2026-10-28, E7.4 Developer console UI
+### Added
+- debug::DeveloperConsole: an ImGui console over the console commands (set, get, reset, find, list, help and any command a system registers). The Grave key opens and closes it; while open it pushes a "Console" input context that blocks gameplay input. Enter runs the line, Up and Down walk the history (repeats are kept once), Tab completes the word being typed (a single match is filled in, several are listed and their common start is filled in). Input, output and errors have their own colors.
+- Settings Debug.Console.MaxLines and Debug.Console.HistorySize, the action debug.console.toggle and the stat Debug.Console.Commands.
+- platform::FrameLimiter for Video.FpsLimit (Section 8.5): keeps a fixed frame schedule and waits with SDL's precise delay (sleep, then a short spin), so the average rate matches the cap closely without burning a core.
+- vxe_rhi_demo registers Video.FpsLimit, reads it every frame and runs the console; --console opens it at startup and --exec COMMAND runs console commands at startup.
+- Tests: command echo, errors and stats, history walking, completion, the Grave key and context blocking, drawing on the Null device, the limiter at 200 FPS (measured 200.0), and the acceptance test: "set Video.FpsLimit 144" typed into the console changes a running loop from 500 to 144 FPS (measured 499.9 and 144.0).
+
 ## [#044] 2026-10-28, Make the allocation counter test immune to allocation elision
 ### Fixed
 - "Every global operator new is counted" failed in the Linux Clang release and relwithdebinfo CI jobs: C++ allows optimizers to remove the allocations of new expressions and std::allocator, and optimized Clang did that for the test's small objects, so fewer than 3 allocations were counted. The test now calls ::operator new directly, which cannot be elided, and checks for exactly 3. The counter itself was correct.

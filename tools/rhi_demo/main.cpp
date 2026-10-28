@@ -1,7 +1,8 @@
 // vxe_rhi_demo: a spinning cube and a colored triangle drawn through the RHI
 // (Section 7, the E6.5 acceptance demo).
 //
-// Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui] [--imgui-demo] [--overlay-page N]
+// Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui] [--imgui-demo] [--overlay-page N] [--console] [--exec
+// COMMAND]...
 //
 // The cube is drawn into an offscreen color and depth target with reversed Z,
 // then copied to the window with a fullscreen triangle, and the triangle is
@@ -14,16 +15,22 @@
 // The debug UI runs on top (E7.2, E7.3): F3 toggles the performance overlay,
 // F3+Left and F3+Right switch its pages. --overlay-page N opens the overlay on
 // page N (for screenshots), --imgui-demo adds the Dear ImGui and ImPlot demo
-// windows, --no-ui turns the whole debug UI off.
+// windows, --no-ui turns the whole debug UI off. The Grave key opens the
+// developer console (E7.4), --console opens it at startup, and --exec runs a
+// console command at startup, for
+// example --exec "set Video.FpsLimit 144" (Video.FpsLimit caps the frame rate).
 
+#include <vxe/config/console.hpp>
 #include <vxe/config/settings.hpp>
 #include <vxe/core/log.hpp>
 #include <vxe/core/stats.hpp>
 #include <vxe/core/time.hpp>
 #include <vxe/debug/debug_ui.hpp>
+#include <vxe/debug/developer_console.hpp>
 #include <vxe/debug/overlay.hpp>
 #include <vxe/input/input.hpp>
 #include <vxe/math/projection.hpp>
+#include <vxe/platform/frame_limiter.hpp>
 #include <vxe/platform/platform.hpp>
 #include <vxe/platform/window.hpp>
 #include <vxe/rhi/gpu_timer.hpp>
@@ -86,6 +93,8 @@ struct Options {
     bool ui = true;
     bool imguiDemo = false;
     std::optional<u32> overlayPage;
+    std::vector<std::string> commands; // From --exec, run through the console at startup.
+    bool openConsole = false;
 };
 
 std::optional<Options> parseOptions(int argc, char** argv) {
@@ -98,6 +107,10 @@ std::optional<Options> parseOptions(int argc, char** argv) {
             options.ui = false;
         } else if (args[i] == "--imgui-demo") {
             options.imguiDemo = true;
+        } else if (args[i] == "--console") {
+            options.openConsole = true;
+        } else if (args[i] == "--exec" && i + 1 < args.size()) {
+            options.commands.emplace_back(args[++i]);
         } else if (args[i] == "--overlay-page" && i + 1 < args.size()) {
             u32 page = 0;
             const std::string_view text = args[++i];
@@ -308,13 +321,15 @@ Result<void> updateUniforms(Device& device, const Scene& scene, f64 seconds) {
 // The debug UI with the performance overlay, and what they read. Only exists
 // while the UI is on (not with --no-ui).
 struct DebugTools {
-    config::SettingsRegistry settings;
     stats::StatRegistry stats;
+    config::CommandRegistry commands;
     std::unique_ptr<debug::DebugUi> ui;
     std::unique_ptr<debug::DebugOverlay> overlay;
+    std::unique_ptr<debug::DeveloperConsole> console;
 };
 
 Result<std::unique_ptr<DebugTools>> createDebugTools(Device& device, input::InputSystem& input,
+                                                     config::SettingsRegistry& settings,
                                                      const Options& options) {
     auto tools = std::make_unique<DebugTools>();
     auto ui = debug::DebugUi::create(device, input, {.shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR)});
@@ -323,7 +338,18 @@ Result<std::unique_ptr<DebugTools>> createDebugTools(Device& device, input::Inpu
     }
     tools->ui = std::move(ui.value());
     tools->overlay = std::make_unique<debug::DebugOverlay>(debug::OverlayDesc{
-        .settings = &tools->settings, .input = &input, .stats = &tools->stats, .device = &device});
+        .settings = &settings, .input = &input, .stats = &tools->stats, .device = &device});
+    config::registerSettingsCommands(tools->commands, settings);
+    tools->console = std::make_unique<debug::DeveloperConsole>(
+        debug::ConsoleDesc{.commands = &tools->commands,
+                           .settings = &settings,
+                           .input = &input,
+                           .stats = &tools->stats,
+                           .toggleContext = tools->overlay->inputContext()});
+    for (const std::string& command : options.commands) {
+        static_cast<void>(tools->console->execute(command));
+    }
+    tools->console->setOpen(options.openConsole);
     if (options.overlayPage) {
         tools->overlay->setVisible(true);
         tools->overlay->showPage(*options.overlayPage);
@@ -343,13 +369,13 @@ void updateDebugTools(DebugTools& tools, platform::Window& window,
     tools.stats.endFrame(time.deltaSeconds);
     tools.ui->beginFrame(time.deltaSeconds, Vec2(window.size()), Vec2(window.pixelSize()));
     tools.overlay->update(time.deltaSeconds);
+    tools.console->update();
     if (imguiDemo) {
         ImGui::ShowDemoWindow();
         ImPlot::ShowDemoWindow();
     }
     tools.ui->endFrame();
     window.setTextInputEnabled(tools.ui->wantsTextInput());
-    tools.settings.dispatchChanges();
 }
 
 // Shows GPU time, CPU time and frame rate in the window title, averaged over
@@ -412,10 +438,21 @@ int run(const Options& options) {
     if (device.capabilities().timestampQueries) {
         static_cast<void>(gpuTimer.create(device));
     }
+    // Video.FpsLimit belongs to whoever runs the frame loop; here, the demo.
+    config::SettingsRegistry settings;
+    const config::Setting<i32> fpsLimit =
+        settings.registerInt({{.id = "Video.FpsLimit",
+                               .displayName = "FPS limit",
+                               .description = "Frames per second cap. 0 for none."},
+                              0,
+                              0,
+                              1000,
+                              1});
+    platform::FrameLimiter limiter;
     input::InputSystem input;
     std::unique_ptr<DebugTools> tools;
     if (options.ui) {
-        auto toolsCreated = createDebugTools(device, input, options);
+        auto toolsCreated = createDebugTools(device, input, settings, options);
         if (!toolsCreated) {
             VXE_LOG_ERROR(log::core, "{}", toolsCreated.error().describe());
             gpuTimer.destroy(device);
@@ -466,6 +503,9 @@ int run(const Options& options) {
         device.beginFrame();
         device.submit(commands);
         device.present();
+        settings.dispatchChanges();
+        // Read every frame, so a change from the console applies at once.
+        limiter.wait(static_cast<f64>(fpsLimit.get()));
 
         ++frames;
         if (frames > 1) {
@@ -505,7 +545,8 @@ int main(int argc, char** argv) {
         const auto options = parseOptions(argc, argv);
         if (!options) {
             std::fputs(
-                "Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui] [--imgui-demo] [--overlay-page N]\n",
+                "Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui] [--imgui-demo] [--overlay-page N] "
+                "[--exec COMMAND]...\n",
                 stderr);
             return 2;
         }

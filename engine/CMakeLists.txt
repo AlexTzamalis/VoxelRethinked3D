@@ -107,6 +107,7 @@ find_package(SDL3 CONFIG REQUIRED)
 
 vxe_add_module(platform
     SOURCES
+        src/platform/frame_limiter.cpp
         src/platform/platform.cpp
         src/platform/window.cpp
     DEPENDS
@@ -205,6 +206,7 @@ find_package(implot CONFIG REQUIRED)
 vxe_add_module(debug
     SOURCES
         src/debug/debug_ui.cpp
+        src/debug/developer_console.cpp
         src/debug/imgui_renderer.cpp
         src/debug/overlay.cpp
         src/debug/stat_csv.cpp
