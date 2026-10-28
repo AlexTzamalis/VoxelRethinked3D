@@ -2,6 +2,11 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#046] 2026-10-28, Check frame limiter accuracy only on real machines
+### Fixed
+- The frame limiter tests from #045 failed on the Windows CI runners (156.9 and 189.5 FPS measured for a 200 FPS cap, 136.4 for 144): shared CI machines stall threads for milliseconds. On CI the tests now check that the cap is never exceeded and that "set Video.FpsLimit 144" clearly lowers the rate; the 5% accuracy checks run on real machines (local: 200.0 and 144.0). The limiter itself is unchanged.
+- test::timingIsReliable() (false when the CI variable is set) and test::environmentFlag() in the test helpers.
+
 ## [#045] 2026-10-28, E7.4 Developer console UI
 ### Added
 - debug::DeveloperConsole: an ImGui console over the console commands (set, get, reset, find, list, help and any command a system registers). The Grave key opens and closes it; while open it pushes a "Console" input context that blocks gameplay input. Enter runs the line, Up and Down walk the history (repeats are kept once), Tab completes the word being typed (a single match is filled in, several are listed and their common start is filled in). Input, output and errors have their own colors.

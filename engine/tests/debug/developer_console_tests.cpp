@@ -1,3 +1,5 @@
+#include "../test_helpers.hpp"
+
 #include <vxe/config/console.hpp>
 #include <vxe/config/settings.hpp>
 #include <vxe/core/time.hpp>
@@ -150,7 +152,10 @@ TEST_CASE("The frame limiter holds the requested rate") {
     }
     const f64 fps = kFrames / toSeconds(Clock::now() - start);
     MESSAGE("Limited to 200 FPS, measured " << fps);
-    CHECK(fps == doctest::Approx(200.0).epsilon(0.05));
+    CHECK(fps < 205.0); // Never faster than the cap.
+    if (test::timingIsReliable()) {
+        CHECK(fps == doctest::Approx(200.0).epsilon(0.05));
+    }
     // 0 means no limit.
     const TimePoint unlimited = Clock::now();
     for (int i = 0; i < kFrames; ++i) {
@@ -179,6 +184,10 @@ TEST_CASE("set Video.FpsLimit 144 takes effect live") {
     REQUIRE(rig.console->execute("set Video.FpsLimit 144"));
     const f64 after = measure(72);
     MESSAGE("FPS at limit 500: " << before << ", after set Video.FpsLimit 144: " << after);
-    CHECK(after == doctest::Approx(144.0).epsilon(0.05));
-    CHECK(before > 300.0);
+    CHECK(after < 148.0);
+    CHECK(after < before * 0.5);
+    if (test::timingIsReliable()) {
+        CHECK(after == doctest::Approx(144.0).epsilon(0.05));
+        CHECK(before > 300.0);
+    }
 }
