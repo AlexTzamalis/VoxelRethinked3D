@@ -2,6 +2,20 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#048] 2026-10-28, E8.2 Camera, frame constants, debug draw
+### Added
+- render::Camera: double precision world position, yaw and pitch, reversed Z infinite projection. view() only rotates; positions become camera relative in double (relative()) or on the GPU from the camera's chunk and fraction (renderPosition()), per ADR-011.
+- render::FreeCameraController: W, A, S, D, Space and Left Shift fly, Left Ctrl is fast, the right mouse button looks, the wheel changes the speed. Actions in a "Free camera" input context; settings Debug.FreeCamera.Speed, FastMultiplier, Sensitivity and FieldOfView, all live.
+- render::FrameConstants and FrameConstantsBuffer: per frame shader data at set 0, slot 0 (matrices, camera chunk and fraction, forward, viewport, time), and shaders/include/frame.glsl with the matching block and cameraRelative(chunk, localPosition).
+- render::CpuWriteRing: fenced round robin of persistently mapped buffers for data written every frame.
+- render::DebugDraw: world space lines, boxes, chunk boxes and grids, made camera relative in double before they become floats, drawn in one call with vertex pulling (shaders debug/lines.vert and .frag). Settings Debug.Draw.ChunkBorders (F3+G), Debug.Draw.ChunkBorderRadius and Debug.Draw.DepthTest; stats Render.DebugDraw.Lines and Render.DebugDraw.Dropped; a fixed line limit, no allocations per frame.
+- vxe_rhi_demo is flown with the free camera over a debug grid, with a DebugDraw pass in its frame graph, the camera position on the overview and --origin BLOCKS to start far from the origin. Startup --exec commands now run after every setting is registered.
+- Tests: camera directions and projection, frame constants far from the origin, the constant ring, free camera input, debug shapes, chunk borders through F3+G, the line limit and its stats, no allocations, and bit identical lines and pixels with the camera at the origin and 10 million blocks away (GPU part with VXE_GUI_TESTS=1).
+### Performance
+- DebugDraw pass in the demo, about 440 lines at 1280x720: 0.133 ms GPU on the RTX 4060. Recording allocates nothing.
+### Docs
+- docs/perf/render.md: E8.2 measurements and the precision check.
+
 ## [#047] 2026-10-28, E8.1 Frame graph lite
 ### Added
 - The render module (layer 9) with render::FrameGraph (Section 8.1). Passes are added in execution order through a PassBuilder and declare transient textures (sized relative to the output or fixed), color, depth and window attachments with load and store ops, sampled and storage texture reads and writes, and how they use imported buffers.

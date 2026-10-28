@@ -34,6 +34,8 @@ add_executable(vxe_tests
     math/geometry_tests.cpp
     math/projection_tests.cpp
     platform/platform_tests.cpp
+    render/camera_tests.cpp
+    render/debug_draw_tests.cpp
     render/frame_graph_tests.cpp
     rhi/gl_device_tests.cpp
     rhi/null_device_tests.cpp

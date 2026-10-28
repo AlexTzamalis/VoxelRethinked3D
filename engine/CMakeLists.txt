@@ -196,10 +196,16 @@ vxe_add_module(rhi_gl
 # never sees a graphics API (ADR-003).
 vxe_add_module(render
     SOURCES
+        src/render/camera.cpp
+        src/render/cpu_write_ring.cpp
+        src/render/debug_draw.cpp
+        src/render/frame_constants.cpp
         src/render/frame_graph.cpp
     DEPENDS
         core
+        math
         config
+        input
         rhi
 )
 

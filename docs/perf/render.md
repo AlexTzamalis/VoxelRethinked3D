@@ -27,3 +27,21 @@ vsync on):
 
 Per pass timings come from timestamp query pairs read four frames late
 (rhi::GpuFrameTimer), so they never stall the CPU.
+
+## E8.2 Camera, frame constants, debug draw (2026-10-28)
+
+Budget: debug drawing is a developer tool, so it only has to stay cheap enough
+to leave on while profiling, and allocate nothing per frame.
+
+| Case | Result |
+|------|--------|
+| Recording the test scene (grid of 33 x 33 lines plus a box) 100 times, Null device | 0 allocations |
+| vxe_rhi_demo DebugDraw pass: grid of 193 x 193 lines plus chunk borders (about 440 lines), 1280x720 | 0.133 ms GPU (average of 60) |
+| Same frame, other passes | Cube 0.013 ms, Composite 0.025 ms, DebugUi 0.007 ms |
+
+Precision (the E8.2 acceptance): the same scene with the camera at the origin
+and at (10,000,000, 64, -10,000,000) gives bit identical line vertices and
+bit identical pixels on the RTX 4060 (test "Debug lines render the same far
+from the origin"). The first frame after creating the line pipelines differs
+in 12 pixels where lines converge near the horizon, whatever the camera
+position; every later frame matches exactly.

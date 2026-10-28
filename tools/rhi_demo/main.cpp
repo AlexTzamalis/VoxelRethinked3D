@@ -3,14 +3,21 @@
 //
 // Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui] [--imgui-demo]
 //                     [--overlay-page N] [--console] [--exec COMMAND]...
+//                     [--origin BLOCKS]
 //
 // The cube is drawn into an offscreen color and depth target with reversed Z,
 // then copied to the window with a fullscreen triangle, and the triangle is
 // drawn on top. The passes run in a frame graph (E8.1), which owns and
-// resizes the offscreen targets and times every pass on the GPU. The window title shows the GPU frame time
-// (measured with timestamp queries, without stalls), the CPU frame time and the frame rate. With --frames the
-// demo stops after N frames and prints a summary; the exit code is non zero if the device reported invalid
-// commands or driver errors, so the demo also works as a scripted check.
+// resizes the offscreen targets and times every pass on the GPU.
+//
+// The scene is flown with a free camera (E8.2): W, A, S, D, Space and Left
+// Shift move, Left Ctrl is fast, the right mouse button looks, the wheel
+// changes the speed. A debug grid lies under the start position and F3+G
+// shows chunk borders. --origin N starts the camera N blocks from the world
+// origin on X and Z, to check that nothing shakes far away (try 10000000). The window title shows the GPU
+// frame time (measured with timestamp queries, without stalls), the CPU frame time and the frame rate. With
+// --frames the demo stops after N frames and prints a summary; the exit code is non zero if the device
+// reported invalid commands or driver errors, so the demo also works as a scripted check.
 //
 // The debug UI runs on top (E7.2, E7.3): F3 toggles the performance overlay,
 // F3+Left and F3+Right switch its pages. --overlay-page N opens the overlay on
@@ -33,6 +40,9 @@
 #include <vxe/platform/frame_limiter.hpp>
 #include <vxe/platform/platform.hpp>
 #include <vxe/platform/window.hpp>
+#include <vxe/render/camera.hpp>
+#include <vxe/render/debug_draw.hpp>
+#include <vxe/render/frame_constants.hpp>
 #include <vxe/render/frame_graph.hpp>
 #include <vxe/rhi/gpu_timer.hpp>
 #include <vxe/rhi/shader_source.hpp>
@@ -96,6 +106,7 @@ struct Options {
     std::optional<u32> overlayPage;
     std::vector<std::string> commands; // From --exec, run through the console at startup.
     bool openConsole = false;
+    f64 origin = 0.0; // Where the camera starts on X and Z, in blocks.
 };
 
 std::optional<Options> parseOptions(int argc, char** argv) {
@@ -110,6 +121,12 @@ std::optional<Options> parseOptions(int argc, char** argv) {
             options.imguiDemo = true;
         } else if (args[i] == "--console") {
             options.openConsole = true;
+        } else if (args[i] == "--origin" && i + 1 < args.size()) {
+            const std::string_view text = args[++i];
+            const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), options.origin);
+            if (error != std::errc() || end != text.data() + text.size()) {
+                return std::nullopt;
+            }
         } else if (args[i] == "--exec" && i + 1 < args.size()) {
             options.commands.emplace_back(args[++i]);
         } else if (args[i] == "--overlay-page" && i + 1 < args.size()) {
@@ -234,11 +251,76 @@ void destroyScene(Device& device, Scene& scene) {
     device.destroy(scene.sampler);
 }
 
+// What the free camera sees (E8.2): the camera and its controller, debug
+// lines (the grid and chunk borders) and the frame constants they need.
+struct WorldView {
+    render::Camera camera;
+    std::unique_ptr<render::FreeCameraController> controller;
+    std::unique_ptr<render::DebugDraw> debugDraw;
+    render::FrameConstantsBuffer constants;
+    DVec3 start{0.0};
+    bool looking = false;
+};
+
+constexpr f64 kGridHeight = 64.0;
+
+Result<std::unique_ptr<WorldView>> createWorldView(Device& device, config::SettingsRegistry& settings,
+                                                   stats::StatRegistry& statRegistry,
+                                                   input::InputSystem& input,
+                                                   input::InputContextId debugContext, f64 origin) {
+    auto view = std::make_unique<WorldView>();
+    view->start = DVec3(origin + 8.5, kGridHeight + 4.0, origin + 8.5);
+    view->camera.position = view->start;
+    view->camera.pitch = glm::radians(-20.0F);
+    view->controller = std::make_unique<render::FreeCameraController>(
+        render::FreeCameraDesc{.input = &input, .settings = &settings});
+    auto draw = render::DebugDraw::create({.device = &device,
+                                           .settings = &settings,
+                                           .stats = &statRegistry,
+                                           .input = &input,
+                                           .toggleContext = debugContext,
+                                           .shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR)});
+    if (!draw) {
+        return draw.error();
+    }
+    view->debugDraw = std::move(draw.value());
+    VXE_TRY(view->constants.create(device));
+    return view;
+}
+
+// One frame of flying: input, the grid under the start position, the frame
+// constants. The mouse is captured only while the right button looks around.
+void updateWorldView(WorldView& view, Device& device, platform::Window& window, const FrameTime& time,
+                     u64 frameIndex) {
+    view.controller->update(view.camera, time.deltaSeconds);
+    if (view.controller->isLooking() != view.looking) {
+        view.looking = view.controller->isLooking();
+        static_cast<void>(window.setRelativeMouseMode(view.looking));
+    }
+    render::DebugDraw& draw = *view.debugDraw;
+    draw.handleInput();
+    draw.beginFrame(view.camera);
+    constexpr u32 kMinor = render::debugColor(90, 96, 110, 160);
+    constexpr u32 kMajor = render::debugColor(90, 150, 255, 220);
+    draw.grid(view.camera.position, kGridHeight, 96, 1.0, kMinor, kMajor, 16);
+    // An outline around the cube, which floats in front of the start.
+    draw.box(view.start + DVec3(-1.1, -1.1, -9.1), view.start + DVec3(1.1, 1.1, -6.9),
+             render::debugColor(255, 220, 60));
+    const u32 width = std::max(device.backBufferWidth(), 1U);
+    const u32 height = std::max(device.backBufferHeight(), 1U);
+    view.constants.update(device, render::makeFrameConstants(view.camera, {.width = width,
+                                                                           .height = height,
+                                                                           .seconds = time.elapsedSeconds,
+                                                                           .deltaSeconds = time.deltaSeconds,
+                                                                           .frameIndex = frameIndex}));
+}
+
 // The demo's frame as a frame graph (E8.1): the cube into offscreen targets
 // the graph creates and resizes, then the window with the cube image and the
 // triangle, then the debug UI on top. Each pass shows up with its GPU time on
 // the overlay's GPU page and can be switched off with Debug.Passes.<name>.
-Result<void> buildFrameGraph(render::FrameGraph& graph, const Scene& scene, debug::DebugUi* ui) {
+Result<void> buildFrameGraph(render::FrameGraph& graph, const Scene& scene, WorldView& view,
+                             debug::DebugUi* ui) {
     auto cube = graph.addPass({.name = "Cube", .record = [&scene](render::PassContext& context) {
                                    context.commands.bindPipeline(scene.cubePipeline);
                                    context.commands.bindUniformBuffer(1, 1, scene.uniforms, kCubeParamsOffset,
@@ -248,8 +330,16 @@ Result<void> buildFrameGraph(render::FrameGraph& graph, const Scene& scene, debu
                                }});
     const render::TextureRef color = cube.createTexture("SceneColor", {.format = Format::RGBA8Unorm});
     cube.colorAttachment(color, LoadOp::Clear, {0.05F, 0.06F, 0.09F, 1.0F});
-    cube.depthAttachment(cube.createTexture("SceneDepth", {.format = Format::D32Float}), LoadOp::Clear, 0.0F,
-                         StoreOp::DontCare);
+    const render::TextureRef depth = cube.createTexture("SceneDepth", {.format = Format::D32Float});
+    cube.depthAttachment(depth);
+
+    // Debug lines on top of the cube, hidden by it where it is in front.
+    auto lines = graph.addPass({.name = "DebugDraw", .record = [&view](render::PassContext& context) {
+                                    view.constants.bind(context.commands);
+                                    view.debugDraw->record(context.commands);
+                                }});
+    lines.colorAttachment(color, LoadOp::Load);
+    lines.depthAttachment(depth, LoadOp::Load, 0.0F, StoreOp::DontCare);
 
     auto composite =
         graph.addPass({.name = "Composite", .record = [&scene, color](render::PassContext& context) {
@@ -275,14 +365,13 @@ Result<void> buildFrameGraph(render::FrameGraph& graph, const Scene& scene, debu
     return graph.compile();
 }
 
-Result<void> updateUniforms(Device& device, const Scene& scene, f64 seconds) {
+Result<void> updateUniforms(Device& device, const Scene& scene, const WorldView& view, f64 seconds) {
     const auto time = static_cast<f32>(seconds);
     const f32 aspect = static_cast<f32>(scene.width) / static_cast<f32>(std::max(scene.height, 1U));
-    const Mat4 projection = perspectiveReversedInfinite(glm::radians(60.0F), aspect, 0.1F);
-    const Mat4 view = cameraRelativeView(Vec3(0.0F, 0.0F, -1.0F));
-    Mat4 model = glm::translate(Mat4(1.0F), Vec3(0.0F, 0.0F, -4.0F));
+    // Camera relative model matrix: the translation is made in double.
+    Mat4 model = glm::translate(Mat4(1.0F), view.camera.relative(view.start + DVec3(0.0, 0.0, -8.0)));
     model = glm::rotate(model, time * 0.9F, glm::normalize(Vec3(0.3F, 1.0F, 0.15F)));
-    const CubeParams cube{.modelViewProjection = projection * view * model, .model = model};
+    const CubeParams cube{.modelViewProjection = view.camera.viewProjection(aspect) * model, .model = model};
     VXE_TRY(device.updateBuffer(scene.uniforms, kCubeParamsOffset, std::as_bytes(std::span(&cube, 1))));
 
     // A small triangle in the lower left corner, gently pulsing.
@@ -323,15 +412,25 @@ Result<std::unique_ptr<DebugTools>> createDebugTools(Device& device, input::Inpu
                            .input = &input,
                            .stats = &statRegistry,
                            .toggleContext = tools->overlay->inputContext()});
-    for (const std::string& command : options.commands) {
-        static_cast<void>(tools->console->execute(command));
-    }
     tools->console->setOpen(options.openConsole);
     if (options.overlayPage) {
         tools->overlay->setVisible(true);
         tools->overlay->showPage(*options.overlayPage);
     }
     return tools;
+}
+
+// Runs the --exec commands and adds the camera line to the overview, once
+// everything registered its settings, so --exec can change any of them.
+void startDebugTools(DebugTools& tools, const WorldView& view, const Options& options) {
+    for (const std::string& command : options.commands) {
+        static_cast<void>(tools.console->execute(command));
+    }
+    tools.overlay->addOverviewLine([&camera = view.camera] {
+        const CameraPosition position = camera.renderPosition();
+        return std::format("XYZ {:.2f} {:.2f} {:.2f}   chunk {} {} {}", camera.position.x, camera.position.y,
+                           camera.position.z, position.chunk.x, position.chunk.y, position.chunk.z);
+    });
 }
 
 // One frame of the debug UI, in the order DebugOverlay documents.
@@ -439,15 +538,29 @@ int run(const Options& options) {
         }
         tools = std::move(toolsCreated.value());
     }
+    auto viewCreated =
+        createWorldView(device, settings, statRegistry, input,
+                        tools ? tools->overlay->inputContext() : input::InputContextId{}, options.origin);
+    std::unique_ptr<WorldView> view = viewCreated ? std::move(viewCreated.value()) : nullptr;
     auto graph = std::make_unique<render::FrameGraph>(
         render::FrameGraphDesc{.device = &device, .settings = &settings, .stats = &statRegistry});
-    if (auto result = buildFrameGraph(*graph, scene, tools ? tools->ui.get() : nullptr); !result) {
-        VXE_LOG_ERROR(log::core, "{}", result.error().describe());
+    const Result<void> built = view ? buildFrameGraph(*graph, scene, *view, tools ? tools->ui.get() : nullptr)
+                                    : Result<void>(viewCreated.error());
+    if (!built) {
+        VXE_LOG_ERROR(log::core, "{}", built.error().describe());
         graph.reset();
+        if (view) {
+            view->constants.destroy(device);
+        }
+        view.reset();
         tools.reset();
         gpuTimer.destroy(device);
         destroyScene(device, scene);
         return 1;
+    }
+
+    if (tools) {
+        startDebugTools(*tools, *view, options);
     }
 
     FrameTimer frameTimer;
@@ -476,7 +589,8 @@ int run(const Options& options) {
         scene.width = std::max(device.backBufferWidth(), 1U);
         scene.height = std::max(device.backBufferHeight(), 1U);
         graph->setOutputSize(scene.width, scene.height);
-        if (auto result = updateUniforms(device, scene, time.elapsedSeconds); !result) {
+        updateWorldView(*view, device, *window.value(), time, frames);
+        if (auto result = updateUniforms(device, scene, *view, time.elapsedSeconds); !result) {
             VXE_LOG_ERROR(log::core, "{}", result.error().describe());
             break;
         }
@@ -514,6 +628,8 @@ int run(const Options& options) {
                  gpu ? std::format("{:.3f} ms", *gpu) : std::string("not measured"), stats.drawCalls,
                  stats.invalidCommands, stats.apiErrors);
     graph.reset();
+    view->constants.destroy(device);
+    view.reset();
     tools.reset();
     gpuTimer.destroy(device);
     destroyScene(device, scene);
@@ -535,7 +651,7 @@ int main(int argc, char** argv) {
         if (!options) {
             std::fputs(
                 "Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui] [--imgui-demo] [--overlay-page N] "
-                "[--console] [--exec COMMAND]...\n",
+                "[--console] [--exec COMMAND]... [--origin BLOCKS]\n",
                 stderr);
             return 2;
         }
