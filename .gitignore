@@ -17,5 +17,6 @@ CMakeUserPresets.json
 # Runtime folders the game writes next to the executable
 logs/
 captures/
+*.tracy
 saves/
 screenshots/

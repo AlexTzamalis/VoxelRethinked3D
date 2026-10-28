@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#053] 2026-10-28, Ignore Tracy capture files
+### Changed
+- .gitignore ignores *.tracy, so profiler captures saved anywhere in the repository (not only in captures/) never get committed.
+
 ## [#052] 2026-10-28, E9.1 Block registry interface
 ### Added
 - The voxel module (layer 12) with the block registry interface of Section 6.3: BlockStateId (16 bit, air is 0), RenderLayer, BlockFace (+X, -X, +Y, -Y, +Z, -Z) and BlockRenderInfo (layer, emitted light, light opacity, same type culling, texture layer per face, tint index).
