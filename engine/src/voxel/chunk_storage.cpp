@@ -49,6 +49,55 @@ void writePacked(u64* words, u32 bits, usize index, u64 value) noexcept {
     words[word] = (words[word] & ~(maskFor(bits) << shift)) | (value << shift);
 }
 
+// Decodes all 256 rows of 16 palette indices of `Bits` bits into states, row
+// by row into a strided destination (block (x, y, z) at y * sliceStride +
+// z * rowStride + x). A row is 16 * Bits bits: a quarter, half or whole
+// word for 1, 2 and 4 bits and exactly two words for 8 bits, so a row never
+// straddles words unevenly. The width is a template parameter so every
+// shift and mask is a constant and the 16 lookups of a row unroll into
+// independent instructions; with a run time width the loop carried shift
+// made this about twice as slow.
+template <u32 Bits>
+void decodePaletteRows(const u64* words, const BlockStateId* entries, BlockStateId* base, usize rowStride,
+                       usize sliceStride) noexcept {
+    constexpr u64 kMask = (u64{1} << Bits) - 1;
+    for (usize row = 0; row < 256; ++row) {
+        BlockStateId* destination = base + (row >> 4U) * sliceStride + (row & 15U) * rowStride;
+        if constexpr (Bits <= 4) {
+            const usize firstBit = row * 16 * Bits;
+            const u64 word = words[firstBit >> 6U] >> (firstBit & 63U);
+            for (u32 x = 0; x < 16; ++x) {
+                destination[x] = entries[(word >> (x * Bits)) & kMask];
+            }
+        } else {
+            const u64 low = words[row * 2];
+            const u64 high = words[(row * 2) + 1];
+            for (u32 x = 0; x < 8; ++x) {
+                destination[x] = entries[(low >> (x * 8U)) & kMask];
+                destination[x + 8] = entries[(high >> (x * 8U)) & kMask];
+            }
+        }
+    }
+}
+
+void decodePalette(u32 bits, const u64* words, const BlockStateId* entries, BlockStateId* base,
+                   usize rowStride, usize sliceStride) noexcept {
+    switch (bits) {
+    case 1:
+        decodePaletteRows<1>(words, entries, base, rowStride, sliceStride);
+        break;
+    case 2:
+        decodePaletteRows<2>(words, entries, base, rowStride, sliceStride);
+        break;
+    case 4:
+        decodePaletteRows<4>(words, entries, base, rowStride, sliceStride);
+        break;
+    default:
+        decodePaletteRows<8>(words, entries, base, rowStride, sliceStride);
+        break;
+    }
+}
+
 } // namespace
 
 usize ChunkStorage::dataBytesFor(Mode mode, u32 bits) noexcept {
@@ -317,19 +366,30 @@ void ChunkStorage::decompressTo(std::span<BlockStateId, kChunkVolume> out) const
     case Mode::Palette:
         break;
     }
-    // Whole words at a time: each word holds 64 / bits indices in order.
-    const BlockStateId* entries = palette();
-    const u32 bits = m_bits;
-    const u64 mask = maskFor(bits);
-    const usize perWord = 64 / bits;
-    usize block = 0;
-    for (usize w = 0; w < indexWords(bits); ++w) {
-        u64 word = m_data[w];
-        for (usize k = 0; k < perWord; ++k) {
-            out[block++] = entries[word & mask];
-            word >>= bits;
+    decodePalette(m_bits, m_data, palette(), out.data(), 16, 256);
+}
+
+void ChunkStorage::decompressTo(std::span<BlockStateId> out, usize rowStride,
+                                usize sliceStride) const noexcept {
+    VXE_ASSERT(out.size() >= 15 * sliceStride + 15 * rowStride + 16, "Destination box too small");
+    BlockStateId* base = out.data();
+    if (m_mode == Mode::Uniform) {
+        for (usize y = 0; y < 16; ++y) {
+            for (usize z = 0; z < 16; ++z) {
+                std::fill_n(base + y * sliceStride + z * rowStride, 16, m_uniformState);
+            }
         }
+        return;
     }
+    if (m_mode == Mode::Raw) {
+        const BlockStateId* source = raw();
+        for (usize row = 0; row < 256; ++row) {
+            std::memcpy(base + (row >> 4U) * sliceStride + (row & 15U) * rowStride, source + row * 16,
+                        16 * sizeof(BlockStateId));
+        }
+        return;
+    }
+    decodePalette(m_bits, m_data, palette(), base, rowStride, sliceStride);
 }
 
 void ChunkStorage::compact() {

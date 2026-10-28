@@ -2,6 +2,22 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#055] 2026-10-29, E9.3 Voxel world and snapshots
+### Added
+- voxel::VoxelWorld (Section 9.5): chunks from a pool allocator, a hash map from ChunkPos to chunk, insert (or replace), remove, find, block get and set by world position, and iteration. Reads of unloaded chunks return a given state; writes to them are refused.
+- voxel::Chunk: blocks, a version, dirty flags (mesh, save) and a last access tick. Versions are stamps from one counter of the whole world and move on for every change a snapshot of the chunk would see: its own blocks, the border blocks of its 26 neighbors, and neighbors loading or unloading. Edits on a border update up to 7 neighbors.
+- voxel::ColumnSummary: per chunk column the highest loaded non air block of each block column, kept up to date on every insert, removal and edit (falling back to the next block down when the highest one is removed), the loaded chunk heights and a surface estimate from the generator.
+- voxel::ChunkSnapshot: the chunk plus a one block border from its 26 neighbors (18^3 states, 11.4 KB) with the version and a mask of the neighbors that were loaded; unloaded neighbors fill with a given state. VoxelWorld::createSnapshot fills one from compile time tables of border cells.
+- ChunkStorage::decompressTo into a strided box, so the chunk is decoded straight into the inside of a snapshot.
+- Stats: Voxel.World.Chunks, UniformChunks, Palette1Chunks to Palette8Chunks, RawChunks, BlockBytes, Columns, Snapshots and SnapshotTime.
+- Tests: insert, find, remove and replace, version changes for inside, face, edge and corner edits and for loading and unloading, dirty flags, column summaries step by step and against a brute force scan after 3000 random operations, snapshots against the world block by block with mixed, uniform and missing neighbors, the int32 grid edge, storage counts and stats, strided decompression in every mode, and the snapshot time.
+- World benchmarks (snapshots with uniform, mixed and missing neighbors, edits) in vxe_benchmarks.
+### Performance
+- Snapshot with uniform neighbors 2.59 us (target under 5 us), mixed neighbors 5.45 us, setBlock 8.5 ns.
+- Palette decompression 2.3 us to 1.4 to 1.5 us per chunk with a decoder templated on the index width.
+### Docs
+- docs/perf/world.md; docs/perf/storage.md updated.
+
 ## [#054] 2026-10-28, E9.2 Chunk storage
 ### Added
 - voxel::ChunkStorage (Section 9.4): the 4096 states of a chunk in uniform, palette (1, 2, 4 or 8 bit indices that never cross a 64 bit word) or raw mode, switching on writes. A 16 byte object with one heap block (Chunks memory tag) holding the indices and the palette.

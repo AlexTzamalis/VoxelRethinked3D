@@ -251,6 +251,7 @@ vxe_add_module(voxel
     SOURCES
         src/voxel/block_registry.cpp
         src/voxel/chunk_storage.cpp
+        src/voxel/voxel_world.cpp
     DEPENDS
         core
         math

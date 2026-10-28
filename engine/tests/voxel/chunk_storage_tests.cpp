@@ -215,3 +215,29 @@ TEST_CASE("The terrain sample meets the Section 2 memory targets") {
     CHECK(mixedChunks > 0);
     CHECK(uniformChunks > 0);
 }
+
+TEST_CASE("Strided decompression writes every mode into a larger box") {
+    std::mt19937 random(5); // NOLINT(bugprone-random-generator-seed): the same data every run.
+    std::vector<ChunkStorage> storages;
+    storages.emplace_back(7); // Uniform.
+    for (const u32 distinct : {2U, 4U, 16U, 200U, 400U}) {
+        ChunkStorage storage;
+        for (u16 i = 0; i < kChunkVolume; ++i) {
+            storage.setIndex(i, static_cast<BlockStateId>(random() % distinct));
+        }
+        storages.push_back(std::move(storage));
+    }
+    constexpr usize kRow = 19; // Odd strides catch mixed up axes.
+    constexpr usize kSlice = 21 * kRow;
+    for (const ChunkStorage& storage : storages) {
+        std::vector<BlockStateId> box((16 * kSlice) + 5, 0xFFFF);
+        storage.decompressTo(box, kRow, kSlice);
+        const States flat = decompress(storage);
+        for (u16 i = 0; i < kChunkVolume; ++i) {
+            const LocalPos p = LocalPos::fromIndex(i);
+            REQUIRE(box[(p.y * kSlice) + (p.z * kRow) + p.x] == flat[i]);
+        }
+        CHECK(box[16] == 0xFFFF); // Gaps between rows stay untouched.
+        CHECK(box.back() == 0xFFFF);
+    }
+}

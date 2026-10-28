@@ -6,4 +6,7 @@ namespace vxe::bench {
 // Chunk storage (storage_bench.cpp, E9.2).
 void runStorageBenchmarks();
 
+// Voxel world and snapshots (world_bench.cpp, E9.3).
+void runWorldBenchmarks();
+
 } // namespace vxe::bench

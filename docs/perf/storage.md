@@ -35,7 +35,7 @@ that would be a deliberate change to propose then.
 | get, raw | 1.6 ns |
 | set, 4 bit palette, existing states, random order | 7.1 to 7.3 ns |
 | decompressTo, uniform | 88 to 95 ns per chunk |
-| decompressTo, 2 or 4 bit palette | 2.3 us per chunk |
+| decompressTo, 2 or 4 bit palette | 2.3 us per chunk (1.4 to 1.5 us since E9.3, see below) |
 | decompressTo, raw | 111 to 114 ns per chunk |
 | assign, terrain surface chunk | 6.6 to 7.7 us per chunk (21.6 us before the one pass rewrite) |
 | compact, 4 bit chunk with nothing to drop | 4.2 us per chunk |
@@ -43,3 +43,16 @@ that would be a deliberate change to propose then.
 assign is now about 3% of the 0.25 ms per chunk generation budget.
 Decompressing a palette chunk (2.3 us) happens once per mesh or light job;
 the meshing budget is 0.06 ms per chunk, so it costs about 4% of that.
+
+## E9.3 Palette decoding (2026-10-29)
+
+The palette decoder now takes the index width as a template parameter, so
+every shift and mask is a constant and the 16 lookups of a row are
+independent instructions. The same decoder writes flat arrays and the
+inside of an 18^3 snapshot box (strided decompressTo).
+
+| Operation | Before | After |
+|-----------|--------|-------|
+| decompressTo, 2 bit palette | 2.33 us | 1.36 us |
+| decompressTo, 4 bit palette | 2.30 us | 1.54 us |
+| decompressTo, 4 bit palette, strided into 18^3 | 2.27 us | 1.56 us |

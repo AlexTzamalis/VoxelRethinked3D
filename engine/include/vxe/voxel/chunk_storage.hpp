@@ -67,6 +67,13 @@ public:
     // lighting loops never touch the packed format.
     void decompressTo(std::span<BlockStateId, kChunkVolume> out) const noexcept;
 
+    // All 4096 states into a larger 3D box: block (x, y, z) goes to
+    // out[y * sliceStride + z * rowStride + x]. Snapshots use it to write a
+    // chunk straight into the inside of their padded 18^3 box, which saves
+    // decompressing into a flat array first and copying 256 rows after.
+    // `out` must hold 15 * sliceStride + 15 * rowStride + 16 states.
+    void decompressTo(std::span<BlockStateId> out, usize rowStride, usize sliceStride) const noexcept;
+
     // Drops palette entries no block uses any more and picks the smallest
     // mode and index width that fits: back to Uniform when one state is
     // left, from Raw to Palette at 256 states or fewer. Scans the chunk, so

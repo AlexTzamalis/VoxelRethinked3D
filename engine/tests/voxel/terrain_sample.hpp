@@ -85,4 +85,23 @@ inline void sampleChunk(ChunkPos chunk, std::span<voxel::BlockStateId, kChunkVol
     }
 }
 
+// The first chunk of the sample (scanning a strip of 8 x 12 chunks) whose
+// storage uses palette indices of `bits` bits; the origin if none does.
+// Surface chunks use 4 bits, deep stone with ores 2 bits.
+inline ChunkPos sampleChunkWithBits(u32 bits) {
+    std::array<voxel::BlockStateId, kChunkVolume> states{};
+    for (i32 cy = -4; cy < 8; ++cy) {
+        for (i32 cx = 0; cx < 8; ++cx) {
+            const ChunkPos position{.x = cx, .y = cy, .z = 0};
+            sampleChunk(position, states);
+            voxel::ChunkStorage storage;
+            storage.assign(states);
+            if (storage.mode() == voxel::ChunkStorage::Mode::Palette && storage.bitsPerIndex() == bits) {
+                return position;
+            }
+        }
+    }
+    return {};
+}
+
 } // namespace vxe::test

@@ -8,6 +8,7 @@ find_package(nanobench CONFIG REQUIRED)
 add_executable(vxe_benchmarks
     main.cpp
     storage_bench.cpp
+    world_bench.cpp
 )
 target_link_libraries(vxe_benchmarks PRIVATE vxe::vxe nanobench::nanobench)
 # The synthetic terrain sample is shared with the unit tests.

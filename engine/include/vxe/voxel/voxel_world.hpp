@@ -1,0 +1,140 @@
+#pragma once
+
+#include <vxe/core/containers.hpp>
+#include <vxe/core/pool_allocator.hpp>
+#include <vxe/core/stats.hpp>
+#include <vxe/core/types.hpp>
+#include <vxe/math/coords.hpp>
+#include <vxe/voxel/chunk.hpp>
+#include <vxe/voxel/chunk_snapshot.hpp>
+#include <vxe/voxel/column_summary.hpp>
+
+#include <array>
+#include <optional>
+
+namespace vxe::voxel {
+
+struct VoxelWorldConfig {
+    // Chunks per page of the chunk pool. A page is allocated when every slot
+    // is in use; 1024 chunks is about 64 KB.
+    usize chunksPerPage = 1024;
+    // Column summaries per page of their pool (about 1 KB each).
+    usize columnsPerPage = 256;
+};
+
+// The grid of loaded chunks (Section 9.5): chunks from a pool, a hash map
+// from ChunkPos to chunk, a summary per chunk column, and snapshots for jobs.
+//
+// Every change goes through the world, which keeps the derived data right:
+// chunk versions (a change on a chunk border also moves the versions of the
+// neighbors whose snapshots include that block), dirty flags, the column
+// summaries and the storage statistics. Reads of unloaded positions return
+// air; writes to them are refused, since only the streaming manager decides
+// which chunks exist.
+//
+// Stats (optional, written by publishStats() and createSnapshot()):
+// Voxel.World.Chunks, .UniformChunks, .Palette1Chunks to .Palette8Chunks,
+// .RawChunks, .BlockBytes, .Columns, and per frame .Snapshots plus
+// .SnapshotTime.
+//
+// Thread safety: owned by one thread, the server thread in the game. Jobs
+// get snapshots instead of touching the world (Section 6.4).
+class VoxelWorld {
+public:
+    explicit VoxelWorld(const VoxelWorldConfig& config = {}, stats::StatRegistry* stats = nullptr);
+    ~VoxelWorld();
+    VoxelWorld(const VoxelWorld&) = delete;
+    VoxelWorld& operator=(const VoxelWorld&) = delete;
+    VoxelWorld(VoxelWorld&&) = delete;
+    VoxelWorld& operator=(VoxelWorld&&) = delete;
+
+    // Loads a chunk with the given blocks, or replaces the blocks of the
+    // chunk already there (for example when generation finishes). Loading is
+    // not an edit, so the chunk is not marked for saving.
+    Chunk& insertChunk(ChunkPos position, ChunkStorage blocks = {});
+    // Unloads a chunk. Returns false if it was not loaded.
+    bool removeChunk(ChunkPos position);
+    void clear();
+
+    [[nodiscard]] Chunk* findChunk(ChunkPos position) noexcept;
+    [[nodiscard]] const Chunk* findChunk(ChunkPos position) const noexcept;
+    [[nodiscard]] usize chunkCount() const noexcept { return m_chunks.size(); }
+
+    // Calls fn(Chunk&) for every loaded chunk, in no particular order. fn
+    // must not insert or remove chunks.
+    template <typename Fn>
+    void forEachChunk(Fn&& fn) {
+        for (auto& entry : m_chunks) {
+            fn(*entry.second);
+        }
+    }
+
+    // The state at a world position, or `unloaded` if its chunk is not loaded.
+    [[nodiscard]] BlockStateId getBlock(const BlockPos& position,
+                                        BlockStateId unloaded = kAirState) const noexcept;
+    // Changes one block, marking its chunk for meshing and saving. Returns
+    // false if the chunk is not loaded. Writing the state a block already
+    // has changes nothing, not even the version.
+    bool setBlock(const BlockPos& position, BlockStateId state);
+
+    [[nodiscard]] const ColumnSummary* findColumn(ColumnPos position) const noexcept;
+    [[nodiscard]] usize columnCount() const noexcept { return m_columns.size(); }
+    // Records the generator's surface height for a column. Ignored if no
+    // chunk of the column is loaded; columns only exist while they have
+    // chunks, so the generator gives the estimate with the first one.
+    void setSurfaceEstimate(ColumnPos position, i32 blockY) noexcept;
+
+    // Fills `out` with the chunk and a one block border from its neighbors.
+    // Border blocks of neighbors that are not loaded get `unloaded`. Returns
+    // false, leaving `out` untouched, if the chunk itself is not loaded.
+    // Fast for uniform neighbors (a fill per neighbor), so the common
+    // underground and sky cases cost little more than the chunk itself.
+    bool createSnapshot(ChunkPos position, ChunkSnapshot& out, BlockStateId unloaded = kAirState) const;
+
+    // Chunk counts per storage mode and the bytes of block data, updated
+    // on every change.
+    struct StorageCounts {
+        usize uniform = 0;
+        std::array<usize, 4> palette{}; // 1, 2, 4 and 8 bit indices.
+        usize raw = 0;
+        usize blockBytes = 0; // ChunkStorage::memoryBytes() of every chunk.
+    };
+    [[nodiscard]] const StorageCounts& storageCounts() const noexcept { return m_counts; }
+
+    // Writes the gauges. The owner calls it once per tick or frame.
+    void publishStats();
+
+private:
+    void account(const ChunkStorage& blocks, bool add) noexcept;
+    [[nodiscard]] static std::optional<ChunkPos> neighborPosition(ChunkPos position, i32 dx, i32 dy,
+                                                                  i32 dz) noexcept;
+    void neighborChanged(ChunkPos position, i32 dx, i32 dy, i32 dz, u64 stamp) noexcept;
+    void neighborsChanged(ChunkPos position, u64 stamp) noexcept;
+    static void raiseHeights(ColumnSummary& column, const Chunk& chunk);
+    void addToColumn(const Chunk& chunk);
+    void removeFromColumn(ChunkPos position);
+    void rescanColumn(ColumnSummary& column, u32 x, u32 z, i32 belowBlockY) const noexcept;
+    void destroyChunk(Chunk* chunk) noexcept;
+    void registerStats();
+
+    PoolAllocator<Chunk, MemoryTag::Chunks> m_chunkPool;
+    PoolAllocator<ColumnSummary, MemoryTag::Chunks> m_columnPool;
+    HashMap<ChunkPos, Chunk*> m_chunks;
+    HashMap<ColumnPos, ColumnSummary*> m_columns;
+    StorageCounts m_counts;
+    u64 m_changeCounter = 0; // Source of chunk version stamps.
+
+    stats::StatRegistry* m_stats;
+    struct StatIds {
+        stats::StatId chunks;
+        stats::StatId uniform;
+        std::array<stats::StatId, 4> palette;
+        stats::StatId raw;
+        stats::StatId blockBytes;
+        stats::StatId columns;
+        stats::StatId snapshots;
+        stats::StatId snapshotTime;
+    } m_statIds;
+};
+
+} // namespace vxe::voxel

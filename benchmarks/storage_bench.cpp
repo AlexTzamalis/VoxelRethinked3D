@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <format>
 #include <random>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -137,6 +138,14 @@ void runStorageBenchmarks() {
     decompress.run("raw", [&] {
         raw.decompressTo(out);
         ankerl::nanobench::doNotOptimizeAway(out);
+    });
+    // Into the inside of an 18^3 snapshot box (rows of 18, slices of 324).
+    constexpr usize kSide = 18;
+    std::vector<BlockStateId> box(kSide * kSide * kSide);
+    const ChunkStorage surface4 = sampleWithBits(4);
+    decompress.run("4 bit palette, strided into 18^3", [&] {
+        surface4.decompressTo(std::span(box).subspan((kSide * kSide) + kSide + 1), kSide, kSide * kSide);
+        ankerl::nanobench::doNotOptimizeAway(box);
     });
 
     ankerl::nanobench::Bench building;
