@@ -21,6 +21,7 @@ vxe_add_module(core
         src/core/memory.cpp
         src/core/profile.cpp
         src/core/scratch.cpp
+        src/core/stats.cpp
         src/core/string_id.cpp
         src/core/time.cpp
         src/core/version.cpp

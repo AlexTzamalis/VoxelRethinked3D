@@ -54,4 +54,7 @@ else()
     add_link_options(${vxeSanitizerFlags})
 endif()
 
+# Lets tests skip timing assertions, which sanitizers make meaningless.
+add_compile_definitions(VXE_SANITIZER_ACTIVE=1)
+
 message(STATUS "vxe: building with sanitizer '${VXE_SANITIZER}'")

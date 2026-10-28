@@ -17,6 +17,7 @@ add_executable(vxe_tests
     core/memory_tests.cpp
     core/profile_tests.cpp
     core/result_tests.cpp
+    core/stats_tests.cpp
     input/input_tests.cpp
     input/keybinds_tests.cpp
     io/binary_compression_tests.cpp

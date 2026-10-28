@@ -2,6 +2,19 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#040] 2026-10-28, E7.1 Stat registry
+### Added
+- vxe::stats::StatRegistry in core (vxe/core/stats.hpp): counters, gauges, timers and histograms registered by dotted name (the prefix is the overlay category), up to 2048 stats.
+- Lock free recording from any thread: each thread writes its own slots and marks them in a dirty bitset; endFrame merges only touched slots, so its cost follows the stats actually used. Gauges and histograms use shared atomics.
+- Per frame values with preallocated history rings (no allocation per frame), average, maximum, per second rates from the frame durations, and quarter octave histograms with percentiles.
+- ScopedStatTimer, and the registry's own Debug.Stats.MergeTime timer.
+- VXE_SANITIZER_ACTIVE compile definition in sanitizer builds, so timing assertions can skip them.
+- Tests: registration rules, counters summed across 8 threads, a stress test that closes frames while 4 threads record (no count lost, 290 repeated runs), gauges, timers, histograms, history, rates, and the 500 stat budget.
+### Performance
+- endFrame with 500 stats touched every frame and 5 recording threads: 0.0073 ms in release on the dev machine (budget 0.05 ms), 0.039 ms in debug.
+### Docs
+- ADR-017: the stat registry lives in core so lower layers can record stats; overlay pages stay in debug.
+
 ## [#039] 2026-10-28, Fix a racy job system shutdown test
 ### Fixed
 - The test "Destroying the job system runs every queued job first" read the counter again after incrementing it, so with two workers both increments could land before either read and no job scheduled the extra one (500 instead of 501, seen once under TSan in CI). It now uses the value fetch_add returns, which is unique per job. The job system itself was correct.
