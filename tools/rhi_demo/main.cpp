@@ -1,16 +1,16 @@
 // vxe_rhi_demo: a spinning cube and a colored triangle drawn through the RHI
 // (Section 7, the E6.5 acceptance demo).
 //
-// Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui] [--imgui-demo] [--overlay-page N] [--console] [--exec
-// COMMAND]...
+// Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui] [--imgui-demo]
+//                     [--overlay-page N] [--console] [--exec COMMAND]...
 //
 // The cube is drawn into an offscreen color and depth target with reversed Z,
 // then copied to the window with a fullscreen triangle, and the triangle is
-// drawn on top. The window title shows the GPU frame time (measured with
-// timestamp queries, without stalls), the CPU frame time and the frame rate.
-// With --frames the demo stops after N frames and prints a summary; the exit
-// code is non zero if the device reported invalid commands or driver errors,
-// so the demo also works as a scripted check.
+// drawn on top. The passes run in a frame graph (E8.1), which owns and
+// resizes the offscreen targets and times every pass on the GPU. The window title shows the GPU frame time
+// (measured with timestamp queries, without stalls), the CPU frame time and the frame rate. With --frames the
+// demo stops after N frames and prints a summary; the exit code is non zero if the device reported invalid
+// commands or driver errors, so the demo also works as a scripted check.
 //
 // The debug UI runs on top (E7.2, E7.3): F3 toggles the performance overlay,
 // F3+Left and F3+Right switch its pages. --overlay-page N opens the overlay on
@@ -33,6 +33,7 @@
 #include <vxe/platform/frame_limiter.hpp>
 #include <vxe/platform/platform.hpp>
 #include <vxe/platform/window.hpp>
+#include <vxe/render/frame_graph.hpp>
 #include <vxe/rhi/gpu_timer.hpp>
 #include <vxe/rhi/shader_source.hpp>
 #include <vxe/rhi_gl/gl_device.hpp>
@@ -142,10 +143,8 @@ struct Scene {
     BufferHandle uniforms;
     BufferHandle cubeIndices;
     SamplerHandle sampler;
-    TextureHandle color;
-    TextureHandle depth;
-    u32 width = 0;
-    u32 height = 0;
+    u32 width = 1; // The window size, for the projection's aspect ratio.
+    u32 height = 1;
 };
 
 Result<PipelineHandle> createPipeline(Device& device, const ShaderFileReader& shaders,
@@ -167,33 +166,6 @@ Result<PipelineHandle> createPipeline(Device& device, const ShaderFileReader& sh
     device.destroy(vertex.value());
     device.destroy(fragment.value());
     return pipeline;
-}
-
-Result<void> createTargets(Device& device, Scene& scene, u32 width, u32 height) {
-    device.destroy(scene.color);
-    device.destroy(scene.depth);
-    auto color = device.createTexture({.format = Format::RGBA8Unorm,
-                                       .width = width,
-                                       .height = height,
-                                       .usage = TextureUsage::RenderTarget | TextureUsage::Sampled,
-                                       .debugName = "Demo color"});
-    if (!color) {
-        return color.error();
-    }
-    auto depth = device.createTexture({.format = Format::D32Float,
-                                       .width = width,
-                                       .height = height,
-                                       .usage = TextureUsage::DepthTarget,
-                                       .debugName = "Demo depth"});
-    if (!depth) {
-        device.destroy(color.value());
-        return depth.error();
-    }
-    scene.color = color.value();
-    scene.depth = depth.value();
-    scene.width = width;
-    scene.height = height;
-    return {};
 }
 
 Result<void> createScene(Device& device, Scene& scene) {
@@ -250,8 +222,7 @@ Result<void> createScene(Device& device, Scene& scene) {
         return sampler.error();
     }
     scene.sampler = sampler.value();
-    return createTargets(device, scene, std::max(device.backBufferWidth(), 1U),
-                         std::max(device.backBufferHeight(), 1U));
+    return {};
 }
 
 void destroyScene(Device& device, Scene& scene) {
@@ -261,43 +232,47 @@ void destroyScene(Device& device, Scene& scene) {
     device.destroy(scene.uniforms);
     device.destroy(scene.cubeIndices);
     device.destroy(scene.sampler);
-    device.destroy(scene.color);
-    device.destroy(scene.depth);
 }
 
-// Records one frame: the cube offscreen, then the window pass with the
-// triangle and the debug UI on top.
-void recordFrame(CommandList& commands, const Scene& scene, debug::DebugUi* ui) {
-    commands.beginDebugGroup("Cube pass");
-    RenderPassDesc offscreen;
-    offscreen.colorCount = 1;
-    offscreen.colors[0] = {.texture = scene.color, .clearColor = {0.05F, 0.06F, 0.09F, 1.0F}};
-    offscreen.hasDepth = true;
-    offscreen.depth = {.texture = scene.depth, .store = StoreOp::DontCare};
-    commands.beginRenderPass(offscreen);
-    commands.bindPipeline(scene.cubePipeline);
-    commands.bindUniformBuffer(1, 1, scene.uniforms, kCubeParamsOffset, sizeof(CubeParams));
-    commands.bindIndexBuffer(scene.cubeIndices, IndexType::Uint16);
-    commands.drawIndexed(static_cast<u32>(kCubeIndices.size()));
-    commands.endRenderPass();
-    commands.endDebugGroup();
+// The demo's frame as a frame graph (E8.1): the cube into offscreen targets
+// the graph creates and resizes, then the window with the cube image and the
+// triangle, then the debug UI on top. Each pass shows up with its GPU time on
+// the overlay's GPU page and can be switched off with Debug.Passes.<name>.
+Result<void> buildFrameGraph(render::FrameGraph& graph, const Scene& scene, debug::DebugUi* ui) {
+    auto cube = graph.addPass({.name = "Cube", .record = [&scene](render::PassContext& context) {
+                                   context.commands.bindPipeline(scene.cubePipeline);
+                                   context.commands.bindUniformBuffer(1, 1, scene.uniforms, kCubeParamsOffset,
+                                                                      sizeof(CubeParams));
+                                   context.commands.bindIndexBuffer(scene.cubeIndices, IndexType::Uint16);
+                                   context.commands.drawIndexed(static_cast<u32>(kCubeIndices.size()));
+                               }});
+    const render::TextureRef color = cube.createTexture("SceneColor", {.format = Format::RGBA8Unorm});
+    cube.colorAttachment(color, LoadOp::Clear, {0.05F, 0.06F, 0.09F, 1.0F});
+    cube.depthAttachment(cube.createTexture("SceneDepth", {.format = Format::D32Float}), LoadOp::Clear, 0.0F,
+                         StoreOp::DontCare);
 
-    commands.beginDebugGroup("Window pass");
-    RenderPassDesc window;
-    window.colorCount = 1;
-    window.colors[0] = {.swapchain = true, .load = LoadOp::DontCare};
-    commands.beginRenderPass(window);
-    commands.bindPipeline(scene.blitPipeline);
-    commands.bindTexture(2, 0, scene.color, scene.sampler);
-    commands.draw(3);
-    commands.bindPipeline(scene.trianglePipeline);
-    commands.bindUniformBuffer(1, 0, scene.uniforms, kTriangleParamsOffset, sizeof(TriangleParams));
-    commands.draw(3);
+    auto composite =
+        graph.addPass({.name = "Composite", .record = [&scene, color](render::PassContext& context) {
+                           context.commands.bindPipeline(scene.blitPipeline);
+                           context.commands.bindTexture(2, 0, context.texture(color), scene.sampler);
+                           context.commands.draw(3);
+                           context.commands.bindPipeline(scene.trianglePipeline);
+                           context.commands.bindUniformBuffer(1, 0, scene.uniforms, kTriangleParamsOffset,
+                                                              sizeof(TriangleParams));
+                           context.commands.draw(3);
+                       }});
+    composite.sampleTexture(color);
+    composite.windowAttachment(LoadOp::DontCare);
+
     if (ui != nullptr) {
-        ui->record(commands);
+        // Not switchable: without it there is no way to switch passes back on.
+        graph
+            .addPass({.name = "DebugUi",
+                      .canDisable = false,
+                      .record = [ui](render::PassContext& context) { ui->record(context.commands); }})
+            .windowAttachment(LoadOp::Load);
     }
-    commands.endRenderPass();
-    commands.endDebugGroup();
+    return graph.compile();
 }
 
 Result<void> updateUniforms(Device& device, const Scene& scene, f64 seconds) {
@@ -321,7 +296,7 @@ Result<void> updateUniforms(Device& device, const Scene& scene, f64 seconds) {
 // The debug UI with the performance overlay, and what they read. Only exists
 // while the UI is on (not with --no-ui).
 struct DebugTools {
-    stats::StatRegistry stats;
+    stats::StatRegistry* stats = nullptr;
     config::CommandRegistry commands;
     std::unique_ptr<debug::DebugUi> ui;
     std::unique_ptr<debug::DebugOverlay> overlay;
@@ -330,21 +305,23 @@ struct DebugTools {
 
 Result<std::unique_ptr<DebugTools>> createDebugTools(Device& device, input::InputSystem& input,
                                                      config::SettingsRegistry& settings,
+                                                     stats::StatRegistry& statRegistry,
                                                      const Options& options) {
     auto tools = std::make_unique<DebugTools>();
+    tools->stats = &statRegistry;
     auto ui = debug::DebugUi::create(device, input, {.shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR)});
     if (!ui) {
         return ui.error();
     }
     tools->ui = std::move(ui.value());
     tools->overlay = std::make_unique<debug::DebugOverlay>(debug::OverlayDesc{
-        .settings = &settings, .input = &input, .stats = &tools->stats, .device = &device});
+        .settings = &settings, .input = &input, .stats = &statRegistry, .device = &device});
     config::registerSettingsCommands(tools->commands, settings);
     tools->console = std::make_unique<debug::DeveloperConsole>(
         debug::ConsoleDesc{.commands = &tools->commands,
                            .settings = &settings,
                            .input = &input,
-                           .stats = &tools->stats,
+                           .stats = &statRegistry,
                            .toggleContext = tools->overlay->inputContext()});
     for (const std::string& command : options.commands) {
         static_cast<void>(tools->console->execute(command));
@@ -366,7 +343,7 @@ void updateDebugTools(DebugTools& tools, platform::Window& window,
     // The frame that just ended: its CPU time, and the newest GPU time the
     // timer has (a few frames old by design).
     tools.overlay->recordFrame(toMilliseconds(time.rawDelta), gpuMilliseconds);
-    tools.stats.endFrame(time.deltaSeconds);
+    tools.stats->endFrame(time.deltaSeconds);
     tools.ui->beginFrame(time.deltaSeconds, Vec2(window.size()), Vec2(window.pixelSize()));
     tools.overlay->update(time.deltaSeconds);
     tools.console->update();
@@ -449,10 +426,11 @@ int run(const Options& options) {
                               1000,
                               1});
     platform::FrameLimiter limiter;
+    stats::StatRegistry statRegistry;
     input::InputSystem input;
     std::unique_ptr<DebugTools> tools;
     if (options.ui) {
-        auto toolsCreated = createDebugTools(device, input, settings, options);
+        auto toolsCreated = createDebugTools(device, input, settings, statRegistry, options);
         if (!toolsCreated) {
             VXE_LOG_ERROR(log::core, "{}", toolsCreated.error().describe());
             gpuTimer.destroy(device);
@@ -460,6 +438,16 @@ int run(const Options& options) {
             return 1;
         }
         tools = std::move(toolsCreated.value());
+    }
+    auto graph = std::make_unique<render::FrameGraph>(
+        render::FrameGraphDesc{.device = &device, .settings = &settings, .stats = &statRegistry});
+    if (auto result = buildFrameGraph(*graph, scene, tools ? tools->ui.get() : nullptr); !result) {
+        VXE_LOG_ERROR(log::core, "{}", result.error().describe());
+        graph.reset();
+        tools.reset();
+        gpuTimer.destroy(device);
+        destroyScene(device, scene);
+        return 1;
     }
 
     FrameTimer frameTimer;
@@ -482,15 +470,12 @@ int run(const Options& options) {
         if (tools) {
             updateDebugTools(*tools, *window.value(), events, time, gpuTimer.lastFrameMilliseconds(),
                              options.imguiDemo);
+        } else {
+            statRegistry.endFrame(time.deltaSeconds);
         }
-        const u32 width = std::max(device.backBufferWidth(), 1U);
-        const u32 height = std::max(device.backBufferHeight(), 1U);
-        if (width != scene.width || height != scene.height) {
-            if (auto result = createTargets(device, scene, width, height); !result) {
-                VXE_LOG_ERROR(log::core, "{}", result.error().describe());
-                break;
-            }
-        }
+        scene.width = std::max(device.backBufferWidth(), 1U);
+        scene.height = std::max(device.backBufferHeight(), 1U);
+        graph->setOutputSize(scene.width, scene.height);
         if (auto result = updateUniforms(device, scene, time.elapsedSeconds); !result) {
             VXE_LOG_ERROR(log::core, "{}", result.error().describe());
             break;
@@ -498,7 +483,10 @@ int run(const Options& options) {
 
         commands.reset();
         gpuTimer.beginFrame(device, commands);
-        recordFrame(commands, scene, tools ? tools->ui.get() : nullptr);
+        if (auto result = graph->execute(commands); !result) {
+            VXE_LOG_ERROR(log::core, "{}", result.error().describe());
+            break;
+        }
         gpuTimer.endFrame(commands);
         device.beginFrame();
         device.submit(commands);
@@ -525,6 +513,7 @@ int run(const Options& options) {
                  frames, frames > 1 ? cpuMillisecondsTotal / static_cast<f64>(frames - 1) : 0.0,
                  gpu ? std::format("{:.3f} ms", *gpu) : std::string("not measured"), stats.drawCalls,
                  stats.invalidCommands, stats.apiErrors);
+    graph.reset();
     tools.reset();
     gpuTimer.destroy(device);
     destroyScene(device, scene);
@@ -546,7 +535,7 @@ int main(int argc, char** argv) {
         if (!options) {
             std::fputs(
                 "Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui] [--imgui-demo] [--overlay-page N] "
-                "[--exec COMMAND]...\n",
+                "[--console] [--exec COMMAND]...\n",
                 stderr);
             return 2;
         }

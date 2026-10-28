@@ -154,6 +154,7 @@ private:
     void drawOverview();
     void drawFramePage();
     void drawGpuPage();
+    void drawPassTimings();
     void drawMemoryPage();
     void drawInputPage();
     void drawSettingsPage();

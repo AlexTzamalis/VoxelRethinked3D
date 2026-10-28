@@ -34,6 +34,11 @@ template <FlagEnum E>
     return static_cast<E>(static_cast<U>(a) & static_cast<U>(b));
 }
 template <FlagEnum E>
+constexpr E& operator|=(E& a, E b) noexcept {
+    a = a | b;
+    return a;
+}
+template <FlagEnum E>
 [[nodiscard]] constexpr bool hasFlag(E flags, E flag) noexcept {
     return (flags & flag) == flag && flag != E::None;
 }

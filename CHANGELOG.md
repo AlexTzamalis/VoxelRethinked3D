@@ -2,6 +2,23 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#047] 2026-10-28, E8.1 Frame graph lite
+### Added
+- The render module (layer 9) with render::FrameGraph (Section 8.1). Passes are added in execution order through a PassBuilder and declare transient textures (sized relative to the output or fixed), color, depth and window attachments with load and store ops, sampled and storage texture reads and writes, and how they use imported buffers.
+- compile() rejects reads before writes, sampling a texture the pass renders into, loading undefined contents, raster passes without attachments, window plus texture attachments, attachments on compute or transfer passes, wrong depth formats and bad or duplicate names, with messages naming the pass and resource.
+- Transient textures are created on the first execute and recreated when the output size changes. Textures with equal format, size and usage share one GPU texture when their passes do not overlap (Debug.FrameGraph.Aliasing, live).
+- Barriers after shader storage writes, planned once at compile, including writes late in one frame read early in the next (Hi-Z to culling).
+- Every pass has a live toggle Debug.Passes.<name> (except passes created with canDisable = false). A disabled pass still clears the attachments it would have cleared.
+- Every pass runs in a debug group and is timed on the GPU with a timestamp pair read four frames late (stat Gpu.Pass.<name>). Stats Render.FrameGraph.TransientMemory, Render.FrameGraph.Barriers and Render.FrameGraph.PassesRun.
+- The overlay's GPU page lists every Gpu.Pass stat with its average and maximum over 60 frames and the total.
+- operator|= for RHI flag enums.
+- vxe_rhi_demo renders through a frame graph with the passes Cube, Composite and DebugUi; the frame graph owns its offscreen targets.
+- Tests: every validation rule, pass order and render pass contents, resizing, aliasing on and off, barrier planning across frames, disabled passes, and drawing plus GPU timing on the OpenGL device (VXE_GUI_TESTS=1).
+### Performance
+- execute() with 11 passes: 0.0010 ms per frame in release (0.0105 ms in debug), 0 allocations in 1000 frames. Demo passes on the RTX 4060: Cube 0.061 ms, Composite 0.033 ms, DebugUi 0.011 ms.
+### Docs
+- docs/perf/render.md with the frame graph measurements.
+
 ## [#046] 2026-10-28, Check frame limiter accuracy only on real machines
 ### Fixed
 - The frame limiter tests from #045 failed on the Windows CI runners (156.9 and 189.5 FPS measured for a 200 FPS cap, 136.4 for 144): shared CI machines stall threads for milliseconds. On CI the tests now check that the cap is never exceeded and that "set Video.FpsLimit 144" clearly lowers the rate; the 5% accuracy checks run on real machines (local: 200.0 and 144.0). The limiter itself is unchanged.

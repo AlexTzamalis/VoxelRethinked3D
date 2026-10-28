@@ -468,7 +468,53 @@ void DebugOverlay::drawGpuPage() {
                      stats.pipelineBinds, stats.pipelineBindsSkipped, stats.invalidCommands,
                      stats.pendingDestroys));
     text(std::format("Driver errors {}, warnings {}", stats.apiErrors, stats.apiWarnings));
+    drawPassTimings();
     ImGui::End();
+}
+
+// Per pass GPU times (Section 18.2). The renderer's frame graph publishes
+// them as Gpu.Pass.<name> stats, so this page reads the stat registry and
+// needs no dependency on the render module or on a particular renderer.
+void DebugOverlay::drawPassTimings() {
+    constexpr std::string_view kPrefix = "Gpu.Pass.";
+    constexpr u32 kAverageFrames = 60;
+    bool tableOpen = false;
+    f64 total = 0.0;
+    for (u32 i = 0; i < m_stats.statCount(); ++i) {
+        const stats::StatId id{i};
+        const auto& info = m_stats.info(id);
+        if (!info.name.starts_with(kPrefix)) {
+            continue;
+        }
+        if (!tableOpen) {
+            ImGui::Separator();
+            tableOpen = ImGui::BeginTable("Passes", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
+            if (!tableOpen) {
+                return;
+            }
+            for (const char* header : {"Pass", "GPU ms", "Max of 60"}) {
+                ImGui::TableSetupColumn(header);
+            }
+            ImGui::TableHeadersRow();
+        }
+        const f64 average = m_stats.average(id, kAverageFrames);
+        total += average;
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        text(info.name.substr(kPrefix.size()));
+        ImGui::TableNextColumn();
+        text(std::format("{:.3f}", average));
+        ImGui::TableNextColumn();
+        text(std::format("{:.3f}", m_stats.maximum(id, kAverageFrames)));
+    }
+    if (tableOpen) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        text("All passes");
+        ImGui::TableNextColumn();
+        text(std::format("{:.3f}", total));
+        ImGui::EndTable();
+    }
 }
 
 void DebugOverlay::drawMemoryPage() {

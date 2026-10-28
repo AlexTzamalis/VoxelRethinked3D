@@ -192,6 +192,17 @@ vxe_add_module(rhi_gl
         glad::glad
 )
 
+# Render: the renderer on top of the RHI (E8). It records command lists and
+# never sees a graphics API (ADR-003).
+vxe_add_module(render
+    SOURCES
+        src/render/frame_graph.cpp
+    DEPENDS
+        core
+        config
+        rhi
+)
+
 # Engine shaders (GLSL 460 with the engine's include system). Checked with
 # glslang on every build, so a broken shader fails the build (E6.4).
 vxe_add_shader_check(vxe_engine_shaders ROOT "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
