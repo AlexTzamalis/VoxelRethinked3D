@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstdlib>
 #include <new>
 
 namespace vxe::memory {
@@ -121,3 +122,84 @@ void deallocate(void* pointer, usize bytes, usize alignment, MemoryTag tag) noex
 }
 
 } // namespace vxe::memory
+
+// Global allocation counting (Memory page of the debug overlay).
+//
+// Replacing the global operator new and delete is the only way to see every
+// allocation, including those inside the standard library. They forward to
+// malloc and free, exactly like the defaults, and only add one relaxed atomic
+// increment. They live in this file because every program on the engine links
+// it. Sanitizer builds skip the replacement: ASan and TSan install their own
+// operator new, and two definitions would clash.
+namespace {
+
+// constinit: ready before any static initializer allocates.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): a process wide counter by nature.
+constinit std::atomic<vxe::u64> globalAllocations{0};
+
+} // namespace
+
+vxe::u64 vxe::memory::globalAllocationCount() noexcept {
+    return globalAllocations.load(std::memory_order_relaxed);
+}
+
+#ifdef VXE_SANITIZER_ACTIVE
+
+bool vxe::memory::globalAllocationCountAvailable() noexcept {
+    return false;
+}
+
+#else
+
+bool vxe::memory::globalAllocationCountAvailable() noexcept {
+    return true;
+}
+
+// The replaceable allocation functions, with the standard's behavior: never
+// return null, retry through the new handler, throw std::bad_alloc when there
+// is none. Array and nothrow forms are implemented by the library on top of
+// these on every supported compiler, so they are counted too.
+// NOLINTBEGIN(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory, misc-new-delete-overloads)
+void* operator new(std::size_t size) {
+    globalAllocations.fetch_add(1, std::memory_order_relaxed);
+    const std::size_t bytes = size == 0 ? 1 : size;
+    while (true) {
+        if (void* pointer = std::malloc(bytes)) {
+            return pointer;
+        }
+        std::new_handler handler =
+            std::get_new_handler(); // NOLINT(misc-const-correctness): a function pointer alias.
+        if (handler == nullptr) {
+            throw std::bad_alloc();
+        }
+        handler();
+    }
+}
+
+void* operator new[](std::size_t size) {
+    return ::operator new(size);
+}
+
+// The pointer parameter is spelled like MSVC's own declarations
+// (vcruntime_new.h), because clang-tidy compares definition and declaration
+// names; the reserved spelling is harmless here.
+// NOLINTBEGIN(bugprone-reserved-identifier, readability-identifier-naming)
+void operator delete(void* _Block) noexcept {
+    std::free(_Block);
+}
+
+void operator delete[](void* _Block) noexcept {
+    std::free(_Block);
+}
+
+void operator delete(void* _Block, std::size_t /*size*/) noexcept {
+    std::free(_Block);
+}
+
+void operator delete[](void* _Block, std::size_t /*size*/) noexcept {
+    std::free(_Block);
+}
+// NOLINTEND(bugprone-reserved-identifier, readability-identifier-naming)
+// NOLINTEND(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory, misc-new-delete-overloads)
+
+#endif

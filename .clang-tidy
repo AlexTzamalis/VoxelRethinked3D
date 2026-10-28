@@ -52,6 +52,10 @@ Checks: >
 
 WarningsAsErrors: ''
 HeaderFilterRegex: '.*/(engine|game|tools|benchmarks)/.*'
+# Visual Studio installs its headers under "VC/Tools", which the filter above
+# would match, so compiler, vcpkg and generated third party headers are
+# excluded explicitly.
+ExcludeHeaderFilterRegex: '.*([Mm]icrosoft [Vv]isual [Ss]tudio|vcpkg_installed|third_party).*'
 FormatStyle: file
 
 # Naming rules from Section 23.1.

@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#042] 2026-10-28, E7.3 checkpoint: global allocation counting
+### Added
+- vxe::memory::globalAllocationCount(): every global operator new since startup, for the overlay's Memory page (allocations per frame). Core replaces the global operator new and delete, forwarding to malloc and free with one relaxed atomic increment. Sanitizer builds keep their own allocator and report the count as unavailable.
+- InputSystem::contextName, for the overlay's Input page.
+### Changed
+- clang-tidy excludes Visual Studio, vcpkg and third party headers (MSVC's "VC/Tools" folder matched the tools/ header filter).
+
 ## [#041] 2026-10-28, E7.2 ImGui and ImPlot integration
 ### Added
 - Dear ImGui 1.93 (docking) and ImPlot 1.0 from vcpkg, in a new debug module (layer 11) that links them PUBLIC for developer panels.

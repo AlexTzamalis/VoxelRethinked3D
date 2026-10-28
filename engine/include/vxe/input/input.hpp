@@ -171,6 +171,9 @@ public:
     void popContext(InputContextId context);
     [[nodiscard]] bool isContextActive(InputContextId context) const;
     [[nodiscard]] std::span<const InputContextId> contextStack() const noexcept { return m_stack; }
+    // The name a context was registered with, for debug views. Empty for
+    // unknown ids.
+    [[nodiscard]] std::string_view contextName(InputContextId context) const noexcept;
 
     [[nodiscard]] bool isPressed(ActionId action) const noexcept;  // Only on the frame it went down.
     [[nodiscard]] bool isHeld(ActionId action) const noexcept;     // Every frame while down.

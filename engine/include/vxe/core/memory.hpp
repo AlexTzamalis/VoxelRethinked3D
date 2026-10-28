@@ -69,6 +69,14 @@ void deallocate(void* pointer, usize bytes, usize alignment, MemoryTag tag) noex
 void recordAllocation(MemoryTag tag, usize bytes) noexcept;
 void recordFree(MemoryTag tag, usize bytes) noexcept;
 
+// Every call to the global operator new since startup, from any thread. The
+// debug overlay shows the difference per frame, which should be near zero
+// while playing (Section 18.2, Memory page). The count comes from replacing
+// the global operator new in core; builds with sanitizers keep their own
+// allocator instead, and there the count is not available.
+[[nodiscard]] u64 globalAllocationCount() noexcept;
+[[nodiscard]] bool globalAllocationCountAvailable() noexcept;
+
 } // namespace memory
 
 // A standard library allocator that records its memory under a tag, so

@@ -83,6 +83,12 @@ void InputSystem::popContext(InputContextId context) {
     std::erase(m_stack, context);
 }
 
+std::string_view InputSystem::contextName(InputContextId context) const noexcept {
+    return context.isValid() && context.index < m_contexts.size()
+               ? std::string_view(m_contexts[context.index].name)
+               : std::string_view();
+}
+
 bool InputSystem::isContextActive(InputContextId context) const {
     return std::ranges::find(m_stack, context) != m_stack.end();
 }

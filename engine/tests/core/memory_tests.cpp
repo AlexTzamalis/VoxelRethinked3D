@@ -6,6 +6,7 @@
 #include <doctest/doctest.h>
 
 #include <cstdint>
+#include <memory>
 #include <set>
 #include <thread>
 #include <vector>
@@ -178,4 +179,19 @@ TEST_CASE("Each thread has its own scratch arena") {
     worker.join();
     CHECK(workerArena != nullptr);
     CHECK(workerArena != mainArena);
+}
+
+TEST_CASE("Every global operator new is counted") {
+    if (!vxe::memory::globalAllocationCountAvailable()) {
+        MESSAGE("Skipped: sanitizer builds keep their own operator new");
+        return;
+    }
+    const vxe::u64 before = vxe::memory::globalAllocationCount();
+    auto single = std::make_unique<int>(7);
+    auto array = std::make_unique<int[]>(16);
+    const std::vector<int> vector(100);
+    CHECK(vxe::memory::globalAllocationCount() - before >= 3);
+    CHECK(*single == 7);
+    CHECK(array[15] == 0);
+    CHECK(vector.size() == 100);
 }
