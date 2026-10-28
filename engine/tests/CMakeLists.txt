@@ -37,6 +37,8 @@ add_executable(vxe_tests
     render/camera_tests.cpp
     render/debug_draw_tests.cpp
     render/frame_graph_tests.cpp
+    render/frame_pacer_tests.cpp
+    render/post_process_tests.cpp
     render/sky_tests.cpp
     rhi/gl_device_tests.cpp
     rhi/null_device_tests.cpp

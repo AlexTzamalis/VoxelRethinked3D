@@ -1,5 +1,7 @@
 #include "vxe/render/sky.hpp"
 
+#include <vxe/render/post_process.hpp>
+
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
 #include <glm/gtc/constants.hpp>
@@ -19,15 +21,16 @@ constexpr f32 kSunPathTilt = 0.5F; // Radians, about 29 degrees.
 } // namespace
 
 SkyParams computeSkyParams(const SkyState& state) noexcept {
-    // Display colors (no tonemapping before E8.4, so these are what the screen shows).
-    const Vec3 kDayZenith{0.20F, 0.42F, 0.82F};
-    const Vec3 kDayHorizon{0.66F, 0.80F, 0.95F};
-    const Vec3 kDuskZenith{0.24F, 0.27F, 0.50F};
-    const Vec3 kDuskHorizon{0.96F, 0.56F, 0.32F};
-    const Vec3 kNightZenith{0.012F, 0.016F, 0.045F};
-    const Vec3 kNightHorizon{0.035F, 0.045F, 0.085F};
-    const Vec3 kLowSun{1.0F, 0.55F, 0.25F};
-    const Vec3 kHighSun{1.0F, 0.95F, 0.85F};
+    // Colors picked as they look on screen (sRGB). decodeSrgb turns them into
+    // the linear values the HDR scene and the tonemapper (E8.4) work with.
+    const Vec3 kDayZenith = decodeSrgb(Vec3(0.20F, 0.42F, 0.82F));
+    const Vec3 kDayHorizon = decodeSrgb(Vec3(0.66F, 0.80F, 0.95F));
+    const Vec3 kDuskZenith = decodeSrgb(Vec3(0.24F, 0.27F, 0.50F));
+    const Vec3 kDuskHorizon = decodeSrgb(Vec3(0.96F, 0.56F, 0.32F));
+    const Vec3 kNightZenith = decodeSrgb(Vec3(0.012F, 0.016F, 0.045F));
+    const Vec3 kNightHorizon = decodeSrgb(Vec3(0.035F, 0.045F, 0.085F));
+    const Vec3 kLowSun = decodeSrgb(Vec3(1.0F, 0.55F, 0.25F));
+    const Vec3 kHighSun = decodeSrgb(Vec3(1.0F, 0.95F, 0.85F));
 
     // 6:00 rises in the east (+X), 12:00 is the highest point, 18:00 sets in the west.
     const f32 angle = (state.hours - 6.0F) / 24.0F * glm::two_pi<f32>();

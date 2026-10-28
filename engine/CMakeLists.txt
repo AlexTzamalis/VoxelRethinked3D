@@ -201,10 +201,13 @@ vxe_add_module(render
         src/render/debug_draw.cpp
         src/render/frame_constants.cpp
         src/render/frame_graph.cpp
+        src/render/frame_pacer.cpp
+        src/render/post_process.cpp
         src/render/sky.cpp
     DEPENDS
         core
         math
+        platform
         config
         input
         rhi

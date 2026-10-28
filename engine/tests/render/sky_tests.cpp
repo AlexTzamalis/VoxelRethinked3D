@@ -168,7 +168,9 @@ TEST_CASE("The sky and fog pass draws sky and fogs geometry (VXE_GUI_TESTS=1)") 
         const auto foggy = renderSky(device, *sky, 0.05F / 500.0F, 0.0F);
         MESSAGE("Fogged pixel " << pixel(foggy, 32, 32, 0) << " " << pixel(foggy, 32, 32, 1) << " "
                                 << pixel(foggy, 32, 32, 2));
-        CHECK(pixel(foggy, 32, 32, 1) > 150);
+        // Linear horizon color (the post pass encodes it later): light blue.
+        CHECK(pixel(foggy, 32, 32, 2) > 180);
+        CHECK(pixel(foggy, 32, 32, 1) > pixel(foggy, 32, 32, 0));
 
         // Fog off, live: the scene stays red.
         REQUIRE(settings.set("Graphics.Sky.FogEnabled", false).hasValue());

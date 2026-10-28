@@ -39,13 +39,14 @@
 #include <vxe/debug/overlay.hpp>
 #include <vxe/input/input.hpp>
 #include <vxe/math/projection.hpp>
-#include <vxe/platform/frame_limiter.hpp>
 #include <vxe/platform/platform.hpp>
 #include <vxe/platform/window.hpp>
 #include <vxe/render/camera.hpp>
 #include <vxe/render/debug_draw.hpp>
 #include <vxe/render/frame_constants.hpp>
 #include <vxe/render/frame_graph.hpp>
+#include <vxe/render/frame_pacer.hpp>
+#include <vxe/render/post_process.hpp>
 #include <vxe/render/sky.hpp>
 #include <vxe/rhi/gpu_timer.hpp>
 #include <vxe/rhi/shader_source.hpp>
@@ -155,14 +156,15 @@ std::optional<Options> parseOptions(int argc, char** argv) {
     return options;
 }
 
+// The scene is lit in linear HDR (E8.4); the post pass tonemaps it for the window.
+constexpr Format kSceneFormat = Format::RGBA16Float;
+
 // Every GPU object of the demo, created once (targets again on resize).
 struct Scene {
     PipelineHandle cubePipeline;
-    PipelineHandle blitPipeline;
     PipelineHandle trianglePipeline;
     BufferHandle uniforms;
     BufferHandle cubeIndices;
-    SamplerHandle sampler;
     u32 width = 1; // The window size, for the projection's aspect ratio.
     u32 height = 1;
 };
@@ -192,7 +194,7 @@ Result<void> createScene(Device& device, Scene& scene) {
     const ShaderFileReader shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR);
 
     PipelineDesc cube{.debugName = "Demo cube"};
-    cube.colorFormats[0] = Format::RGBA8Unorm;
+    cube.colorFormats[0] = kSceneFormat;
     cube.colorCount = 1;
     cube.depthFormat = Format::D32Float;
     auto cubePipeline = createPipeline(device, shaders, "debug/cube.vert", "debug/cube.frag", cube);
@@ -202,18 +204,12 @@ Result<void> createScene(Device& device, Scene& scene) {
     scene.cubePipeline = cubePipeline.value();
 
     // The window pass has no depth buffer, so its pipelines test no depth.
-    PipelineDesc overlay{.debugName = "Demo blit"};
+    PipelineDesc overlay{.debugName = "Demo triangle"};
     overlay.colorFormats[0] = Format::RGBA8Unorm;
     overlay.colorCount = 1;
     overlay.depth.testEnabled = false;
     overlay.depth.writeEnabled = false;
     overlay.raster.cullMode = CullMode::None;
-    auto blit = createPipeline(device, shaders, "debug/blit.vert", "debug/blit.frag", overlay);
-    if (!blit) {
-        return blit.error();
-    }
-    scene.blitPipeline = blit.value();
-    overlay.debugName = "Demo triangle";
     auto triangle = createPipeline(device, shaders, "debug/triangle.vert", "debug/triangle.frag", overlay);
     if (!triangle) {
         return triangle.error();
@@ -235,23 +231,15 @@ Result<void> createScene(Device& device, Scene& scene) {
     }
     scene.cubeIndices = indices.value();
     VXE_TRY(device.updateBuffer(scene.cubeIndices, 0, std::as_bytes(std::span(kCubeIndices))));
-    auto sampler = device.createSampler({.addressU = AddressMode::ClampToEdge,
-                                         .addressV = AddressMode::ClampToEdge,
-                                         .debugName = "Demo blit sampler"});
-    if (!sampler) {
-        return sampler.error();
-    }
-    scene.sampler = sampler.value();
     return {};
 }
 
 void destroyScene(Device& device, Scene& scene) {
-    for (const PipelineHandle pipeline : {scene.cubePipeline, scene.blitPipeline, scene.trianglePipeline}) {
+    for (const PipelineHandle pipeline : {scene.cubePipeline, scene.trianglePipeline}) {
         device.destroy(pipeline);
     }
     device.destroy(scene.uniforms);
     device.destroy(scene.cubeIndices);
-    device.destroy(scene.sampler);
 }
 
 // What the free camera sees (E8.2): the camera and its controller, debug
@@ -261,6 +249,7 @@ struct WorldView {
     std::unique_ptr<render::FreeCameraController> controller;
     std::unique_ptr<render::DebugDraw> debugDraw;
     std::unique_ptr<render::SkyRenderer> sky;
+    std::unique_ptr<render::PostProcess> post;
     render::FrameConstantsBuffer constants;
     DVec3 start{0.0};
     bool looking = false;
@@ -283,7 +272,8 @@ Result<std::unique_ptr<WorldView>> createWorldView(Device& device, config::Setti
                                            .stats = &statRegistry,
                                            .input = &input,
                                            .toggleContext = debugContext,
-                                           .shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR)});
+                                           .shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR),
+                                           .colorFormat = kSceneFormat});
     if (!draw) {
         return draw.error();
     }
@@ -291,11 +281,18 @@ Result<std::unique_ptr<WorldView>> createWorldView(Device& device, config::Setti
     auto sky = render::SkyRenderer::create({.device = &device,
                                             .settings = &settings,
                                             .stats = &statRegistry,
-                                            .shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR)});
+                                            .shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR),
+                                            .colorFormat = kSceneFormat});
     if (!sky) {
         return sky.error();
     }
     view->sky = std::move(sky.value());
+    auto post = render::PostProcess::create(
+        {.device = &device, .settings = &settings, .shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR)});
+    if (!post) {
+        return post.error();
+    }
+    view->post = std::move(post.value());
     VXE_TRY(view->constants.create(device));
     return view;
 }
@@ -321,6 +318,7 @@ void updateWorldView(WorldView& view, Device& device, platform::Window& window, 
              render::debugColor(255, 220, 60));
     const u32 width = std::max(device.backBufferWidth(), 1U);
     const u32 height = std::max(device.backBufferHeight(), 1U);
+    view.post->update(width, height);
     view.constants.update(device, render::makeFrameConstants(view.camera, {.width = width,
                                                                            .height = height,
                                                                            .seconds = time.elapsedSeconds,
@@ -341,7 +339,7 @@ Result<void> buildFrameGraph(render::FrameGraph& graph, const Scene& scene, Worl
                                    context.commands.bindIndexBuffer(scene.cubeIndices, IndexType::Uint16);
                                    context.commands.drawIndexed(static_cast<u32>(kCubeIndices.size()));
                                }});
-    const render::TextureRef color = cube.createTexture("SceneColor", {.format = Format::RGBA8Unorm});
+    const render::TextureRef color = cube.createTexture("SceneColor", {.format = kSceneFormat});
     cube.colorAttachment(color, LoadOp::Clear, {0.05F, 0.06F, 0.09F, 1.0F});
     const render::TextureRef depth = cube.createTexture("SceneDepth", {.format = Format::D32Float});
     cube.depthAttachment(depth);
@@ -363,10 +361,9 @@ Result<void> buildFrameGraph(render::FrameGraph& graph, const Scene& scene, Worl
     lines.depthAttachment(depth, LoadOp::Load, 0.0F, StoreOp::DontCare);
 
     auto composite =
-        graph.addPass({.name = "Composite", .record = [&scene, color](render::PassContext& context) {
-                           context.commands.bindPipeline(scene.blitPipeline);
-                           context.commands.bindTexture(2, 0, context.texture(color), scene.sampler);
-                           context.commands.draw(3);
+        graph.addPass({.name = "Composite", .record = [&scene, &view, color](render::PassContext& context) {
+                           // Tonemapping, FXAA and sRGB encoding into the window (E8.4).
+                           view.post->record(context.commands, context.texture(color));
                            context.commands.bindPipeline(scene.trianglePipeline);
                            context.commands.bindUniformBuffer(1, 0, scene.uniforms, kTriangleParamsOffset,
                                                               sizeof(TriangleParams));
@@ -523,7 +520,6 @@ int run(const Options& options) {
         return 1;
     }
     Device& device = *created.value();
-    device.setPresentMode(options.vsync ? PresentMode::Vsync : PresentMode::Immediate);
 
     Scene scene;
     GpuFrameTimer gpuTimer;
@@ -535,18 +531,12 @@ int run(const Options& options) {
     if (device.capabilities().timestampQueries) {
         static_cast<void>(gpuTimer.create(device));
     }
-    // Video.FpsLimit belongs to whoever runs the frame loop; here, the demo.
+    // Frame pacing (E8.4): Video.PresentMode and the Video.FpsLimit caps.
     config::SettingsRegistry settings;
-    const config::Setting<i32> fpsLimit =
-        settings.registerInt({{.id = "Video.FpsLimit",
-                               .displayName = "FPS limit",
-                               .description = "Frames per second cap. 0 for none."},
-                              0,
-                              0,
-                              1000,
-                              1});
-    platform::FrameLimiter limiter;
     stats::StatRegistry statRegistry;
+    render::FramePacer pacer({.device = &device, .settings = &settings, .stats = &statRegistry});
+    static_cast<void>(settings.set(
+        "Video.PresentMode", static_cast<i32>(options.vsync ? PresentMode::Vsync : PresentMode::Immediate)));
     input::InputSystem input;
     std::unique_ptr<DebugTools> tools;
     if (options.ui) {
@@ -588,6 +578,7 @@ int run(const Options& options) {
     CommandList commands;
     std::vector<platform::PlatformEvent> events;
     bool running = true;
+    bool focused = true;
     u64 frames = 0;
     f64 cpuMillisecondsTotal = 0.0;
     TitleReadout title;
@@ -598,6 +589,8 @@ int run(const Options& options) {
         for (const auto& event : events) {
             if (std::holds_alternative<platform::QuitRequested>(event)) {
                 running = false;
+            } else if (const auto* focus = std::get_if<platform::WindowFocusChanged>(&event)) {
+                focused = focus->focused;
             }
         }
         input.update(events);
@@ -623,12 +616,13 @@ int run(const Options& options) {
             break;
         }
         gpuTimer.endFrame(commands);
+        pacer.update();
         device.beginFrame();
         device.submit(commands);
         device.present();
         settings.dispatchChanges();
-        // Read every frame, so a change from the console applies at once.
-        limiter.wait(static_cast<f64>(fpsLimit.get()));
+        // Reads the caps every frame, so a change from the console applies at once.
+        pacer.wait(focused, false);
 
         ++frames;
         if (frames > 1) {

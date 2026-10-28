@@ -2,6 +2,21 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#051] 2026-10-28, E8.4 Post and present
+### Added
+- render::PostProcess (Section 8.1 pass 9): one fullscreen pass from the HDR scene to the window with exposure, a tonemapping curve, optional FXAA on the tonemapped image and sRGB encoding (shader render/post.frag). Settings, all live: Graphics.Post.Tonemapper (None, Reinhard, Aces; default Aces, Narkowicz's fit with its 0.6 reference exposure), Graphics.Post.Exposure and Graphics.Post.Fxaa.
+- render::tonemap, encodeSrgb and decodeSrgb: the shader's curves on the CPU, for tests and for colors picked on screen.
+- render::FramePacer (Section 8.5): Video.PresentMode (Immediate, Vsync, Adaptive, Mailbox) applied when it changes, and the caps Video.FpsLimit, Video.FpsLimitUnfocused (default 30) and Video.FpsLimitInMenus (default 120); the lowest cap that applies wins. Stat Frame.LimiterWait.
+- vxe_rhi_demo renders the scene in RGBA16F, tonemaps it in the Composite pass and paces frames with the FramePacer (window focus tracked; --vsync sets Video.PresentMode).
+- Tests: tonemapping and sRGB curves, the GPU post pass against the CPU reference with live curve and exposure changes, the cap rules, and the limiter at 60, 144 and 240 FPS with varying frame work.
+### Changed
+- The sky's colors are given as they look on screen and decoded to linear, so the HDR pipeline and the tonemapper keep their look.
+### Performance
+- Limiter accuracy: 60.008, 144.001 and 240.000 FPS for caps of 60, 144 and 240 (2% required); 143.7 FPS in the demo with a 144 cap.
+- Post processing at 1280x720 on the RTX 4060: the demo's Composite pass went from 0.028 ms (plain blit) to 0.098 ms.
+### Docs
+- docs/perf/render.md: E8.4 measurements.
+
 ## [#050] 2026-10-28, Give CPU budget tests more room on CI machines
 ### Fixed
 - The E7.1 stat registry budget test failed in the Windows MSVC relwithdebinfo CI job of #048 (0.069 ms measured against 0.05 ms; 0.0073 ms locally). The stat registry and overlay budget tests keep their exact budgets on real machines and allow ten times as much where the CI variable is set, like the frame limiter tests since #046.

@@ -59,3 +59,25 @@ stay well under 0.1 ms at 1080p on the reference GPU class.
 The pass reads the depth once per pixel with texelFetch and computes the
 height fog in closed form, so its cost is flat per pixel and does not grow
 with view distance.
+
+## E8.4 Post and present (2026-10-28)
+
+Acceptance: the frame limiter is accurate within 2%.
+
+| Case | Result |
+|------|--------|
+| FramePacer at 60 FPS, frames doing 0 to 2 ms of varying work (test "The frame limiter is accurate within 2 percent") | 60.008 FPS (+0.01%) |
+| Same at 144 FPS | 144.001 FPS (+0.001%) |
+| Same at 240 FPS | 240.000 FPS |
+| vxe_rhi_demo with set Video.FpsLimit 144, 300 frames including startup | 6.957 ms per frame = 143.7 FPS (-0.2%) |
+
+Post processing: one fullscreen pass (tonemapping, FXAA with up to 9 bilinear
+taps from an RGBA16F scene, sRGB encoding) at 1280x720 made the demo's
+Composite pass 0.098 ms (average of 60, max 0.103 ms) instead of 0.028 ms with
+the plain blit it replaced: 0.07 ms for post processing. Section 8.1 sets no
+number. 1080p has 2.25 times the pixels, so roughly 0.16 ms is expected there
+(not measured yet); FXAA off skips most of the taps.
+
+Tonemapping check on the GPU: a scene value of 4.0 gives 231 with Reinhard
+(4 / 5 = 0.8 linear, sRGB encoded) and 188 with no curve at exposure 0.125,
+matching the CPU reference (render::tonemap).
