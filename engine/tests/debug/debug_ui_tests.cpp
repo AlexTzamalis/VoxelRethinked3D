@@ -220,3 +220,99 @@ TEST_CASE("ImGui draws through the OpenGL device without driver errors (VXE_GUI_
     CHECK(device.liveResources().empty());
     created.value().reset();
 }
+
+namespace {
+
+// An ImPlot line plot: a flat red line at y = 5 across a 0 to 100 axis.
+void drawLinePlot(const std::vector<double>& data) {
+    ImGui::SetNextWindowPos({0.0F, 0.0F});
+    ImGui::SetNextWindowSize({500.0F, 500.0F});
+    ImGui::Begin("Plot");
+    if (ImPlot::BeginPlot("Line", {480.0F, 400.0F})) {
+        ImPlot::SetupAxesLimits(0, 100, 0, 10, ImPlotCond_Always);
+        ImPlot::PlotLine(
+            "line", data.data(), static_cast<int>(data.size()), 1.0, 0.0,
+            ImPlotSpec(ImPlotProp_LineColor, ImVec4(1.0F, 0.0F, 0.0F, 1.0F), ImPlotProp_LineWeight, 3.0F));
+        ImPlot::EndPlot();
+    }
+    ImGui::End();
+}
+
+} // namespace
+
+// Regression test: ImGui 1.93 changed the layout of its baked line texture
+// coordinates and ImPlot 1.0 still read the old one, so ImPlot lines sampled
+// random atlas texels and nearly vanished (the overlay's frame graph was
+// empty). The debug UI builds its atlas without baked lines, so lines must use
+// the white pixel.
+TEST_CASE("ImPlot lines sample the font atlas white pixel") {
+    const auto device = rhi::createNullDevice();
+    input::InputSystem input;
+    auto ui = makeUi(*device, input);
+    const std::vector<double> data(100, 5.0);
+    for (int i = 0; i < 3; ++i) {
+        static_cast<void>(frame(*ui, windowPass(), {512.0F, 512.0F}, [&data] { drawLinePlot(data); }));
+    }
+    const ImVec2 white = ImGui::GetFontTexUvWhitePixel();
+    int lineVertices = 0;
+    for (const ImDrawList* list : ImGui::GetDrawData()->CmdLists) {
+        for (const ImDrawVert& vertex : list->VtxBuffer) {
+            if (vertex.col == IM_COL32(255, 0, 0, 255)) {
+                ++lineVertices;
+                CHECK(vertex.uv.x == white.x);
+                CHECK(vertex.uv.y == white.y);
+            }
+        }
+    }
+    CHECK(lineVertices > 100);
+}
+
+TEST_CASE("ImPlot lines are drawn on the GPU (VXE_GUI_TESTS=1)") {
+    if (!vxe::test::guiTestsEnabled()) {
+        MESSAGE("Skipped: set VXE_GUI_TESTS=1 to run tests that open real windows");
+        return;
+    }
+    auto platform = platform::Platform::create();
+    REQUIRE(platform.hasValue());
+    auto window = platform::Window::create(
+        *platform.value(), {.title = "vxe ImPlot test", .debugContext = true, .hidden = true});
+    REQUIRE(window.hasValue());
+    auto created = rhi::createGlDevice(*window.value(), {.debugOutput = true});
+    REQUIRE(created.hasValue());
+    rhi::Device& device = *created.value();
+    input::InputSystem input;
+    {
+        constexpr u32 kSize = 512;
+        const rhi::TextureHandle target =
+            device
+                .createTexture({.format = rhi::Format::RGBA8Unorm,
+                                .width = kSize,
+                                .height = kSize,
+                                .usage = rhi::TextureUsage::RenderTarget | rhi::TextureUsage::TransferSrc,
+                                .debugName = "ImPlot test target"})
+                .value();
+        rhi::RenderPassDesc pass;
+        pass.colorCount = 1;
+        pass.colors[0] = {.texture = target, .clearColor = {0.0F, 0.0F, 0.0F, 1.0F}};
+        auto ui = makeUi(device, input);
+        const std::vector<double> data(100, 5.0);
+        for (int i = 0; i < 4; ++i) {
+            device.submit(frame(*ui, pass, {512.0F, 512.0F}, [&data] { drawLinePlot(data); }));
+        }
+        std::vector<std::byte> pixels(std::size_t{kSize} * kSize * 4);
+        REQUIRE(device.readTexture(target, 0, 0, pixels).hasValue());
+        std::size_t red = 0;
+        for (std::size_t i = 0; i < pixels.size(); i += 4) {
+            if (std::to_integer<int>(pixels[i]) > 200 && std::to_integer<int>(pixels[i + 1]) < 60) {
+                ++red;
+            }
+        }
+        MESSAGE("Red line pixels: " << red);
+        CHECK(red > 1000); // About 440 pixels long and 3 wide. Broken lines drew only the legend swatch (81).
+        CHECK(device.stats().apiErrors == 0);
+        ui.reset();
+        device.destroy(target);
+    }
+    device.waitIdle();
+    CHECK(device.liveResources().empty());
+}

@@ -206,10 +206,14 @@ vxe_add_module(debug
     SOURCES
         src/debug/debug_ui.cpp
         src/debug/imgui_renderer.cpp
+        src/debug/overlay.cpp
+        src/debug/stat_csv.cpp
     DEPENDS
         core
         math
+        io
         platform
+        config
         input
         rhi
     PUBLIC_LIBS

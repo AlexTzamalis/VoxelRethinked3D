@@ -1,7 +1,7 @@
 // vxe_rhi_demo: a spinning cube and a colored triangle drawn through the RHI
 // (Section 7, the E6.5 acceptance demo).
 //
-// Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui]
+// Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui] [--imgui-demo] [--overlay-page N]
 //
 // The cube is drawn into an offscreen color and depth target with reversed Z,
 // then copied to the window with a fullscreen triangle, and the triangle is
@@ -9,12 +9,19 @@
 // timestamp queries, without stalls), the CPU frame time and the frame rate.
 // With --frames the demo stops after N frames and prints a summary; the exit
 // code is non zero if the device reported invalid commands or driver errors,
-// so the demo also works as a scripted check. The Dear ImGui and ImPlot demo
-// windows run on top, drawn through the RHI (E7.2); --no-ui turns them off.
+// so the demo also works as a scripted check.
+//
+// The debug UI runs on top (E7.2, E7.3): F3 toggles the performance overlay,
+// F3+Left and F3+Right switch its pages. --overlay-page N opens the overlay on
+// page N (for screenshots), --imgui-demo adds the Dear ImGui and ImPlot demo
+// windows, --no-ui turns the whole debug UI off.
 
+#include <vxe/config/settings.hpp>
 #include <vxe/core/log.hpp>
+#include <vxe/core/stats.hpp>
 #include <vxe/core/time.hpp>
 #include <vxe/debug/debug_ui.hpp>
+#include <vxe/debug/overlay.hpp>
 #include <vxe/input/input.hpp>
 #include <vxe/math/projection.hpp>
 #include <vxe/platform/platform.hpp>
@@ -36,6 +43,7 @@
 #include <format>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -76,6 +84,8 @@ struct Options {
     std::optional<u64> frames;
     bool vsync = false;
     bool ui = true;
+    bool imguiDemo = false;
+    std::optional<u32> overlayPage;
 };
 
 std::optional<Options> parseOptions(int argc, char** argv) {
@@ -86,6 +96,16 @@ std::optional<Options> parseOptions(int argc, char** argv) {
             options.vsync = true;
         } else if (args[i] == "--no-ui") {
             options.ui = false;
+        } else if (args[i] == "--imgui-demo") {
+            options.imguiDemo = true;
+        } else if (args[i] == "--overlay-page" && i + 1 < args.size()) {
+            u32 page = 0;
+            const std::string_view text = args[++i];
+            const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), page);
+            if (error != std::errc() || end != text.data() + text.size()) {
+                return std::nullopt;
+            }
+            options.overlayPage = page;
         } else if (args[i] == "--frames" && i + 1 < args.size()) {
             u64 frames = 0;
             const std::string_view text = args[++i];
@@ -285,21 +305,75 @@ Result<void> updateUniforms(Device& device, const Scene& scene, f64 seconds) {
     return device.updateBuffer(scene.uniforms, kTriangleParamsOffset, std::as_bytes(std::span(&triangle, 1)));
 }
 
-// The debug UI content: both library demos and a small readout.
-void buildUi(const DeviceStats& stats, std::optional<f64> gpuMilliseconds, f64 cpuMilliseconds) {
-    ImGui::ShowDemoWindow();
-    ImPlot::ShowDemoWindow();
-    ImGui::SetNextWindowPos({16.0F, 16.0F}, ImGuiCond_FirstUseEver);
-    ImGui::Begin("RHI demo");
-    // std::format instead of ImGui::Text: type checked, no C style varargs.
-    const auto line = [](const std::string& text) { ImGui::TextUnformatted(text.c_str()); };
-    line(std::format("CPU frame: {:.3f} ms", cpuMilliseconds));
-    line(gpuMilliseconds ? std::format("GPU frame: {:.3f} ms", *gpuMilliseconds)
-                         : std::string("GPU frame: not measured yet"));
-    line(std::format("Draw calls: {}", stats.drawCalls));
-    line(std::format("Invalid commands: {}", stats.invalidCommands));
-    ImGui::End();
+// The debug UI with the performance overlay, and what they read. Only exists
+// while the UI is on (not with --no-ui).
+struct DebugTools {
+    config::SettingsRegistry settings;
+    stats::StatRegistry stats;
+    std::unique_ptr<debug::DebugUi> ui;
+    std::unique_ptr<debug::DebugOverlay> overlay;
+};
+
+Result<std::unique_ptr<DebugTools>> createDebugTools(Device& device, input::InputSystem& input,
+                                                     const Options& options) {
+    auto tools = std::make_unique<DebugTools>();
+    auto ui = debug::DebugUi::create(device, input, {.shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR)});
+    if (!ui) {
+        return ui.error();
+    }
+    tools->ui = std::move(ui.value());
+    tools->overlay = std::make_unique<debug::DebugOverlay>(debug::OverlayDesc{
+        .settings = &tools->settings, .input = &input, .stats = &tools->stats, .device = &device});
+    if (options.overlayPage) {
+        tools->overlay->setVisible(true);
+        tools->overlay->showPage(*options.overlayPage);
+    }
+    return tools;
 }
+
+// One frame of the debug UI, in the order DebugOverlay documents.
+void updateDebugTools(DebugTools& tools, platform::Window& window,
+                      std::span<const platform::PlatformEvent> events, const FrameTime& time,
+                      std::optional<f64> gpuMilliseconds, bool imguiDemo) {
+    tools.ui->processEvents(events);
+    tools.overlay->processEvents(events);
+    // The frame that just ended: its CPU time, and the newest GPU time the
+    // timer has (a few frames old by design).
+    tools.overlay->recordFrame(toMilliseconds(time.rawDelta), gpuMilliseconds);
+    tools.stats.endFrame(time.deltaSeconds);
+    tools.ui->beginFrame(time.deltaSeconds, Vec2(window.size()), Vec2(window.pixelSize()));
+    tools.overlay->update(time.deltaSeconds);
+    if (imguiDemo) {
+        ImGui::ShowDemoWindow();
+        ImPlot::ShowDemoWindow();
+    }
+    tools.ui->endFrame();
+    window.setTextInputEnabled(tools.ui->wantsTextInput());
+    tools.settings.dispatchChanges();
+}
+
+// Shows GPU time, CPU time and frame rate in the window title, averaged over
+// half a second so the numbers are readable.
+class TitleReadout {
+public:
+    void update(platform::Window& window, f64 deltaSeconds, std::optional<f64> gpuMilliseconds) {
+        m_seconds += deltaSeconds;
+        ++m_frames;
+        if (m_seconds < 0.5) {
+            return;
+        }
+        window.setTitle(std::format(
+            "vxe RHI demo | GPU {} | CPU {:.3f} ms | {:.0f} FPS",
+            gpuMilliseconds ? std::format("{:.3f} ms", *gpuMilliseconds) : std::string("n/a"),
+            m_seconds * 1000.0 / static_cast<f64>(m_frames), static_cast<f64>(m_frames) / m_seconds));
+        m_seconds = 0.0;
+        m_frames = 0;
+    }
+
+private:
+    f64 m_seconds = 0.0;
+    u64 m_frames = 0;
+};
 
 int run(const Options& options) {
     log::initialize(log::Config{.filePath = {}});
@@ -339,17 +413,16 @@ int run(const Options& options) {
         static_cast<void>(gpuTimer.create(device));
     }
     input::InputSystem input;
-    std::unique_ptr<debug::DebugUi> ui;
+    std::unique_ptr<DebugTools> tools;
     if (options.ui) {
-        auto uiCreated =
-            debug::DebugUi::create(device, input, {.shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR)});
-        if (!uiCreated) {
-            VXE_LOG_ERROR(log::core, "{}", uiCreated.error().describe());
+        auto toolsCreated = createDebugTools(device, input, options);
+        if (!toolsCreated) {
+            VXE_LOG_ERROR(log::core, "{}", toolsCreated.error().describe());
             gpuTimer.destroy(device);
             destroyScene(device, scene);
             return 1;
         }
-        ui = std::move(uiCreated.value());
+        tools = std::move(toolsCreated.value());
     }
 
     FrameTimer frameTimer;
@@ -358,8 +431,7 @@ int run(const Options& options) {
     bool running = true;
     u64 frames = 0;
     f64 cpuMillisecondsTotal = 0.0;
-    f64 titleTimer = 0.0;
-    u64 titleFrames = 0;
+    TitleReadout title;
     while (running) {
         const FrameTime time = frameTimer.tick();
         events.clear();
@@ -370,14 +442,9 @@ int run(const Options& options) {
             }
         }
         input.update(events);
-        if (ui) {
-            ui->processEvents(events);
-            const IVec2 logical = window.value()->size();
-            const IVec2 pixels = window.value()->pixelSize();
-            ui->beginFrame(time.deltaSeconds, Vec2(logical), Vec2(pixels));
-            buildUi(device.stats(), gpuTimer.lastFrameMilliseconds(), time.deltaSeconds * 1000.0);
-            ui->endFrame();
-            window.value()->setTextInputEnabled(ui->wantsTextInput());
+        if (tools) {
+            updateDebugTools(*tools, *window.value(), events, time, gpuTimer.lastFrameMilliseconds(),
+                             options.imguiDemo);
         }
         const u32 width = std::max(device.backBufferWidth(), 1U);
         const u32 height = std::max(device.backBufferHeight(), 1U);
@@ -394,7 +461,7 @@ int run(const Options& options) {
 
         commands.reset();
         gpuTimer.beginFrame(device, commands);
-        recordFrame(commands, scene, ui.get());
+        recordFrame(commands, scene, tools ? tools->ui.get() : nullptr);
         gpuTimer.endFrame(commands);
         device.beginFrame();
         device.submit(commands);
@@ -404,17 +471,7 @@ int run(const Options& options) {
         if (frames > 1) {
             cpuMillisecondsTotal += time.deltaSeconds * 1000.0;
         }
-        titleTimer += time.deltaSeconds;
-        ++titleFrames;
-        if (titleTimer >= 0.5) {
-            const auto gpu = gpuTimer.lastFrameMilliseconds();
-            window.value()->setTitle(std::format("vxe RHI demo | GPU {} | CPU {:.3f} ms | {:.0f} FPS",
-                                                 gpu ? std::format("{:.3f} ms", *gpu) : std::string("n/a"),
-                                                 titleTimer * 1000.0 / static_cast<f64>(titleFrames),
-                                                 static_cast<f64>(titleFrames) / titleTimer));
-            titleTimer = 0.0;
-            titleFrames = 0;
-        }
+        title.update(*window.value(), time.deltaSeconds, gpuTimer.lastFrameMilliseconds());
         if (options.frames && frames >= *options.frames) {
             running = false;
         }
@@ -428,7 +485,7 @@ int run(const Options& options) {
                  frames, frames > 1 ? cpuMillisecondsTotal / static_cast<f64>(frames - 1) : 0.0,
                  gpu ? std::format("{:.3f} ms", *gpu) : std::string("not measured"), stats.drawCalls,
                  stats.invalidCommands, stats.apiErrors);
-    ui.reset();
+    tools.reset();
     gpuTimer.destroy(device);
     destroyScene(device, scene);
     // The leak report (E6.6): everything the demo created must be gone now.
@@ -447,7 +504,9 @@ int main(int argc, char** argv) {
     try {
         const auto options = parseOptions(argc, argv);
         if (!options) {
-            std::fputs("Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui]\n", stderr);
+            std::fputs(
+                "Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui] [--imgui-demo] [--overlay-page N]\n",
+                stderr);
             return 2;
         }
         return run(*options);

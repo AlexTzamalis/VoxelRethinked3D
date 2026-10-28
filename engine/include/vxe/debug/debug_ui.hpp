@@ -11,6 +11,7 @@
 
 #include <imgui.h>
 
+#include <filesystem>
 #include <memory>
 #include <span>
 
@@ -26,12 +27,16 @@ class ImGuiRenderer;
 
 struct DebugUiDesc {
     // Reads the engine shader folder (debug/imgui.vert and .frag).
-    rhi::ShaderFileReader shaders;
+    rhi::ShaderFileReader shaders{};
     // Color format of the pass the UI draws into.
     rhi::Format targetFormat = rhi::Format::RGBA8Unorm;
     // ImGui docking: windows can be docked into each other (Section 18.2:
     // every overlay page is a dockable window).
     bool docking = true;
+    // Where window positions, sizes and docking are kept between runs (for
+    // example config/imgui_layout.ini). Read once at creation and written once
+    // at destruction, never during frames. Empty keeps nothing.
+    std::filesystem::path layoutFile{};
 };
 
 // Dear ImGui and ImPlot for developer tools (ADR-013, E7.2): owns both
@@ -93,6 +98,7 @@ private:
     ImGuiContext* m_imgui = nullptr;
     ImPlotContext* m_implot = nullptr;
     input::InputContextId m_context;
+    std::filesystem::path m_layoutFile;
     bool m_captured = false;
     bool m_inFrame = false;
 };

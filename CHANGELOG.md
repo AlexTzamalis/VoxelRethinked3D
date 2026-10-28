@@ -2,6 +2,22 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#043] 2026-10-28, E7.3 Overlay framework and first pages
+### Added
+- debug::DebugOverlay, the F3 performance overlay (Section 18.2): a compact Overview (FPS, 1% and 0.1% lows, CPU and GPU time, tracked memory, allocations and draw calls per frame, lines added by other systems), refreshed at Debug.Overlay.UpdateRate so it stays readable.
+- Pages as dockable ImGui windows: Frame (ImPlot CPU and GPU graph of the last 1000 frames, 50/90/99/99.9 percentiles, histogram, hitch log of frames over Debug.Overlay.HitchFactor times the median), GPU (capabilities, per frame draw calls and state changes, memory, invalid commands, driver messages), Memory (per tag current and peak, allocations per frame), Input (context stack, active actions, recent raw input), Settings diff (changed settings with reset buttons) and All stats (filterable, with a CSV capture button). Systems add pages with addPage().
+- Keys in an always active Debug input context: F3 toggles on release unless it was held for F3+Left or F3+Right, which switch pages.
+- Settings Debug.Overlay.Visible, Page, Opacity, Scale, UpdateRate, CsvSeconds and HitchFactor.
+- Stats Frame.CpuTime and Frame.GpuTime (1000 frames of history), Memory.Allocations, Gpu.DrawCalls, Gpu.StateChanges, Gpu.BufferMemory, Gpu.TextureMemory and Debug.Overlay.DrawTime.
+- debug::StatCsvRecorder: records every stat once per frame for Debug.Overlay.CsvSeconds into captures/stats-<date>-<time>.csv, written on a background thread.
+- DebugUiDesc::layoutFile: ImGui window layouts are loaded at creation and saved at destruction, never during frames.
+- vxe_rhi_demo runs the overlay (--overlay-page N opens it on a page); the ImGui and ImPlot demos moved behind --imgui-demo.
+- Tests: frame time summaries, F3 and chord handling through simulated keys, every page drawing on the Null device with valid commands, changed settings, frame and GPU stats, a CSV capture end to end, the overlay's frame budget, and two ImPlot line regression tests (vertex UVs on the Null device, drawn pixels on the GPU).
+### Fixed
+- ImPlot lines were nearly invisible: ImGui 1.93 stores baked line texture coordinates as (u0, u1, v, 1/thickness) while ImPlot 1.0 reads (u0, v0, u1, v1), so lines sampled random atlas texels. The debug UI now builds its atlas without baked lines, and both libraries draw anti aliased lines as geometry.
+### Performance
+- Overlay update: 0.0005 ms hidden, 0.0043 ms in compact mode (budgets 0 and 0.2 ms). Recorded in docs/perf/debug.md together with the E7.1 numbers.
+
 ## [#042] 2026-10-28, E7.3 checkpoint: global allocation counting
 ### Added
 - vxe::memory::globalAllocationCount(): every global operator new since startup, for the overlay's Memory page (allocations per frame). Core replaces the global operator new and delete, forwarding to malloc and free with one relaxed atomic increment. Sanitizer builds keep their own allocator and report the count as unavailable.

@@ -2,6 +2,9 @@
 
 #include "vxe/debug/imgui_renderer.hpp"
 
+#include <vxe/core/log.hpp>
+#include <vxe/io/file_io.hpp>
+
 #include <implot.h>
 
 #include <algorithm>
@@ -197,9 +200,25 @@ Result<std::unique_ptr<DebugUi>> DebugUi::create(rhi::Device& device, input::Inp
     if (desc.docking) {
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     }
+    // No baked anti-aliased line textures in the font atlas. ImGui 1.93 stores
+    // their coordinates as (u0, u1, v, 1/thickness), but ImPlot 1.0 still
+    // reads them as two corner pairs, so every ImPlot line sampled the wrong
+    // texels and almost vanished. Without baked lines both libraries draw
+    // anti-aliased lines as plain geometry, which is correct and costs nothing
+    // that matters for developer tools.
+    io.Fonts->Flags |= ImFontAtlasFlags_NoBakedLines;
     // No imgui.ini in the working directory. Window layouts get a proper
     // home (config:/) with the overlay in E7.3.
+    // ImGui would save its .ini from inside frames; the layout is loaded and
+    // saved here instead, at creation and destruction only.
     io.IniFilename = nullptr;
+    ui->m_layoutFile = desc.layoutFile;
+    if (!desc.layoutFile.empty() && std::filesystem::exists(desc.layoutFile)) {
+        if (const auto layout = io::readFile(desc.layoutFile)) {
+            ImGui::LoadIniSettingsFromMemory(reinterpret_cast<const char*>(layout.value().data()),
+                                             layout.value().size());
+        }
+    }
     ImGuiPlatformIO& platformIo = ImGui::GetPlatformIO();
     platformIo.Renderer_TextureMaxWidth = static_cast<int>(device.capabilities().maxTextureSize);
     platformIo.Renderer_TextureMaxHeight = static_cast<int>(device.capabilities().maxTextureSize);
@@ -215,6 +234,9 @@ Result<std::unique_ptr<DebugUi>> DebugUi::create(rhi::Device& device, input::Inp
     return ui;
 }
 
+// Saving the layout allocates; failing at shutdown cannot be recovered from,
+// so terminating (what an escaping exception does here) is acceptable.
+// NOLINTNEXTLINE(bugprone-exception-escape)
 DebugUi::~DebugUi() {
     if (m_imgui == nullptr) {
         return;
@@ -226,6 +248,13 @@ DebugUi::~DebugUi() {
     }
     if (m_captured) {
         m_input.popContext(m_context);
+    }
+    if (!m_layoutFile.empty()) {
+        usize size = 0;
+        const char* layout = ImGui::SaveIniSettingsToMemory(&size);
+        if (auto saved = io::writeFile(m_layoutFile, std::as_bytes(std::span(layout, size))); !saved) {
+            VXE_LOG_WARN(log::core, "Could not save the debug UI layout: {}", saved.error().describe());
+        }
     }
     if (m_renderer) {
         m_renderer->releaseTextures();
