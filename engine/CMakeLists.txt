@@ -273,6 +273,7 @@ vxe_add_module(voxel
         src/voxel/lod_cache.cpp
         src/voxel/lod_manager.cpp
         src/voxel/lod_mesher.cpp
+        src/voxel/lod_premapper.cpp
         src/voxel/lod_render_sink.cpp
     DEPENDS
         core

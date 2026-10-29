@@ -65,3 +65,22 @@ to its highest surface block and the chunk above are meshed. Checked with
 Debug.LOD.ShowCoverage (covered fragments magenta) from 110 and 200 blocks
 up: with the camera high, the water and beach chunks below the vertical
 render distance are not meshed, and far terrain correctly shows there.
+
+## E11.4 Premapping (2026-10-29)
+
+Demo world, release, default LOD settings (304 tiles), cache in
+saves/demo/lod (2.9 MB for the 304 tiles):
+
+| Case | Premap done | Far terrain ready | Playable |
+|------|-------------|-------------------|----------|
+| Cold (empty cache): 304 tiles sampled and written during the chunk burst | 596 to 637 ms | 840 to 856 ms | 841 to 857 ms |
+| Warm (every tile cached) | 26 to 41 ms (header checks) | 310 to 366 ms | 503 to 516 ms |
+| Unit test: LodManager settling on 304 premapped tiles (4 workers, 2 IO threads, no chunk work) | | 35 ms | |
+
+Section 2 targets: cold world creation to playable <= 2.0 s (0.85 s), warm
+load <= 1.0 s (0.51 s). The world enters only once every far terrain tile
+is shown, so the first frame in the world has the whole horizon.
+
+Meshing tiles for the renderer runs at Normal priority: at Low, the chunk
+burst held it back and far terrain was ready only after 750 to 860 ms even
+with every tile cached (more LOD job slots or upload budget did not help).

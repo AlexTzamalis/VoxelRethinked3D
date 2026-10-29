@@ -72,6 +72,11 @@ std::optional<LodTile> LodTileCache::load(const LodTileKey& key, u64 worldHash) 
     return std::nullopt;
 }
 
+bool LodTileCache::contains(const LodTileKey& key, u64 worldHash) const {
+    auto bytes = io::readFile(m_folder / fileName(key));
+    return bytes && lodTileFileMatches(bytes.value(), worldHash, key);
+}
+
 Result<void> LodTileCache::save(const LodTile& tile, u64 worldHash) {
     VXE_PROFILE_FUNCTION();
     std::vector<std::byte> bytes;

@@ -51,7 +51,9 @@ void LodRenderSink::addTile(std::shared_ptr<const LodTile> tile) {
             }
             slot->done.store(true, std::memory_order_release);
         },
-        jobs::Priority::Low);
+        // Normal, not Low: meshing a tile is short, and while a world loads the
+        // chunk burst would hold Low jobs back until the horizon is late.
+        jobs::Priority::Normal);
 }
 
 void LodRenderSink::removeTile(const LodTileKey& key) {

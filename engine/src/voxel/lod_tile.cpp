@@ -180,6 +180,17 @@ Result<LodTile> readPayload(std::span<const std::byte> raw, const LodTileKey& ke
 
 } // namespace
 
+bool lodTileFileMatches(std::span<const std::byte> bytes, u64 worldHash, const LodTileKey& key) noexcept {
+    io::BinaryReader reader(bytes);
+    const u32 magic = reader.readU32();
+    const u16 format = reader.readU16();
+    const u16 flags = reader.readU16();
+    const u64 storedWorld = reader.readU64();
+    const LodTileKey stored{.level = reader.readU8(), .x = reader.readI32(), .z = reader.readI32()};
+    return reader.ok() && magic == kMagic && format == kLodTileFormat && flags == 0 &&
+           storedWorld == worldHash && stored == key;
+}
+
 Result<LodTile> decodeLodTile(std::span<const std::byte> bytes, u64 worldHash, const LodTileKey& expected) {
     io::BinaryReader reader(bytes);
     const u32 magic = reader.readU32();

@@ -168,6 +168,11 @@ inline constexpr u16 kLodTileFormat = 1;
 // Appends the cache file bytes of `tile` to `out`.
 void encodeLodTile(const LodTile& tile, u64 worldHash, std::vector<std::byte>& out);
 
+// True if `bytes` start with the header of tile `key` of this format and
+// world hash: the file is a current cache entry. Reads only the header.
+[[nodiscard]] bool lodTileFileMatches(std::span<const std::byte> bytes, u64 worldHash,
+                                      const LodTileKey& key) noexcept;
+
 // Reads a tile back. Fails with VersionMismatch if the file is from another
 // format, world or generator (stale, generate it again), with ParseError if it
 // is damaged, and with InvalidArgument if it holds a different tile than

@@ -45,6 +45,9 @@ public:
     // sampled with other options are stale too.
     [[nodiscard]] std::optional<LodTile> load(const LodTileKey& key, u64 worldHash);
     [[nodiscard]] Result<void> save(const LodTile& tile, u64 worldHash);
+    // True if the cache holds a current file for the tile (header only, no
+    // decompression). Blocks on disk IO. Counts no stats.
+    [[nodiscard]] bool contains(const LodTileKey& key, u64 worldHash) const;
 
     [[nodiscard]] const std::filesystem::path& folder() const noexcept { return m_folder; }
     [[nodiscard]] u64 worldHash() const noexcept { return m_worldHash; }

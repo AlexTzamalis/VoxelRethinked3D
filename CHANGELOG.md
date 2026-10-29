@@ -2,6 +2,20 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#074] 2026-10-29, E11.4 Premapping job and progress API
+### Added
+- LodPremapper: bakes the clipmap tiles within a radius around a spawn into the LOD cache (an IO job checks the cache, a worker samples, an IO job writes), nearest first, cancellable, with progress() (total, done, already cached, failed) for a loading screen; stats Voxel.Lod.Premap.Done, Skipped and Total.
+- lodCacheHash, shared by the LodManager and the premapper; LodManager::clipmapDesc and sampleOptions are public, so a premap bakes exactly what the manager asks for.
+- LodTileCache::contains and lodTileFileMatches: check a cached tile by its header only.
+- The demo world caches far terrain in saves:/demo/lod, premaps the spawn area while loading, shows the premap in its progress text, and enters only once every far terrain tile is shown.
+- Tests: a premap bakes the tiles within the radius nearest first and a second one finds them all cached; a cancelled premap stops with the near tiles baked; a LodManager on a premapped area loads every tile from the cache and samples nothing.
+### Changed
+- LodRenderSink meshes tiles at Normal priority (was Low, which the chunk burst held back).
+### Performance
+- Demo world playable 0.85 s after a cold start with all 304 tiles premapped, 0.51 s warm; far terrain ready at 0.31 to 0.37 s warm.
+### Docs
+- docs/perf/lod.md: E11.4.
+
 ## [#073] 2026-10-29, E11.3 LOD mesher and renderer
 ### Added
 - LodMesher: tile spans to 12 byte quads (LodQuad): tops of the highest spans merged greedily, tops of lower spans and undersides of spans with a span below, the exposed parts of span sides merged along each edge, skirts at tile edges (4 cells deep, at least 16 blocks).

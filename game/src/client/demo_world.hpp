@@ -18,11 +18,14 @@
 #include <vxe/voxel/block_registry.hpp>
 #include <vxe/voxel/chunk_render_sink.hpp>
 #include <vxe/voxel/chunk_source.hpp>
+#include <vxe/voxel/lod_cache.hpp>
 #include <vxe/voxel/lod_manager.hpp>
+#include <vxe/voxel/lod_premapper.hpp>
 #include <vxe/voxel/lod_render_sink.hpp>
 #include <vxe/voxel/streaming.hpp>
 #include <vxe/voxel/voxel_world.hpp>
 
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -39,6 +42,10 @@ struct DemoWorldDesc {
     vxe::render::ChunkRenderer* chunks = nullptr; // Optional, with the device.
     vxe::render::LodRenderer* lod = nullptr;      // Optional, with the device: far terrain.
     vxe::u64 seed = 12345;
+    // Optional: where far terrain tiles are cached (saves:/demo/lod). With it,
+    // the tiles around the spawn are premapped before the world shows, so the
+    // horizon is there on the first frame (Section 13.4).
+    std::filesystem::path lodCacheFolder{};
 };
 
 // Makes the demo terrain's chunks for the streaming manager, on its jobs.
@@ -65,8 +72,10 @@ private:
 // texture pack (G2).
 //
 // Far terrain (Section 13) comes from DemoLodSampler through the engine's
-// LodManager, without a cache (the demo saves nothing), drawn by the
-// renderer's LodRenderer and hidden over chunk columns streaming has meshed.
+// LodManager, drawn by the renderer's LodRenderer and hidden over chunk
+// columns streaming has meshed. With a cache folder, the clipmap around the
+// spawn is premapped (LodPremapper) while loading, and entering also waits
+// for every far terrain tile, so the first frame shows the whole horizon.
 //
 // Thread safety: main thread only. Call shutdown() before the job system
 // and the renderer go away.
@@ -121,7 +130,10 @@ private:
     DemoLodSampler m_lodSampler;
     std::optional<vxe::voxel::LodRenderSink> m_lodSink;
     std::optional<vxe::voxel::CoveringChunkSink> m_coveringSink;
+    std::optional<vxe::voxel::LodTileCache> m_lodCache;
     std::unique_ptr<vxe::voxel::LodManager> m_lod;
+    std::unique_ptr<vxe::voxel::LodPremapper> m_premap; // While loading, with a cache.
+    bool m_lodReady = false;
     std::unique_ptr<vxe::voxel::StreamingManager> m_streaming; // Last: it waits for its jobs first.
     vxe::Stopwatch m_loadClock;
     bool m_loaded = false;

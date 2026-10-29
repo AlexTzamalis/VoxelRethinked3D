@@ -120,11 +120,13 @@ LodSampleOptions LodManager::sampleOptions() const {
             .caves = m_caves.get()};
 }
 
-// The sampler's world hash with the sampling options mixed in: tiles sampled
-// with other options are stale, in memory and in the cache.
+u64 lodCacheHash(u64 samplerHash, const LodSampleOptions& options) noexcept {
+    return hashCombine(hashCombine(samplerHash, options.maxSpansPerCell), options.caves ? 1U : 0U);
+}
+
+// Tiles sampled with other options are stale, in memory and in the cache.
 u64 LodManager::currentHash() const {
-    const LodSampleOptions options = sampleOptions();
-    return hashCombine(hashCombine(m_sampler->worldHash(), options.maxSpansPerCell), options.caves ? 1U : 0U);
+    return lodCacheHash(m_sampler->worldHash(), sampleOptions());
 }
 
 void LodManager::update(const DVec3& cameraPosition) {

@@ -8,6 +8,7 @@
 
 #include <array>
 #include <charconv>
+#include <filesystem>
 #include <format>
 #include <string>
 #include <system_error>
@@ -21,6 +22,17 @@ constinit vxe::log::Category gameLog{"game", vxe::log::Level::Info};
 // Where the camera starts: above the debug grid, looking slightly down. The
 // demo world (after G1) replaces the grid with terrain.
 constexpr vxe::f64 kGridHeight = 64.0;
+
+// The demo world's far terrain cache, or empty (no cache) if saves:/ is
+// not writable.
+std::filesystem::path demoLodFolder(const vxe::EngineContext& context) {
+    auto folder = context.vfs.resolveForWrite("saves:/demo/lod");
+    if (!folder) {
+        VXE_LOG_WARN(gameLog, "No far terrain cache for the demo world: {}", folder.error().describe());
+        return {};
+    }
+    return folder.value();
+}
 
 } // namespace
 
@@ -283,7 +295,8 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
                            .stats = &context.stats,
                            .device = context.device,
                            .chunks = context.renderer != nullptr ? &context.renderer->chunks() : nullptr,
-                           .lod = context.renderer != nullptr ? &context.renderer->lod() : nullptr});
+                           .lod = context.renderer != nullptr ? &context.renderer->lod() : nullptr,
+                           .lodCacheFolder = demoLodFolder(context)});
     if (!demo) {
         VXE_LOG_ERROR(gameLog, "The demo world could not start: {}", demo.error().describe());
         return;

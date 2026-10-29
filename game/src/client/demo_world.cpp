@@ -83,12 +83,29 @@ DemoWorld::DemoWorld(const DemoWorldDesc& desc, const DemoBlocks& blocks)
             chunkSink = &*m_coveringSink;
         }
     }
+    if (!desc.lodCacheFolder.empty()) {
+        m_lodCache.emplace(vxe::voxel::LodTileCacheDesc{.folder = desc.lodCacheFolder, .stats = desc.stats});
+    }
     m_lod = std::make_unique<vxe::voxel::LodManager>(
         vxe::voxel::LodManagerDesc{.jobs = desc.jobs,
                                    .settings = desc.settings,
                                    .sampler = &m_lodSampler,
+                                   .cache = m_lodCache ? &*m_lodCache : nullptr,
                                    .sink = m_lodSink ? &*m_lodSink : nullptr,
                                    .stats = desc.stats});
+    if (m_lodCache) {
+        const vxe::DVec3 spawn = spawnPosition();
+        m_premap = std::make_unique<vxe::voxel::LodPremapper>(
+            vxe::voxel::LodPremapDesc{.jobs = desc.jobs,
+                                      .sampler = &m_lodSampler,
+                                      .cache = &*m_lodCache,
+                                      .stats = desc.stats,
+                                      .options = m_lod->sampleOptions(),
+                                      .clipmap = m_lod->clipmapDesc(),
+                                      .centerX = static_cast<vxe::i64>(spawn.x),
+                                      .centerZ = static_cast<vxe::i64>(spawn.z),
+                                      .radius = vxe::i64{1} << 30U});
+    }
     m_streaming =
         std::make_unique<vxe::voxel::StreamingManager>(vxe::voxel::StreamingDesc{.world = &m_world,
                                                                                  .source = &m_source,
@@ -160,6 +177,7 @@ void DemoWorld::release() noexcept {
     }
     m_shutDown = true;
     m_streaming->unloadAll();
+    m_premap.reset();
     m_lod.reset(); // Waits for its jobs; the renderer forgets the tiles below.
     if (m_lodRenderer != nullptr) {
         m_lodRenderer->clear();
@@ -183,7 +201,19 @@ void DemoWorld::update(const vxe::render::Camera& camera) {
         return;
     }
     m_streaming->update({.position = camera.position, .forward = camera.forward()});
-    m_lod->update(camera.position);
+    // Far terrain waits for the premap, so its tiles come from the cache.
+    if (m_premap) {
+        m_premap->update();
+        if (m_premap->isDone()) {
+            const vxe::voxel::LodPremapper::Progress progress = m_premap->progress();
+            VXE_LOG_INFO(vxe::log::core, "Far terrain premapped after {:.0f} ms: {} tiles, {} already cached",
+                         m_loadClock.elapsedMilliseconds(), progress.total, progress.skipped);
+            m_premap.reset();
+        }
+    }
+    if (!m_premap) {
+        m_lod->update(camera.position);
+    }
     if (m_lodSink) {
         m_lodSink->update();
     }
@@ -191,8 +221,13 @@ void DemoWorld::update(const vxe::render::Camera& camera) {
     if (m_loaded) {
         return;
     }
+    if (!m_lodReady && !m_premap && m_lod->isSettled() && (!m_lodSink || m_lodSink->isIdle())) {
+        m_lodReady = true;
+        VXE_LOG_INFO(vxe::log::core, "Far terrain ready after {:.0f} ms: {} tiles",
+                     m_loadClock.elapsedMilliseconds(), m_lod->counts().ready);
+    }
     const vxe::i32 radius = std::min(kSpawnRadius, m_streaming->renderDistance());
-    if (m_streaming->isAreaReady(radius)) {
+    if (m_streaming->isAreaReady(radius) && (m_lodReady || m_lodRenderer == nullptr)) {
         m_loaded = true;
         VXE_LOG_INFO(vxe::log::core, "Demo world playable after {:.0f} ms: {} chunks loaded, {} meshed",
                      m_loadClock.elapsedMilliseconds(), m_streaming->counts().loaded,
@@ -206,6 +241,11 @@ void DemoWorld::update(const vxe::render::Camera& camera) {
 }
 
 std::string DemoWorld::progressText() const {
+    if (m_premap) {
+        const vxe::voxel::LodPremapper::Progress progress = m_premap->progress();
+        return std::format("{}   far terrain premap {} of {}", m_streaming->summary(), progress.done,
+                           progress.total);
+    }
     return m_streaming->summary();
 }
 

@@ -22,6 +22,11 @@ struct LodSampleOptions {
     bool caves = false;      // Graphics.LOD.CavesInLod: carve caves into the spans.
 };
 
+// The hash cached tiles are stored under: the sampler's world hash with the
+// sampling options mixed in, so tiles sampled with other options are stale.
+// The LodManager and the LodPremapper use the same one.
+[[nodiscard]] u64 lodCacheHash(u64 samplerHash, const LodSampleOptions& options) noexcept;
+
 // Turns the world generator into LOD tiles (Section 13.4): the game's column
 // sampler (G3.6) evaluates the same terrain functions as the chunk generator
 // at the tile's cell spacing. The engine only schedules it.
@@ -120,6 +125,10 @@ public:
     // retiring ones.
     [[nodiscard]] usize shownTiles() const noexcept { return m_ready.size(); }
     [[nodiscard]] const LodClipmap& clipmap() const noexcept { return m_clipmap; }
+    // The clipmap shape and sampling options the settings ask for now (what a
+    // LodPremapper should bake for this manager).
+    [[nodiscard]] LodClipmapDesc clipmapDesc() const;
+    [[nodiscard]] LodSampleOptions sampleOptions() const;
 
     struct Counts {
         usize wanted = 0;   // Tiles in the clipmap.
@@ -162,8 +171,6 @@ private:
 
     void registerSettings(config::SettingsRegistry& settings);
     void registerStats();
-    [[nodiscard]] LodClipmapDesc clipmapDesc() const;
-    [[nodiscard]] LodSampleOptions sampleOptions() const;
     [[nodiscard]] u64 currentHash() const;
     void clearAll();
     void restartAll();
