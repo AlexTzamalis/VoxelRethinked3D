@@ -206,14 +206,16 @@ void DemoWorld::upload() {
         return;
     }
     while (m_uploaded < m_meshOrder.size()) {
+        // Empty meshes go too: a chunk of solid stone draws nothing but
+        // hides what is behind it from cave culling.
         const vxe::voxel::ChunkMesh& mesh = m_meshes[m_meshOrder[m_uploaded]];
-        if (!mesh.empty()) {
-            const vxe::render::ChunkGeometry geometry{.position = mesh.position,
-                                                      .quads = std::as_bytes(std::span(mesh.quads)),
-                                                      .groupBegin = mesh.groupBegin};
-            if (m_chunks->upload(geometry) != vxe::render::ChunkRenderer::UploadResult::Uploaded) {
-                return; // Budget used up; the rest goes in the next frames.
-            }
+        const vxe::render::ChunkGeometry geometry{.position = mesh.position,
+                                                  .quads = std::as_bytes(std::span(mesh.quads)),
+                                                  .groupBegin = mesh.groupBegin,
+                                                  .connectivity = mesh.connectivity,
+                                                  .bounds = {.min = mesh.boundsMin, .max = mesh.boundsMax}};
+        if (m_chunks->upload(geometry) != vxe::render::ChunkRenderer::UploadResult::Uploaded) {
+            return; // Budget used up; the rest goes in the next frames.
         }
         ++m_uploaded;
     }

@@ -36,6 +36,7 @@ add_executable(vxe_tests
     math/projection_tests.cpp
     platform/platform_tests.cpp
     render/camera_tests.cpp
+    render/chunk_culling_tests.cpp
     render/chunk_renderer_tests.cpp
     render/debug_draw_tests.cpp
     render/frame_graph_tests.cpp

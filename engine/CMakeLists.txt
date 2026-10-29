@@ -198,12 +198,14 @@ vxe_add_module(rhi_gl
 vxe_add_module(render
     SOURCES
         src/render/camera.cpp
+        src/render/chunk_culling.cpp
         src/render/chunk_renderer.cpp
         src/render/cpu_write_ring.cpp
         src/render/debug_draw.cpp
         src/render/frame_constants.cpp
         src/render/frame_graph.cpp
         src/render/frame_pacer.cpp
+        src/render/hi_z.cpp
         src/render/post_process.cpp
         src/render/renderer.cpp
         src/render/sky.cpp

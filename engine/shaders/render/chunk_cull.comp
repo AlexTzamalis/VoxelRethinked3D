@@ -1,0 +1,186 @@
+// GPU culling of chunk face groups (render::ChunkRenderer, Section 8.3,
+// step 3). One thread per candidate draw: a face group of a resident chunk.
+// A group survives the tests below in this order; the first test it fails
+// is the reason counted for the overlay:
+//   1 frustum      the chunk's box is outside the view (plus padding)
+//   2 direction    every face in the group points away from the camera
+//   3 cave         the CPU cave search did not reach the chunk
+//   4 occlusion    last frame's depth pyramid hides the chunk's box
+// Opaque and cutout survivors are appended to their pass's region of the
+// output with an atomic counter, which the draw then reads as its count
+// (glMultiDrawElementsIndirectCount). Translucent groups keep their far to
+// near order: every one is written in place, culled ones with no instances.
+#include "include/bindings.glsl"
+
+layout(local_size_x = 64) in;
+
+VXE_BINDING_STD140(1, 0) uniform CullParams {
+    vec4 planes[6];        // Camera relative frustum planes: dot(n, p) + d >= 0 inside.
+    ivec4 cameraChunk;     // The culling camera, which can be frozen (Debug.FreezeCulling).
+    vec4 cameraFraction;
+    mat4 occlusionViewProjection; // The camera that drew the depth in the pyramid.
+    ivec4 occlusionChunk;
+    vec4 occlusionFraction;
+    uvec4 occlusionSize;   // xy: depth buffer pixels, z: pyramid levels.
+    uvec4 passFirst;       // First candidate of opaque, cutout, translucent; w: all candidates.
+    uvec4 flags;           // x: tests, bit 0 frustum, 1 direction, 2 cave, 3 occlusion.
+    vec4 tuning;           // x: frustum padding in blocks, y: near plane of the occlusion camera.
+} cull;
+
+struct DrawCommand {
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int baseVertex;
+    uint baseInstance; // The chunk's metadata slot.
+};
+
+struct ChunkInfo {
+    ivec4 position; // xyz: chunk position, w: packed bounds (render::ChunkBounds::pack).
+};
+
+VXE_BINDING_STD430(2, 0) readonly buffer Candidates {
+    DrawCommand candidates[];
+};
+VXE_BINDING_STD430(2, 1) readonly buffer Faces {
+    uint faces[];
+};
+VXE_BINDING_STD430(2, 2) readonly buffer Chunks {
+    ChunkInfo chunks[];
+};
+VXE_BINDING_STD430(2, 3) readonly buffer CaveBits {
+    uint caveBits[];
+};
+VXE_BINDING_STD430(2, 4) writeonly buffer Survivors {
+    DrawCommand survivors[];
+};
+VXE_BINDING_STD430(2, 5) buffer Counts {
+    uint drawCounts[4]; // Survivors of opaque and cutout.
+    uint reasons[8];    // Visible, then culled by frustum, direction, cave, occlusion.
+} counts;
+VXE_BINDING(2, 6) uniform sampler2D depthPyramid;
+
+const uint kVisible = 0u;
+const uint kFrustum = 1u;
+const uint kDirection = 2u;
+const uint kCave = 3u;
+const uint kOcclusion = 4u;
+const uint kReasonCount = 5u;
+
+shared uint groupReasons[kReasonCount];
+
+bool insideFrustum(vec3 boxMin, vec3 boxMax) {
+    for (int i = 0; i < 6; ++i) {
+        const vec4 plane = cull.planes[i];
+        // The corner furthest along the plane normal (positive vertex test).
+        const vec3 corner = mix(boxMin, boxMax, step(vec3(0.0), plane.xyz));
+        if (dot(plane.xyz, corner) + plane.w < 0.0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool facesCamera(uint face, vec3 boxMin, vec3 boxMax) {
+    const uint axis = face >> 1u;
+    return (face & 1u) == 0u ? boxMin[axis] < 0.0 : boxMax[axis] > 0.0;
+}
+
+// The box seen from the camera that drew last frame's depth: hidden if its
+// nearest point is farther than the farthest depth under its screen
+// rectangle, read from the pyramid level where the rectangle spans at most
+// 2 x 2 texels. Boxes that reach behind the near plane or past the screen
+// edge are never hidden: the pyramid knows nothing there.
+bool occluded(ivec3 chunk, vec3 localMin, vec3 localMax) {
+    const vec3 origin = vec3((chunk - cull.occlusionChunk.xyz) * 16) - cull.occlusionFraction.xyz;
+    vec2 low = vec2(1.0e30);
+    vec2 high = vec2(-1.0e30);
+    float nearest = 0.0;
+    for (uint c = 0u; c < 8u; ++c) {
+        const vec3 pick = vec3(float(c & 1u), float((c >> 1u) & 1u), float((c >> 2u) & 1u));
+        const vec4 clip = cull.occlusionViewProjection * vec4(origin + mix(localMin, localMax, pick), 1.0);
+        if (clip.w <= cull.tuning.y) {
+            return false;
+        }
+        const vec3 ndc = clip.xyz / clip.w;
+        low = min(low, ndc.xy);
+        high = max(high, ndc.xy);
+        nearest = max(nearest, ndc.z); // Reversed Z: nearer is larger.
+    }
+    if (any(lessThan(low, vec2(-1.0))) || any(greaterThan(high, vec2(1.0)))) {
+        return false;
+    }
+    const ivec2 size = ivec2(cull.occlusionSize.xy);
+    const ivec2 pixelMin = clamp(ivec2((low * 0.5 + 0.5) * vec2(size)), ivec2(0), size - 1);
+    const ivec2 pixelMax = clamp(ivec2((high * 0.5 + 0.5) * vec2(size)), ivec2(0), size - 1);
+    // Texel t of level L covers pixels t * 2^(L+1) to (t + 1) * 2^(L+1).
+    int levelIndex = 0;
+    while (levelIndex + 1 < int(cull.occlusionSize.z) &&
+           any(greaterThan((pixelMax >> (levelIndex + 1)) - (pixelMin >> (levelIndex + 1)), ivec2(1)))) {
+        ++levelIndex;
+    }
+    const ivec2 a = pixelMin >> (levelIndex + 1);
+    const ivec2 b = pixelMax >> (levelIndex + 1);
+    const float farthest = min(min(texelFetch(depthPyramid, a, levelIndex).r,
+                                   texelFetch(depthPyramid, ivec2(b.x, a.y), levelIndex).r),
+                               min(texelFetch(depthPyramid, ivec2(a.x, b.y), levelIndex).r,
+                                   texelFetch(depthPyramid, b, levelIndex).r));
+    return nearest < farthest;
+}
+
+uint cullReason(uint index, uint pass) {
+    const DrawCommand draw = candidates[index];
+    const ChunkInfo info = chunks[draw.baseInstance];
+    const uint bounds = uint(info.position.w);
+    const vec3 localMin = vec3(float(bounds & 31u), float((bounds >> 5u) & 31u), float((bounds >> 10u) & 31u));
+    const vec3 localMax =
+        vec3(float((bounds >> 15u) & 31u), float((bounds >> 20u) & 31u), float((bounds >> 25u) & 31u));
+    const vec3 origin = vec3((info.position.xyz - cull.cameraChunk.xyz) * 16) - cull.cameraFraction.xyz;
+    const vec3 boxMin = origin + localMin;
+    const vec3 boxMax = origin + localMax;
+    const uint tests = cull.flags.x;
+    const float padding = cull.tuning.x;
+    if ((tests & 1u) != 0u && !insideFrustum(boxMin - vec3(padding), boxMax + vec3(padding))) {
+        return kFrustum;
+    }
+    // Translucent faces are drawn from both sides (water seen from below).
+    if ((tests & 2u) != 0u && pass != 2u && !facesCamera(faces[index], boxMin, boxMax)) {
+        return kDirection;
+    }
+    const uint slot = draw.baseInstance;
+    if ((tests & 4u) != 0u && (caveBits[slot >> 5u] & (1u << (slot & 31u))) == 0u) {
+        return kCave;
+    }
+    if ((tests & 8u) != 0u && occluded(info.position.xyz, localMin, localMax)) {
+        return kOcclusion;
+    }
+    return kVisible;
+}
+
+void main() {
+    const uint local = gl_LocalInvocationIndex;
+    if (local < kReasonCount) {
+        groupReasons[local] = 0u;
+    }
+    barrier();
+
+    const uint index = gl_GlobalInvocationID.x;
+    if (index < cull.passFirst.w) {
+        const uint pass = index >= cull.passFirst.z ? 2u : (index >= cull.passFirst.y ? 1u : 0u);
+        const uint reason = cullReason(index, pass);
+        atomicAdd(groupReasons[reason], 1u);
+        DrawCommand draw = candidates[index];
+        if (pass == 2u) {
+            draw.instanceCount = reason == kVisible ? 1u : 0u;
+            survivors[index] = draw;
+        } else if (reason == kVisible) {
+            survivors[cull.passFirst[pass] + atomicAdd(counts.drawCounts[pass], 1u)] = draw;
+        }
+    }
+
+    // One global atomic per group and reason instead of one per thread.
+    barrier();
+    if (local < kReasonCount && groupReasons[local] != 0u) {
+        atomicAdd(counts.reasons[local], groupReasons[local]);
+    }
+}

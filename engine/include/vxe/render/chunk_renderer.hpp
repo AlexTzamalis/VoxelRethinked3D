@@ -9,14 +9,18 @@
 #include <vxe/math/coords.hpp>
 #include <vxe/math/vector.hpp>
 #include <vxe/render/camera.hpp>
+#include <vxe/render/chunk_culling.hpp>
 #include <vxe/render/cpu_write_ring.hpp>
+#include <vxe/render/hi_z.hpp>
 #include <vxe/rhi/command_list.hpp>
 #include <vxe/rhi/device.hpp>
 #include <vxe/rhi/shader_source.hpp>
 
 #include <array>
 #include <memory>
+#include <optional>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace vxe::render {
@@ -42,6 +46,12 @@ struct ChunkGeometry {
     std::span<const std::byte> quads{}; // 8 bytes per quad, ordered by group.
     // Group g is quads groupBegin[g] to groupBegin[g + 1] (in quads).
     std::array<u32, kChunkFaceGroups + 1> groupBegin{};
+    // Which pairs of the chunk's faces are joined by non opaque blocks
+    // (voxel::ChunkMesh::connectivity), for cave culling.
+    u16 connectivity = kChunkAllConnected;
+    // The tight box around the quads (voxel::ChunkMesh::boundsMin and
+    // boundsMax), for the frustum, direction and occlusion tests.
+    ChunkBounds bounds{};
 };
 
 struct ChunkRendererDesc {
@@ -61,18 +71,32 @@ struct ChunkRendererDesc {
     usize stagingBytesPerFrame = usize{16} << 20U;
 };
 
+// What the latest culling did with the face groups of all resident chunks.
+// GPU results arrive a few frames late (read without stalling).
+struct ChunkCullingCounts {
+    u32 candidates = 0; // Non empty face groups of resident chunks.
+    u32 visible = 0;
+    u32 frustum = 0;   // Outside the view.
+    u32 direction = 0; // Every face pointing away from the camera.
+    u32 cave = 0;      // Not reached by the cave search.
+    u32 occlusion = 0; // Hidden behind last frame's depth.
+    bool onGpu = false;
+};
+
 // Draws chunk meshes (Section 8.2): every chunk's quads live in one big GPU
 // buffer, the vertex arena, sub allocated with an OffsetAllocator; the
 // vertex shader builds the corners of each quad from its 8 bytes (vertex
 // pulling, render/chunk.vert) with one shared index buffer describing the
 // two triangles of a quad. A metadata buffer holds each resident chunk's
-// position, which the shader reads through gl_BaseInstance.
+// position and bounds, which the shaders read through gl_BaseInstance.
 //
 // Each frame:
 //   beginFrame(camera)      new staging memory, finished deferred frees
 //   upload(...) / remove()  any number, until the upload byte budget is used
 //   recordUploads(list)     in a Transfer pass: staging to arena copies
+//   recordCulling(list)     in a Compute pass: decides which groups to draw
 //   record(list, pass)      in raster passes, with the frame constants bound
+//   recordOcclusionDepth()  in a Compute pass after the opaque depth exists
 //
 // Uploads go through a CPU write ring (the staging memory), limited per
 // frame by World.Streaming.MaxUploadKBPerFrame so a burst of new chunks
@@ -81,13 +105,31 @@ struct ChunkRendererDesc {
 // replaced or removed chunks are reused only after the GPU finished the
 // frames that drew them.
 //
-// Draws: one indirect multi draw per pass over all non empty face groups,
-// rebuilt on the CPU when chunks change. Translucent draws go far to near
-// by chunk; the order is rebuilt when the camera moves into another chunk.
-// GPU culling (E9.6) replaces the CPU built draw list.
+// Culling (Section 8.3). Every non empty face group of every resident chunk
+// is a candidate draw; the candidate list is rebuilt on the CPU only when
+// chunks change. Each frame the candidates go through, in order:
+//   frustum     Graphics.Culling.Frustum, with Graphics.Culling.FrustumPadding
+//   direction   Graphics.Terrain.FaceDirectionCulling (not for translucent)
+//   cave        Graphics.Culling.CaveCulling: CaveCuller over the chunks'
+//               connectivity, searched again when the camera changes chunk
+//   occlusion   Graphics.Culling.Occlusion: the chunk's box against the
+//               depth pyramid (HiZPyramid) built from last frame's depth
+// On the GPU (Graphics.Culling.Gpu, when the driver has indirect count
+// draws) a compute shader writes the surviving draws and their count, so the
+// CPU never waits for the result. Otherwise the CPU runs the same tests
+// except occlusion and writes the draws itself. If recordCulling was not
+// called in a frame, every candidate is drawn.
 //
-// Settings: World.Streaming.MaxUploadKBPerFrame, Graphics.Terrain.AoStrength
-// and Debug.Terrain.Wireframe. Stats under Render.Chunks.
+// Debug.FreezeCulling keeps the camera the culling uses (and the depth
+// pyramid), so one can fly around and look at what was culled.
+//
+// Translucent draws go far to near by chunk; the order is rebuilt when the
+// camera moves into another chunk.
+//
+// Settings: World.Streaming.MaxUploadKBPerFrame, Graphics.Terrain.AoStrength,
+// Graphics.Terrain.FaceDirectionCulling, Graphics.Culling.*,
+// Debug.FreezeCulling and Debug.Terrain.Wireframe. Stats under
+// Render.Chunks and Render.Culling.
 //
 // Thread safety: main thread only, like the device.
 class ChunkRenderer {
@@ -102,9 +144,12 @@ public:
     // The block texture array (Section 15.3) the quads' texture layers index,
     // and its sampler. Not owned; must outlive the renderer's draws.
     void setTextures(rhi::TextureHandle textures, rhi::SamplerHandle sampler) noexcept;
+    // The size of the target the chunks are drawn into, for the culling
+    // frustum and the depth pyramid. 1920 x 1080 until set.
+    void setViewSize(u32 width, u32 height) noexcept;
 
     // Starts a frame: new staging memory, releases ranges the GPU is done
-    // with, and remembers the camera for the translucent order.
+    // with, and remembers the camera for culling and the translucent order.
     void beginFrame(const Camera& camera);
 
     enum class UploadResult : u8 {
@@ -112,27 +157,45 @@ public:
         OverBudget,  // This frame's upload budget is used up; try again next frame.
         OutOfMemory, // The arena or the chunk slots are full.
     };
-    // Makes `geometry` the chunk's mesh, replacing an older one. A mesh
-    // without quads removes the chunk. The quads are copied, so the caller
-    // may reuse its mesh right away.
+    // Makes `geometry` the chunk's mesh, replacing an older one. The quads
+    // are copied, so the caller may reuse its mesh right away. A mesh without
+    // quads draws nothing but still tells cave culling how the chunk
+    // connects (a chunk of solid stone blocks the view); send those too.
     [[nodiscard]] UploadResult upload(const ChunkGeometry& geometry);
-    // Stops drawing a chunk. Returns false if it was not resident.
+    // Forgets a chunk: stops drawing it, and cave culling treats its space as
+    // open again. Returns false if the renderer did not know the chunk.
     bool remove(ChunkPos position);
     [[nodiscard]] bool isResident(ChunkPos position) const noexcept;
 
     // Copies this frame's uploads into the arena. Record in a Transfer pass
     // before the passes that draw chunks.
     void recordUploads(rhi::CommandList& commands);
-    // Draws one pass of every resident chunk. Record inside a raster pass
+    // Decides which face groups to draw this frame. Record after
+    // recordUploads and before record, outside render passes.
+    void recordCulling(rhi::CommandList& commands);
+    // Draws one pass of every visible chunk. Record inside a raster pass
     // with the formats from the desc, after binding the frame constants.
     void record(rhi::CommandList& commands, ChunkPass pass);
+    // Builds the depth pyramid for next frame's occlusion test from this
+    // frame's depth (a Sampled texture of the view size). Record outside
+    // render passes, after the opaque and cutout chunks were drawn.
+    void recordOcclusionDepth(rhi::CommandList& commands, rhi::TextureHandle depth);
 
     [[nodiscard]] usize residentChunks() const noexcept { return m_chunks.size(); }
     [[nodiscard]] u64 residentQuads() const noexcept { return m_residentQuads; }
     [[nodiscard]] usize arenaUsedBytes() const noexcept;
     [[nodiscard]] usize arenaCapacityBytes() const noexcept { return m_arenaBytes; }
+    // Candidate draws (non empty face groups) of a pass, before culling.
     [[nodiscard]] u32 drawCount(ChunkPass pass) const noexcept;
     [[nodiscard]] usize uploadedBytesThisFrame() const noexcept { return m_stagingUsed; }
+    [[nodiscard]] const ChunkCullingCounts& cullingCounts() const noexcept { return m_counts; }
+    // One line for the debug overlay, for example
+    // "Culling (GPU): 9120 of 61234 face groups drawn ...".
+    [[nodiscard]] std::string cullingSummary() const;
+    // The camera culling uses while Debug.FreezeCulling is on.
+    [[nodiscard]] std::optional<Camera> frozenCullingCamera() const;
+    [[nodiscard]] f32 viewAspect() const noexcept;
+    [[nodiscard]] const CaveCuller& caveCuller() const noexcept { return m_caves; }
     // The buffers behind the draws, for tests and debug views.
     [[nodiscard]] rhi::BufferHandle arenaBuffer() const noexcept { return m_arena; }
     [[nodiscard]] rhi::BufferHandle metadataBuffer() const noexcept { return m_metadata; }
@@ -156,8 +219,30 @@ private:
         OffsetAllocator::Allocation range;
         u32 slot;
     };
+    // Where this frame's draws come from.
+    enum class CullPath : u8 {
+        None, // recordCulling did not run: draw every candidate.
+        Gpu,
+        Cpu,
+    };
+    // One CpuRead buffer the culling counts are copied into, read once its
+    // fence signals.
+    struct Readback {
+        rhi::BufferHandle buffer{};
+        rhi::FenceHandle fence{};
+        bool pending = false;
+        u32 candidates = 0;
+    };
+    [[nodiscard]] Result<void> createCulling(const ChunkRendererDesc& desc);
+    void registerStats();
     void release(const Resident& chunk);
+    void writeMetadata(u32 slot, ChunkPos position, ChunkBounds bounds);
     void rebuildDraws();
+    [[nodiscard]] bool growDrawBuffers(usize total);
+    void updateCaveBits(const Camera& cullCamera);
+    void cullOnGpu(rhi::CommandList& commands, const Camera& cullCamera);
+    void cullOnCpu(const Camera& cullCamera);
+    void readCullingCounts();
     void publishStats();
 
     rhi::Device& m_device;
@@ -167,10 +252,12 @@ private:
     rhi::BufferHandle m_arena;
     rhi::BufferHandle m_metadata;
     rhi::BufferHandle m_indices;
-    rhi::BufferHandle m_draws;
-    rhi::BufferHandle m_params; // Per pass uniforms (AO strength), rewritten when a setting changes.
+    rhi::BufferHandle m_draws;     // Every candidate draw, in pass order.
+    rhi::BufferHandle m_drawFaces; // The face direction of each candidate.
+    rhi::BufferHandle m_survivors; // What the GPU culling kept.
+    rhi::BufferHandle m_params;    // Per pass uniforms (AO strength), rewritten when a setting changes.
     Vec4 m_lastParams{-1.0F};
-    usize m_drawCapacity = 0; // Indirect commands the draw buffer holds.
+    usize m_drawCapacity = 0; // Indirect commands the draw buffers hold.
     std::array<rhi::PipelineHandle, kChunkPassCount> m_pipelines{};
     std::array<rhi::PipelineHandle, kChunkPassCount> m_wireframePipelines{};
     rhi::TextureHandle m_textures;
@@ -188,15 +275,59 @@ private:
     u64 m_residentQuads = 0;
     bool m_drawsDirty = true;
     ChunkPos m_cameraChunk{};
-    // Indirect commands per pass, CPU side copy of the draw buffer.
+    Camera m_camera{};
+    u32 m_viewWidth = 1920;
+    u32 m_viewHeight = 1080;
+    // Indirect commands per pass, CPU side copy of the draw buffer, with the
+    // face of each command.
     std::vector<std::byte> m_drawData;
+    std::vector<u32> m_drawFaceData;
     std::array<u32, kChunkPassCount> m_drawFirst{};
     std::array<u32, kChunkPassCount> m_drawCounts{};
     std::vector<std::pair<i64, const Resident*>> m_sortScratch;
 
+    // Culling.
+    CaveCuller m_caves;
+    // Per metadata slot, for the CPU path and the cave bits.
+    struct SlotInfo {
+        ChunkPos position{};
+        ChunkBounds bounds{};
+    };
+    std::vector<SlotInfo> m_slotInfo;
+    std::vector<u32> m_caveBits; // Bit per slot: reached by the cave search.
+    u64 m_caveGeneration = ~u64{0};
+    bool m_caveBitsDirty = true;
+    bool m_caveCullingWasOn = false;
+    rhi::BufferHandle m_caveBitsBuffer;
+    rhi::BufferHandle m_cullCounts; // Survivor counts per pass, then counts per reason.
+    rhi::BufferHandle m_zeros;      // Copied over m_cullCounts before each culling dispatch.
+    rhi::PipelineHandle m_cullPipeline;
+    bool m_gpuCullingSupported = false;
+    CpuWriteRing m_cullParams;
+    CpuWriteRing m_cpuDraws; // Draws written by the CPU path, per frame in flight.
+    std::array<u32, kChunkPassCount> m_cpuDrawCounts{};
+    std::array<Readback, CpuWriteRing::kFrames> m_readbacks{};
+    usize m_lastReadback = 0;
+    bool m_readbackWritten = false;
+    std::unique_ptr<HiZPyramid> m_hiZ;
+    Camera m_occlusionCamera{}; // The camera that drew the depth in the pyramid.
+    f32 m_occlusionAspect = 16.0F / 9.0F;
+    std::optional<Camera> m_frozenCamera;
+    f32 m_frozenAspect = 16.0F / 9.0F;
+    CullPath m_cullPath = CullPath::None;
+    u64 m_culledFrame = 0; // The latest frame recordCulling ran in.
+    ChunkCullingCounts m_counts{};
+
     config::Setting<i32> m_uploadBudgetKb;
     config::Setting<f32> m_aoStrength;
     config::Setting<bool> m_wireframe;
+    config::Setting<bool> m_frustumCulling;
+    config::Setting<f32> m_frustumPadding;
+    config::Setting<bool> m_faceCulling;
+    config::Setting<bool> m_caveCulling;
+    config::Setting<bool> m_occlusionCulling;
+    config::Setting<bool> m_gpuCulling;
+    config::Setting<bool> m_freezeCulling;
     struct StatIds {
         stats::StatId chunks;
         stats::StatId quads;
@@ -206,6 +337,14 @@ private:
         stats::StatId uploadBytes;
         stats::StatId overBudget;
         stats::StatId outOfMemory;
+        stats::StatId candidates;
+        stats::StatId visible;
+        stats::StatId frustum;
+        stats::StatId direction;
+        stats::StatId cave;
+        stats::StatId occlusion;
+        stats::StatId caveSearchMs;
+        stats::StatId caveReached;
     } m_statIds{};
 };
 

@@ -82,12 +82,12 @@ Result<std::unique_ptr<PostProcess>> PostProcess::create(const PostProcessDesc& 
     // The blit vertex shader covers the screen with one triangle and passes UVs.
     const auto vertex = rhi::createShaderFromFile(device, "debug/blit.vert", desc.shaders);
     if (!vertex) {
-        return vertex.error().withContext("Post process: ");
+        return vertex.error().withContext("Post process");
     }
     const auto fragment = rhi::createShaderFromFile(device, "render/post.frag", desc.shaders);
     if (!fragment) {
         device.destroy(vertex.value());
-        return fragment.error().withContext("Post process: ");
+        return fragment.error().withContext("Post process");
     }
     rhi::PipelineDesc pipeline{
         .vertex = vertex.value(), .fragment = fragment.value(), .debugName = "Post process"};
@@ -100,7 +100,7 @@ Result<std::unique_ptr<PostProcess>> PostProcess::create(const PostProcessDesc& 
     device.destroy(vertex.value());
     device.destroy(fragment.value());
     if (!created) {
-        return created.error().withContext("Post process: ");
+        return created.error().withContext("Post process");
     }
     post->m_pipeline = created.value();
     auto sampler = device.createSampler({.minFilter = rhi::Filter::Linear,
@@ -110,7 +110,7 @@ Result<std::unique_ptr<PostProcess>> PostProcess::create(const PostProcessDesc& 
                                          .addressV = rhi::AddressMode::ClampToEdge,
                                          .debugName = "Post process sampler"});
     if (!sampler) {
-        return sampler.error().withContext("Post process: ");
+        return sampler.error().withContext("Post process");
     }
     post->m_sampler = sampler.value();
     VXE_TRY(post->m_ring.create(device, sizeof(PostParams), rhi::BufferUsage::Uniform, "Post parameters"));

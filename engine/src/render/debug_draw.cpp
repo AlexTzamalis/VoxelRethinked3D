@@ -67,12 +67,12 @@ Result<std::unique_ptr<DebugDraw>> DebugDraw::create(const DebugDrawDesc& desc) 
     rhi::Device& device = *desc.device;
     const auto vertex = rhi::createShaderFromFile(device, "debug/lines.vert", desc.shaders);
     if (!vertex) {
-        return vertex.error().withContext("Debug draw: ");
+        return vertex.error().withContext("Debug draw");
     }
     const auto fragment = rhi::createShaderFromFile(device, "debug/lines.frag", desc.shaders);
     if (!fragment) {
         device.destroy(vertex.value());
-        return fragment.error().withContext("Debug draw: ");
+        return fragment.error().withContext("Debug draw");
     }
     rhi::PipelineDesc pipeline{.vertex = vertex.value(),
                                .fragment = fragment.value(),
@@ -97,7 +97,7 @@ Result<std::unique_ptr<DebugDraw>> DebugDraw::create(const DebugDrawDesc& desc) 
         if (onTop) {
             device.destroy(onTop.value());
         }
-        return (depthTested ? onTop.error() : depthTested.error()).withContext("Debug draw: ");
+        return (depthTested ? onTop.error() : depthTested.error()).withContext("Debug draw");
     }
     draw->m_depthTested = depthTested.value();
     draw->m_onTop = onTop.value();

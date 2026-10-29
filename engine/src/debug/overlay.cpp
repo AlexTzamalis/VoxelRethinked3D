@@ -343,6 +343,11 @@ void DebugOverlay::update(f64 frameSeconds) {
     }
 }
 
+FrameTimeSummary DebugOverlay::recentFrames() {
+    m_stats.copyHistory(m_cpuTime, m_cpuHistory);
+    return summarizeFrameTimes(m_cpuHistory, m_scratch);
+}
+
 // Rebuilds the Overview text at Debug.Overlay.UpdateRate: numbers that change
 // every frame are unreadable, and formatting them less often is cheaper.
 void DebugOverlay::refreshOverview() {

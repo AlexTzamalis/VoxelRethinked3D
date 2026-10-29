@@ -128,6 +128,10 @@ public:
     void processEvents(std::span<const platform::PlatformEvent> events);
     void recordFrame(f64 cpuMilliseconds, std::optional<f64> gpuMilliseconds);
     void update(f64 frameSeconds);
+    // The CPU frame times of the recent history (the Frame page's window),
+    // summarized. The main loop logs it at exit, so measurement runs
+    // (--frames N) need no screen reading.
+    [[nodiscard]] FrameTimeSummary recentFrames();
 
     [[nodiscard]] bool isVisible() const;
     void setVisible(bool visible);

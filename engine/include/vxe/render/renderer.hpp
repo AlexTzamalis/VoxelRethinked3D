@@ -39,16 +39,18 @@ struct RendererDesc {
 // renderer piece built in E8 and E9 joined in one frame graph.
 //
 //   ChunkUpload        new chunk meshes into the vertex arena (transfer)
+//   Visibility         chunk culling: frustum, face direction, caves, occlusion (compute)
 //   Chunks             opaque and cutout chunks into the HDR scene
 //   Sky                sky where nothing was drawn, height fog over the rest
 //   ChunksTranslucent  water and glass, blended
-//   DebugDraw          debug lines (chunk borders, boxes, grids)
+//   HiZ                depth pyramid for next frame's occlusion culling (compute)
+//   DebugDraw          debug lines (chunk borders, boxes, grids, a frozen culling frustum)
 //   Post               tonemapping into the window
 //   WindowOverlay      whatever the owner hooks in (the debug UI), never disabled
 //
 // Each pass can be switched off with Debug.Passes.<name> and is timed on the
-// GPU (Gpu.Pass.<name>). Passes not built yet (culling, LOD, game UI) slot in
-// here in their steps.
+// GPU (Gpu.Pass.<name>). Passes not built yet (LOD, game UI) slot in here in
+// their steps.
 //
 // A frame: the application sets the camera and calls beginFrame once its
 // camera is final for the frame, then uploads chunks and adds debug lines;

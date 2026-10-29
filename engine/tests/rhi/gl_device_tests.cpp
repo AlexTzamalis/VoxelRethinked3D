@@ -714,8 +714,8 @@ void checkStorageImagesAndReadback(RenderRig& rig) {
     bool reduced = true;
     for (vxe::u32 y = 0; y < kSize / 2; ++y) {
         for (vxe::u32 x = 0; x < kSize / 2; ++x) {
-            const float expected = std::min(std::min(at(2 * x, 2 * y), at((2 * x) + 1, 2 * y)),
-                                            std::min(at(2 * x, (2 * y) + 1), at((2 * x) + 1, (2 * y) + 1)));
+            const float expected = std::min({at(2 * x, 2 * y), at((2 * x) + 1, 2 * y), at(2 * x, (2 * y) + 1),
+                                             at((2 * x) + 1, (2 * y) + 1)});
             reduced = reduced && level1[(y * (kSize / 2)) + x] == expected;
         }
     }

@@ -107,3 +107,50 @@ The GPU test "Chunks render with vertex pulling, the same far from the
 origin" draws a stone chunk 20 blocks away at the origin and 10 million
 blocks away (identical images), and every face of a block head on with and
 without the AO diagonal flip, checking both triangles of each quad.
+
+## E9.6 GPU culling (2026-10-29)
+
+Scene: `voxel_rethinked` demo world at the spawn view (4735 chunks, 2.1
+million quads, 31,237 non empty face groups), release build, 1280x720, RTX
+4060, vsync off, 6000 frames; the numbers are the last 1000 frames, logged
+at exit. Two runs per row.
+
+| Culling | Face groups drawn | GPU frame | Average FPS | 1% low |
+|---------|-------------------|-----------|-------------|--------|
+| None (Visibility pass off) | 31,237 | 0.83 ms | 1117 / 1125 | 420 / 578 |
+| CPU: frustum, direction, caves | 7,087 | 0.37 to 0.39 ms | 1598 / 1993 | 1004 / 991 |
+| GPU: frustum only | 13,957 | | 1705 / 1713 | 769 / 816 |
+| GPU: frustum, direction, caves | 7,087 | 0.42 to 0.43 ms | 1982 / 1992 | 904 / 890 |
+| GPU: all, with Hi-Z occlusion | 4,038 | 0.31 ms | 1789 / 2127 | 1000 / 1336 |
+
+Of the 31,237 groups, the frustum removes 17,280, face direction 6,699,
+caves 171 (the spawn view is above ground) and occlusion 3,049. GPU time
+drops from 0.83 to 0.31 ms (63% less). At around 2000 FPS the frame is
+limited by the CPU side (about 0.5 ms), so occlusion shows up as GPU
+headroom and a better 1% low more than as average FPS. GPU and CPU culling
+agree exactly on every count (GPU test with occlusion off).
+
+The CPU path tests each chunk's box once for all its face groups; before
+that it gained nothing over no culling (1090 FPS), because testing every
+group on the main thread ate what the GPU saved.
+
+Cave search (render::CaveCuller), release, a 65 x 16 x 65 chunk world with
+27,040 known chunks, 34,380 cells reached:
+
+| Case | Time |
+|------|------|
+| Camera moved into another chunk (grid reused) | 0.46 ms |
+| Chunks changed (grid rebuilt) | about 1.1 ms |
+| First version (revisiting every cell from every side, divisions per step) | 2.3 ms |
+
+Only partly open chunks are searched once per entry side: a path never
+reverses along an axis, so a fully open chunk expands the same exits
+whichever side it is entered from, and a solid chunk expands nothing.
+
+Depth pyramid at 1920 x 1080: 11 levels on a 1024 x 1024 base, 5.3 MiB.
+The demo world's surface view measured the whole pyramid build plus the
+culling dispatch well under the GPU savings (0.42 ms without Hi-Z versus
+0.31 ms with it, the build included).
+
+Debug.FreezeCulling keeps the culling camera and the pyramid; the frozen
+view is drawn as yellow frustum lines, checked with a window capture.

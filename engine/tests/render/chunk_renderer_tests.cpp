@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <initializer_list>
 #include <memory>
@@ -48,6 +49,9 @@ std::unique_ptr<ChunkRenderer> makeRenderer(rhi::Device& device, config::Setting
                                            .arenaBytes = arenaBytes,
                                            .maxChunks = 64,
                                            .stagingBytesPerFrame = usize{1} << 20U});
+    if (!renderer) {
+        MESSAGE(renderer.error().message());
+    }
     REQUIRE(renderer.hasValue());
     return std::move(renderer.value());
 }
@@ -128,13 +132,13 @@ TEST_CASE("Uploads build one indirect draw per non empty face group") {
         CHECK(draw.instanceCount == 1);
         CHECK(draw.baseInstance == draws[0].baseInstance); // All from the same chunk slot.
     }
-    // The chunk's position is in its metadata slot.
+    // The chunk's position is in its metadata slot, with its bounds packed into w.
     std::array<i32, 4> info{};
     REQUIRE(device
                 ->readBuffer(renderer->metadataBuffer(), usize{draws[0].baseInstance} * 16,
                              std::as_writable_bytes(std::span(info)))
                 .hasValue());
-    CHECK(info == std::array<i32, 4>{1, 2, 3, 0});
+    CHECK(info == std::array<i32, 4>{1, 2, 3, std::bit_cast<i32>(render::ChunkBounds{}.pack())});
 
     stats.endFrame(0.016);
     CHECK(stats.value(stats.find("Render.Chunks.Resident")) == 1.0);
@@ -189,7 +193,7 @@ TEST_CASE("Replaced and removed chunks free their memory once the GPU is done") 
     }
     CHECK(renderer->arenaUsedBytes() == 2400);
 
-    // An empty mesh removes the chunk.
+    // An empty mesh stops drawing the chunk.
     renderer->beginFrame({});
     REQUIRE(renderer->upload(FakeMesh({}).at({})) == UploadResult::Uploaded);
     CHECK_FALSE(renderer->isResident({}));

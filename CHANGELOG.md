@@ -2,6 +2,26 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#063] 2026-10-29, E9.6 GPU culling
+### Added
+- Chunk culling (Section 8.3) in a new Visibility compute pass. Every non empty face group of every resident chunk is a candidate draw and goes through four tests: frustum (Graphics.Culling.Frustum, with Graphics.Culling.FrustumPadding), face direction (Graphics.Terrain.FaceDirectionCulling, not for translucent), caves (Graphics.Culling.CaveCulling) and Hi-Z occlusion (Graphics.Culling.Occlusion).
+- GPU path (render/chunk_cull.comp): survivors are appended with an atomic counter that the opaque and cutout draws read as their count (indirect count draws), so the CPU never waits; translucent groups keep their far to near order with culled ones drawn with no instances. CPU path for drivers without indirect count draws, or with Graphics.Culling.Gpu off: the same tests except occlusion, written into a per frame ring. Without the Visibility pass every candidate is drawn.
+- render::CaveCuller: breadth first search from the camera's chunk through the chunks' 15 bit face connectivity, never reversing a direction; unknown chunks count as open. Runs only when the camera changes chunk or chunks change.
+- render::HiZPyramid and render/hiz_reduce.comp: a depth pyramid of farthest depths built from the scene depth in a new HiZ pass; next frame's culling tests each chunk box against the level where it spans at most 2 x 2 texels. Power of two levels keep the texel to pixel mapping exact for any window size.
+- Debug.FreezeCulling keeps the culling camera and the pyramid and draws the frozen view as yellow frustum lines.
+- Culling counts per reason in the overlay (a new Overview line) and as Render.Culling.* stats, read from the GPU a few frames late through CpuRead buffers without stalling.
+- The engine loop logs the recent frame rate, 1% low, GPU time and the culling counts at exit, so measurement runs with --frames need no screen reading.
+- Tests: the cave search (open space, a closed shell, a tunnel around a bend, search time), the CPU path on the Null device (frustum, direction, walls of empty but solid meshes, live switches, freezing, drawing without culling), pyramid sizes, and a GPU test through render::Renderer that checks GPU and CPU counts match exactly and that occlusion hides a chunk behind a wall.
+### Changed
+- ChunkGeometry carries the mesh's connectivity and tight bounds; the bounds are packed into the w of the chunk metadata, so GPU bytes per chunk stay the same. A mesh without quads now draws nothing but still tells cave culling how the chunk connects; remove() forgets the chunk. The demo world sends its empty meshes too.
+### Fixed
+- Error contexts no longer read "Chunk renderer: : ..." (withContext adds the colon itself; 25 call sites).
+### Performance
+- Demo world spawn view, 1280x720, RTX 4060, release: GPU frame time 0.83 ms without culling, 0.42 ms with frustum, direction and cave culling, 0.31 ms with occlusion; 4,038 of 31,237 face groups drawn. Average FPS 1120 without culling, about 1990 with GPU culling (CPU limited from there); 1% low 420 to 578 before, 1000 to 1336 after.
+- Cave search for render distance 32 (65 x 16 x 65 chunks): 0.46 ms when the camera changes chunk, about 1.1 ms after chunk changes.
+### Docs
+- docs/perf/render.md: E9.6 measurements.
+
 ## [#062] 2026-10-29, E9.6 RHI storage images and readback buffers
 ### Added
 - CommandList::bindStorageImage binds one mip level of a Storage texture to a compute shader (imageLoad, imageStore). Images get their own binding space, set * 2 + slot, because OpenGL only guarantees 8 image units; shaders use the new VXE_IMAGE_BINDING macro. The depth pyramid for occlusion culling builds its levels this way.

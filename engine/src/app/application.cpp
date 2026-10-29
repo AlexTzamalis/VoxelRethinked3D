@@ -192,6 +192,10 @@ Result<void> createRendering(EngineServices& services, const EngineConfig& confi
         return renderer.error();
     }
     services.renderer = std::move(renderer.value());
+    if (services.overlay) {
+        services.overlay->addOverviewLine(
+            [chunks = &services.renderer->chunks()] { return chunks->cullingSummary(); });
+    }
     if (services.debugUi) {
         services.renderer->setWindowOverlay(
             [ui = services.debugUi.get()](rhi::CommandList& commands) { ui->record(commands); });
@@ -424,6 +428,16 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
         VXE_PROFILE_FRAME();
     }
     VXE_LOG_INFO(log::core, "Main loop ended after {} frames", frames);
+    if (services.overlay) {
+        const debug::FrameTimeSummary recent = services.overlay->recentFrames();
+        VXE_LOG_INFO(log::core,
+                     "Recent frames: {:.0f} FPS average, 1% low {:.0f}, {:.3f} ms average, GPU {:.3f} ms",
+                     recent.averageFps, recent.low1Fps, recent.averageMs,
+                     services.stats->average(services.stats->find("Frame.GpuTime"), 60));
+        if (services.renderer) {
+            VXE_LOG_INFO(log::core, "{}", services.renderer->chunks().cullingSummary());
+        }
+    }
 
     // Shutdown in the documented order (see application.hpp). Settings are
     // saved after onShutdown, so changes the application makes there persist.

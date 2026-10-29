@@ -49,12 +49,12 @@ ImGuiRenderer::create(rhi::Device& device, const rhi::ShaderFileReader& shaders,
     std::unique_ptr<ImGuiRenderer> renderer(new ImGuiRenderer(device));
     const auto vertex = rhi::createShaderFromFile(device, "debug/imgui.vert", shaders);
     if (!vertex) {
-        return vertex.error().withContext("ImGui renderer: ");
+        return vertex.error().withContext("ImGui renderer");
     }
     const auto fragment = rhi::createShaderFromFile(device, "debug/imgui.frag", shaders);
     if (!fragment) {
         device.destroy(vertex.value());
-        return fragment.error().withContext("ImGui renderer: ");
+        return fragment.error().withContext("ImGui renderer");
     }
     rhi::PipelineDesc desc{.vertex = vertex.value(), .fragment = fragment.value(), .debugName = "ImGui"};
     desc.raster.cullMode = rhi::CullMode::None;
@@ -67,7 +67,7 @@ ImGuiRenderer::create(rhi::Device& device, const rhi::ShaderFileReader& shaders,
     device.destroy(vertex.value());
     device.destroy(fragment.value());
     if (!pipeline) {
-        return pipeline.error().withContext("ImGui renderer: ");
+        return pipeline.error().withContext("ImGui renderer");
     }
     renderer->m_pipeline = pipeline.value();
     auto sampler = device.createSampler({.minFilter = rhi::Filter::Linear,
@@ -77,7 +77,7 @@ ImGuiRenderer::create(rhi::Device& device, const rhi::ShaderFileReader& shaders,
                                          .addressV = rhi::AddressMode::ClampToEdge,
                                          .debugName = "ImGui sampler"});
     if (!sampler) {
-        return sampler.error().withContext("ImGui renderer: ");
+        return sampler.error().withContext("ImGui renderer");
     }
     renderer->m_sampler = sampler.value();
     for (FrameBuffers& set : renderer->m_frames) {
@@ -85,7 +85,7 @@ ImGuiRenderer::create(rhi::Device& device, const rhi::ShaderFileReader& shaders,
                                              .usage = rhi::BufferUsage::Uniform | rhi::BufferUsage::CpuWrite,
                                              .debugName = "ImGui projection"});
         if (!uniforms) {
-            return uniforms.error().withContext("ImGui renderer: ");
+            return uniforms.error().withContext("ImGui renderer");
         }
         set.uniforms = uniforms.value();
     }

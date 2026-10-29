@@ -3,6 +3,8 @@
 #include <vxe/core/profile.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <utility>
 
 namespace vxe::render {
@@ -12,13 +14,35 @@ namespace {
 constexpr rhi::Format kSceneFormat = rhi::Format::RGBA16Float;
 constexpr rhi::Format kDepthFormat = rhi::Format::D32Float;
 
+// Lines showing the view of a camera out to `distance` blocks, for
+// Debug.FreezeCulling: what is outside them was culled by the frustum.
+void drawFrustum(DebugDraw& lines, const Camera& camera, f32 aspect, f64 distance) {
+    constexpr u32 kColor = debugColor(255, 220, 40);
+    const f64 halfHeight = std::tan(static_cast<f64>(glm::radians(camera.fovYDegrees)) * 0.5);
+    const DVec3 forward(camera.forward());
+    const DVec3 right(camera.right());
+    const DVec3 up(camera.up());
+    std::array<DVec3, 4> corners{};
+    for (usize i = 0; i < corners.size(); ++i) {
+        const f64 sx = (i == 1 || i == 2) ? 1.0 : -1.0;
+        const f64 sy = i >= 2 ? 1.0 : -1.0;
+        const DVec3 direction =
+            forward + (right * (sx * halfHeight * static_cast<f64>(aspect))) + (up * (sy * halfHeight));
+        corners.at(i) = camera.position + (direction * distance);
+    }
+    for (usize i = 0; i < corners.size(); ++i) {
+        lines.line(camera.position, corners.at(i), kColor);
+        lines.line(corners.at(i), corners.at((i + 1) % corners.size()), kColor);
+    }
+}
+
 } // namespace
 
 Result<std::unique_ptr<Renderer>> Renderer::create(const RendererDesc& desc) {
     VXE_ASSERT(desc.device != nullptr && desc.settings != nullptr, "Renderer needs a device and settings");
     std::unique_ptr<Renderer> renderer(new Renderer(*desc.device));
     rhi::Device& device = *desc.device;
-    const auto fail = [](const Error& error) { return error.withContext("Renderer: "); };
+    const auto fail = [](const Error& error) { return error.withContext("Renderer"); };
 
     if (Result<void> created = renderer->m_constants.create(device); !created) {
         return fail(created.error());
@@ -92,6 +116,11 @@ Result<void> Renderer::buildGraph() {
         {.name = "ChunkUpload", .type = PassType::Transfer, .record = [this](PassContext& context) {
              m_chunks->recordUploads(context.commands);
          }}));
+    // Switched off, every chunk face group is drawn.
+    static_cast<void>(graph.addPass(
+        {.name = "Visibility", .type = PassType::Compute, .record = [this](PassContext& context) {
+             m_chunks->recordCulling(context.commands);
+         }}));
 
     auto chunks = graph.addPass({.name = "Chunks", .record = [this](PassContext& context) {
                                      m_constants.bind(context.commands);
@@ -117,6 +146,14 @@ Result<void> Renderer::buildGraph() {
                                       }});
     translucent.colorAttachment(color, rhi::LoadOp::Load);
     translucent.depthAttachment(depth, rhi::LoadOp::Load);
+
+    // The depth pyramid for next frame's occlusion culling. Translucent
+    // chunks write no depth, so it holds what the opaque and cutout ones hid.
+    auto hiZ = graph.addPass(
+        {.name = "HiZ", .type = PassType::Compute, .record = [this, depth](PassContext& context) {
+             m_chunks->recordOcclusionDepth(context.commands, context.texture(depth));
+         }});
+    hiZ.sampleTexture(depth);
 
     auto lines = graph.addPass({.name = "DebugDraw", .record = [this](PassContext& context) {
                                     m_constants.bind(context.commands);
@@ -162,9 +199,13 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
                                                              .seconds = time.elapsedSeconds,
                                                              .deltaSeconds = time.deltaSeconds,
                                                              .frameIndex = m_frameIndex}));
+    m_chunks->setViewSize(width, height);
     m_chunks->beginFrame(camera);
     m_debugDraw->handleInput();
     m_debugDraw->beginFrame(camera);
+    if (const std::optional<Camera> frozen = m_chunks->frozenCullingCamera()) {
+        drawFrustum(*m_debugDraw, *frozen, m_chunks->viewAspect(), 96.0);
+    }
     m_frameBegun = true;
 }
 

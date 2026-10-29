@@ -101,12 +101,12 @@ Result<std::unique_ptr<SkyRenderer>> SkyRenderer::create(const SkyDesc& desc) {
     rhi::Device& device = *desc.device;
     const auto vertex = rhi::createShaderFromFile(device, "render/sky.vert", desc.shaders);
     if (!vertex) {
-        return vertex.error().withContext("Sky: ");
+        return vertex.error().withContext("Sky");
     }
     const auto fragment = rhi::createShaderFromFile(device, "render/sky.frag", desc.shaders);
     if (!fragment) {
         device.destroy(vertex.value());
-        return fragment.error().withContext("Sky: ");
+        return fragment.error().withContext("Sky");
     }
     rhi::PipelineDesc pipeline{
         .vertex = vertex.value(), .fragment = fragment.value(), .debugName = "Sky and fog"};
@@ -120,7 +120,7 @@ Result<std::unique_ptr<SkyRenderer>> SkyRenderer::create(const SkyDesc& desc) {
     device.destroy(vertex.value());
     device.destroy(fragment.value());
     if (!created) {
-        return created.error().withContext("Sky: ");
+        return created.error().withContext("Sky");
     }
     sky->m_pipeline = created.value();
     auto sampler = device.createSampler({.minFilter = rhi::Filter::Nearest,
@@ -130,7 +130,7 @@ Result<std::unique_ptr<SkyRenderer>> SkyRenderer::create(const SkyDesc& desc) {
                                          .addressV = rhi::AddressMode::ClampToEdge,
                                          .debugName = "Sky depth sampler"});
     if (!sampler) {
-        return sampler.error().withContext("Sky: ");
+        return sampler.error().withContext("Sky");
     }
     sky->m_sampler = sampler.value();
     VXE_TRY(sky->m_ring.create(device, sizeof(SkyParams), rhi::BufferUsage::Uniform, "Sky parameters"));

@@ -138,7 +138,9 @@ void TerrainField::update(const render::Camera& camera) {
         const voxel::ChunkMesh& mesh = m_meshes[m_uploaded];
         const render::ChunkGeometry geometry{.position = mesh.position,
                                              .quads = std::as_bytes(std::span(mesh.quads)),
-                                             .groupBegin = mesh.groupBegin};
+                                             .groupBegin = mesh.groupBegin,
+                                             .connectivity = mesh.connectivity,
+                                             .bounds = {.min = mesh.boundsMin, .max = mesh.boundsMax}};
         if (m_renderer->upload(geometry) != render::ChunkRenderer::UploadResult::Uploaded) {
             break; // Budget used up: the rest goes in later frames.
         }

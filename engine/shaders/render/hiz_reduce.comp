@@ -1,0 +1,56 @@
+// Builds one level of the depth pyramid (render::HiZPyramid): every texel
+// keeps the farthest depth of the 2 x 2 texels below it. Reversed Z
+// (ADR-010) makes the farthest depth the smallest value. With
+// VXE_HIZ_FROM_DEPTH the source is the depth buffer itself (building level
+// 0); otherwise it is the previous pyramid level.
+//
+// Only source texels that cover the depth buffer are read; level L has
+// ceil(depthSize / 2^(L+1)) of them on each axis, so a texel always covers
+// exactly a 2^(L+1) block of pixels and the culling shader can find the
+// texels of a screen rectangle with shifts.
+#include "include/bindings.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+VXE_BINDING_STD140(1, 0) uniform HiZLevel {
+    ivec4 params; // xy: depth buffer size in pixels, z: the level written.
+} level;
+
+#ifdef VXE_HIZ_FROM_DEPTH
+VXE_BINDING(2, 0) uniform sampler2D depthTexture;
+#else
+VXE_IMAGE_BINDING(1, 0, r32f) readonly uniform image2D sourceLevel;
+#endif
+VXE_IMAGE_BINDING(1, 1, r32f) writeonly uniform image2D targetLevel;
+
+ivec2 validTexels(int levelIndex) {
+    const int shift = levelIndex + 1;
+    return (level.params.xy + ((1 << shift) - 1)) >> shift;
+}
+
+float sourceAt(ivec2 texel) {
+#ifdef VXE_HIZ_FROM_DEPTH
+    return texelFetch(depthTexture, texel, 0).r;
+#else
+    return imageLoad(sourceLevel, texel).r;
+#endif
+}
+
+void main() {
+    const ivec2 target = ivec2(gl_GlobalInvocationID.xy);
+    const int targetIndex = level.params.z;
+    if (any(greaterThanEqual(target, validTexels(targetIndex)))) {
+        return;
+    }
+    const ivec2 sourceSize = targetIndex == 0 ? level.params.xy : validTexels(targetIndex - 1);
+    float farthest = 1.0;
+    for (int dy = 0; dy < 2; ++dy) {
+        for (int dx = 0; dx < 2; ++dx) {
+            const ivec2 source = target * 2 + ivec2(dx, dy);
+            if (all(lessThan(source, sourceSize))) {
+                farthest = min(farthest, sourceAt(source));
+            }
+        }
+    }
+    imageStore(targetLevel, target, vec4(farthest));
+}
