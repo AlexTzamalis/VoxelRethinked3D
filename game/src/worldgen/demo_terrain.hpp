@@ -7,6 +7,7 @@
 #include <vxe/math/coords.hpp>
 #include <vxe/voxel/block_registry.hpp>
 
+#include <optional>
 #include <span>
 
 namespace vr {
@@ -43,6 +44,24 @@ struct DemoBlocks {
 class DemoTerrain {
 public:
     static constexpr vxe::i64 kSeaLevel = 62;
+    // Trees: at most one per 7 x 7 block cell; leaves reach 2 blocks from
+    // the trunk. Shared with the far terrain sampler, which places the same
+    // trees (Section 13.4, features in LOD).
+    static constexpr vxe::i64 kTreeCell = 7;
+    static constexpr vxe::i64 kLeafRadius = 2;
+
+    // Where the tree of a tree cell stands, from the seed alone (no terrain
+    // lookup), or nothing if the cell has none. The tree only grows if the
+    // ground there passes treeGrows().
+    struct TreeSpot {
+        vxe::i64 x = 0;
+        vxe::i64 z = 0;
+        vxe::i64 trunk = 4; // Blocks of trunk above the ground; the crown's top layer starts there.
+    };
+    [[nodiscard]] std::optional<TreeSpot> treeSpot(vxe::i64 cellX, vxe::i64 cellZ) const noexcept;
+    [[nodiscard]] static constexpr bool treeGrows(vxe::i64 ground) noexcept {
+        return ground > kSeaLevel + 1 && ground <= 96; // Grass only.
+    }
 
     DemoTerrain(const DemoBlocks& blocks, vxe::u64 seed) noexcept
         : m_blocks(blocks)

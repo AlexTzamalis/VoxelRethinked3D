@@ -179,6 +179,7 @@ Result<void> Renderer::buildGraph() {
 
     auto translucent = graph.addPass({.name = "ChunksTranslucent", .record = [this](PassContext& context) {
                                           m_constants.bind(context.commands);
+                                          m_sky->bindParams(context.commands, 1);
                                           m_chunks->record(context.commands, ChunkPass::Translucent);
                                       }});
     translucent.colorAttachment(color, rhi::LoadOp::Load);

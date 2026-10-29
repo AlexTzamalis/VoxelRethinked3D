@@ -71,7 +71,8 @@ DemoWorld::DemoWorld(const DemoWorldDesc& desc, const DemoBlocks& blocks)
     , m_source(m_terrain)
     , m_lodRenderer(desc.lod)
     , m_view(desc.blocks->current())
-    , m_lodSampler(m_terrain, blocks, *m_view, desc.seed) {
+    , m_lodSampler(m_terrain, blocks, *m_view, static_cast<vxe::u16>(desc.catalog->textureKeys().size()),
+                   desc.seed) {
     if (m_chunks != nullptr) {
         m_sink.emplace(*m_chunks);
     }
@@ -150,7 +151,9 @@ vxe::Result<void> DemoWorld::createTextures() {
     m_textures = textures.value();
     m_chunks->setTextures(m_textures.texture, m_textures.sampler);
     if (m_lodRenderer != nullptr) {
-        m_lodRenderer->setMaterialColors(colors);
+        // What each texture looks like from far away, plus the far terrain's
+        // own blends, so far terrain matches the chunks (Section 13.2).
+        m_lodRenderer->setMaterialColors(m_lodSampler.materialColors(m_textures.averageColors));
     }
     return {};
 }

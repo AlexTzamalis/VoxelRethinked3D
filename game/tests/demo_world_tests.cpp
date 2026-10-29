@@ -1,6 +1,7 @@
 #include "client/demo_world.hpp"
 #include "common/block_catalog.hpp"
 #include "common/catalog_state_names.hpp"
+#include "worldgen/demo_lod_sampler.hpp"
 #include "worldgen/demo_terrain.hpp"
 
 #include <vxe/config/settings.hpp>
@@ -15,9 +16,11 @@
 #include <doctest/doctest.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -183,4 +186,56 @@ TEST_CASE("Demo terrain chunks round trip through the chunk codec and region fil
         onDisk += entry.file_size();
     }
     MESSAGE(saved.size() << " terrain chunks: " << bytes << " payload bytes, " << onDisk << " bytes on disk");
+}
+
+TEST_CASE("Far terrain carries the demo trees: crowns in fine levels, a leaf tint in coarse ones") {
+    const vr::DemoBlocks ids = blocks();
+    const vr::DemoTerrain terrain(ids, 12345);
+    auto built = catalog().buildRegistry();
+    REQUIRE(built.hasValue());
+    const auto& view = built.value();
+    const auto layers = static_cast<vxe::u16>(catalog().textureKeys().size());
+    vr::DemoLodSampler sampler(terrain, ids, *view, layers, 12345);
+    const vxe::u16 leaves = view->info(ids.leaves).textureLayer(vxe::voxel::BlockFace::PosY);
+
+    // The first tree that grows near the origin.
+    std::optional<vr::DemoTerrain::TreeSpot> tree;
+    vxe::i64 ground = 0;
+    for (vxe::i64 cell = 0; !tree && cell < 400; ++cell) {
+        const auto spot = terrain.treeSpot(cell % 20, cell / 20);
+        if (spot && vr::DemoTerrain::treeGrows(terrain.surfaceHeight(spot->x, spot->z))) {
+            tree = spot;
+            ground = terrain.surfaceHeight(spot->x, spot->z);
+        }
+    }
+    REQUIRE(tree.has_value());
+    const vr::DemoTerrain::TreeSpot spot = tree.value_or(vr::DemoTerrain::TreeSpot{});
+    const std::atomic<bool> cancelled{false};
+    const vxe::voxel::LodTileKey fine = vxe::voxel::lodTileAt(1, spot.x, spot.z);
+    vxe::voxel::LodTileBuilder builder(fine);
+    REQUIRE(sampler.sampleTile(fine, {.maxSpansPerCell = 4}, builder, cancelled));
+    const vxe::voxel::LodTile tile = std::move(builder).build();
+    // The 2 x 2 cell under the trunk is all crown: leaves on top at the
+    // crown's height (trunk top plus the two 3 x 3 layers).
+    const auto cellX = static_cast<vxe::u32>((spot.x - fine.originX()) / 2);
+    const auto cellZ = static_cast<vxe::u32>((spot.z - fine.originZ()) / 2);
+    const auto spans = tile.cell(cellX, cellZ);
+    REQUIRE(!spans.empty());
+    CHECK(spans.front().topMaterial == leaves);
+    CHECK(spans.front().topY == ground + spot.trunk + 1);
+
+    // A coarse tile over the same ground has no crown spans but tinted grass.
+    const vxe::voxel::LodTileKey coarse = vxe::voxel::lodTileAt(5, spot.x, spot.z);
+    vxe::voxel::LodTileBuilder coarseBuilder(coarse);
+    REQUIRE(sampler.sampleTile(coarse, {.maxSpansPerCell = 4}, coarseBuilder, cancelled));
+    const vxe::voxel::LodTile coarseTile = std::move(coarseBuilder).build();
+    vxe::usize tinted = 0;
+    for (const vxe::voxel::LodSpan& span : coarseTile.allSpans()) {
+        tinted += span.topMaterial > layers ? 1U : 0U; // The grass and leaf blends follow the layers.
+    }
+    CHECK(tinted > 0);
+
+    // The color table: every layer, then water over its floor and 7 blends.
+    const std::vector<vxe::u32> layerColors(layers, 0xFF808080U);
+    CHECK(sampler.materialColors(layerColors).size() == vxe::usize{layers} + 8);
 }

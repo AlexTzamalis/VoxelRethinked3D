@@ -82,10 +82,6 @@ f64 fractal2(u64 seed, f64 x, f64 z, i32 octaves) noexcept {
     return sum / total;
 }
 
-// Trees: one candidate per 7 x 7 block cell.
-constexpr i64 kTreeCell = 7;
-constexpr i64 kLeafRadius = 2;
-
 } // namespace
 
 vxe::Result<DemoBlocks> DemoBlocks::fromCatalog(const BlockCatalog& catalog) {
@@ -214,17 +210,27 @@ void DemoTerrain::placeTrees(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::k
     }
 }
 
-void DemoTerrain::stampTree(const vxe::BlockPos& origin, i64 cellX, i64 cellZ,
-                            std::span<BlockStateId, vxe::kChunkVolume> out) const {
+std::optional<DemoTerrain::TreeSpot> DemoTerrain::treeSpot(i64 cellX, i64 cellZ) const noexcept {
     const u64 h = hash3(m_seed + 17, cellX, 0, cellZ);
     if (unit(h) > 0.45) {
-        return; // No tree in this cell.
+        return std::nullopt; // No tree in this cell.
     }
-    const i64 x = (cellX * kTreeCell) + 1 + static_cast<i64>((h >> 8U) % 5);
-    const i64 z = (cellZ * kTreeCell) + 1 + static_cast<i64>((h >> 16U) % 5);
+    return TreeSpot{.x = (cellX * kTreeCell) + 1 + static_cast<i64>((h >> 8U) % 5),
+                    .z = (cellZ * kTreeCell) + 1 + static_cast<i64>((h >> 16U) % 5),
+                    .trunk = 4 + static_cast<i64>((h >> 24U) % 3)};
+}
+
+void DemoTerrain::stampTree(const vxe::BlockPos& origin, i64 cellX, i64 cellZ,
+                            std::span<BlockStateId, vxe::kChunkVolume> out) const {
+    const std::optional<TreeSpot> spot = treeSpot(cellX, cellZ);
+    if (!spot) {
+        return;
+    }
+    const i64 x = spot->x;
+    const i64 z = spot->z;
     const i64 ground = surfaceHeight(x, z);
-    if (ground <= kSeaLevel + 1 || ground > 96) {
-        return; // Trees grow on grass only.
+    if (!treeGrows(ground)) {
+        return;
     }
     // Writes one block if it falls inside this chunk. Leaves only fill air;
     // the trunk replaces whatever is there.
@@ -244,8 +250,7 @@ void DemoTerrain::stampTree(const vxe::BlockPos& origin, i64 cellX, i64 cellZ,
             out[index] = state;
         }
     };
-    const i64 trunk = 4 + static_cast<i64>((h >> 24U) % 3);
-    const i64 top = ground + trunk;
+    const i64 top = ground + spot->trunk;
     for (i64 y = top - 2; y <= top + 1; ++y) {
         const i64 radius = y >= top ? 1 : kLeafRadius;
         for (i64 dz = -radius; dz <= radius; ++dz) {

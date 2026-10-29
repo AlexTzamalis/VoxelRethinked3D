@@ -415,6 +415,9 @@ private:
 struct BlockTextures {
     rhi::TextureHandle texture;
     rhi::SamplerHandle sampler;
+    // The average color of each layer (its 1 x 1 mip, RGBA8 as sRGB): what a
+    // layer looks like from far away, for the far terrain's material table.
+    std::vector<u32> averageColors;
 };
 [[nodiscard]] Result<BlockTextures> createPlaceholderBlockTextures(rhi::Device& device,
                                                                    std::span<const u32> colors);

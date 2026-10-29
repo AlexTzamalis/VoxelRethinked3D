@@ -2,6 +2,23 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#076] 2026-10-29, E11.5b LOD visual parity
+### Added
+- Far terrain in the demo carries the same trees as the chunks: DemoTerrain::treeSpot and treeGrows are shared with DemoLodSampler, which places every crown block by block in levels 1 and 2 (crown spans floating over or joined to the ground) and, in coarser levels, tints grass towards leaves by the share of the cell under crowns (in eighths), raising dense forest to the crowns' height.
+- LOD only materials in the demo: water as it looks over its dim floor and seven grass and leaf blends; DemoLodSampler::materialColors builds the table from the textures' average colors.
+- BlockTextures::averageColors: each placeholder layer's 1 x 1 mip color.
+- Shader include include/sky.glsl (sky colors, height fog, fog color) shared by the sky pass and translucent chunks; SkyRenderer::bindParams.
+- Test: the demo far terrain has a crown over a tree's trunk at the crown's height and leaf tinted grass in a coarse level; the color table has every layer plus the eight LOD only materials.
+### Changed
+- Translucent chunks (water, glass) fog themselves with the sky pass's formula; they are drawn after that pass, so distant real water stayed clear next to fogged far water.
+- The LOD shader decodes material colors with the exact sRGB curve, as the GPU does for block textures.
+- The demo's far terrain colors come from the textures' average colors instead of the base colors.
+### Performance
+- Demo world playable 0.56 to 0.58 s warm and 1.06 s cold with tree sampling (targets 1.0 s and 2.0 s).
+### Docs
+- CLAUDE.md: Section 13.4 asks the column sampler for features in LOD and seamless colors; G6.1 lists the agreed camera wishes (mouse look without a button, FOV slider, zoom on C with the scroll wheel).
+- docs/perf/lod.md: E11.5b.
+
 ## [#075] 2026-10-29, E11.5 Edit downsampling and dirty propagation
 ### Added
 - lod_downsample: chunk columns into level 1 cells (runs of visible blocks over each 2 x 2 block cell, materials from the run's top block), merging new spans into a height range of old ones, four cells into one of the next level, a tile into its parent's quadrant, and limiting spans per cell by joining across the smallest gaps.

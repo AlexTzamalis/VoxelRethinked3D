@@ -95,3 +95,24 @@ The edit job downsamples the column into its 64 level 1 cells, merges them
 with the spans outside the loaded height, and rebuilds the 32 x 32 parent
 cells over it in each level up to the clipmap's coarsest, reading and
 writing each tile in the cache. Edits run one at a time.
+
+## E11.5b LOD visual parity (2026-10-29)
+
+Far terrain now samples the demo trees and uses the textures' average
+colors, and translucent chunks fog themselves. World entry with tree
+sampling:
+
+| Case | Premap done | Far terrain ready | Playable |
+|------|-------------|-------------------|----------|
+| Cold | 640 ms | 1060 ms | 1060 ms |
+| Warm | 38 to 47 ms | 432 to 446 ms | 560 to 584 ms |
+
+Both stay inside Section 2 (2.0 s cold, 1.0 s warm). Placing every crown in
+levels 1 and 2 and counting tree spots in coarser levels made tiles slower
+to sample (cold far terrain 0.85 s before, 1.06 s now).
+
+What caused the seam at the render distance, measured on window captures:
+the real water (translucent) was drawn after the fog pass and stayed clear,
+about (62, 87, 151) against (83, 115, 166) for the fogged far water next to
+it; and the far terrain used each block's base color while the chunks show
+textures about 13% darker in linear light, without trees.

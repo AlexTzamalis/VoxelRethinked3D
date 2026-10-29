@@ -176,9 +176,13 @@ void SkyRenderer::update(f64 deltaSeconds) {
 
 void SkyRenderer::record(rhi::CommandList& commands, rhi::TextureHandle sceneDepth) const {
     commands.bindPipeline(m_pipeline);
-    commands.bindUniformBuffer(1, 0, m_ring.current(), 0, sizeof(SkyParams));
+    bindParams(commands, 0);
     commands.bindTexture(2, 0, sceneDepth, m_sampler);
     commands.draw(3);
+}
+
+void SkyRenderer::bindParams(rhi::CommandList& commands, u32 slot) const {
+    commands.bindUniformBuffer(1, slot, m_ring.current(), 0, sizeof(SkyParams));
 }
 
 } // namespace vxe::render

@@ -81,6 +81,10 @@ public:
 
     [[nodiscard]] const SkyState& state() const noexcept { return m_state; }
     [[nodiscard]] const SkyParams& params() const noexcept { return m_params; }
+    // Binds this frame's sky parameters at set 1, `slot`, for shaders that
+    // include include/sky.glsl with VXE_SKY_SLOT (translucent chunks fog
+    // themselves with it). Valid after update().
+    void bindParams(rhi::CommandList& commands, u32 slot) const;
 
 private:
     explicit SkyRenderer(const SkyDesc& desc);

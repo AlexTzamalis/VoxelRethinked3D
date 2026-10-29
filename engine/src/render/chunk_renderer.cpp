@@ -1210,6 +1210,8 @@ Result<BlockTextures> createPlaceholderBlockTextures(rhi::Device& device, std::s
     }
     std::vector<u32> pixels(usize{kSize} * kSize);
     std::vector<u32> half;
+    std::vector<u32> averages;
+    averages.reserve(layers);
     for (u32 layer = 0; layer < layers; ++layer) {
         const u32 color = colors.empty() ? 0xFFFF00FFU : colors[layer];
         for (u32 y = 0; y < kSize; ++y) {
@@ -1236,6 +1238,7 @@ Result<BlockTextures> createPlaceholderBlockTextures(rhi::Device& device, std::s
             VXE_TRY(device.uploadTexture(
                 texture.value(), {.mipLevel = mip, .layer = layer, .data = std::as_bytes(std::span(level))}));
             if (size == 1) {
+                averages.push_back(level.front());
                 break;
             }
             const u32 next = size / 2;
@@ -1269,7 +1272,8 @@ Result<BlockTextures> createPlaceholderBlockTextures(rhi::Device& device, std::s
         device.destroy(texture.value());
         return sampler.error();
     }
-    return BlockTextures{.texture = texture.value(), .sampler = sampler.value()};
+    return BlockTextures{
+        .texture = texture.value(), .sampler = sampler.value(), .averageColors = std::move(averages)};
 }
 
 } // namespace vxe::render

@@ -34,6 +34,12 @@ const float kFaceShade[6] = float[6](0.8, 0.8, 1.0, 0.5, 0.65, 0.65);
 const vec3 kLevelColors[6] = vec3[6](vec3(1.0, 0.3, 0.3), vec3(1.0, 0.7, 0.2), vec3(0.9, 1.0, 0.3),
                                      vec3(0.3, 1.0, 0.4), vec3(0.3, 0.7, 1.0), vec3(0.7, 0.4, 1.0));
 
+// The exact sRGB curve, as the GPU decodes RGBA8Srgb block textures, so far
+// terrain colors match the chunks' textures.
+vec3 srgbToLinear(vec3 color) {
+    return mix(color / 12.92, pow((color + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), color));
+}
+
 float lightCurve(float level) {
     return pow(0.8, 15.0 - level);
 }
@@ -86,7 +92,7 @@ void main() {
     vRelative = relative;
     gl_Position = frame.viewProjection * vec4(relative, 1.0);
 
-    vec3 albedo = pow(unpackUnorm4x8(materials[w2 >> 20u]).rgb, vec3(2.2));
+    vec3 albedo = srgbToLinear(unpackUnorm4x8(materials[w2 >> 20u]).rgb);
     if (lodParams.params.w > 0.5) {
         // The cell size is 2^level.
         albedo = kLevelColors[clamp(findMSB(uint(tile.origin.w)) - 1, 0, 5)];

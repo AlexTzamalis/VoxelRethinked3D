@@ -25,6 +25,7 @@ VXE_BINDING_STD430(2, 1) readonly buffer Chunks {
 
 layout(location = 0) out vec3 vUvLayer; // xy: texture coordinates in blocks, z: texture array layer.
 layout(location = 1) out vec3 vShade;   // Face brightness, ambient occlusion and light.
+layout(location = 2) out vec3 vRelative; // Camera relative position (translucent fog).
 
 // Per face (+X, -X, +Y, -Y, +Z, -Z) the U and V axes (voxel::faceAxes) and
 // the brightness of the classic directional shading (lighting stage A,
@@ -67,7 +68,8 @@ void main() {
     const uint axis = face >> 1u;
     const vec3 local = origin + kAxisU[axis] * (cornerU * width) + kAxisV[axis] * (cornerV * height);
     const ivec3 chunk = chunks[gl_BaseInstance].position.xyz;
-    gl_Position = frame.viewProjection * vec4(cameraRelative(chunk, local), 1.0);
+    vRelative = cameraRelative(chunk, local);
+    gl_Position = frame.viewProjection * vec4(vRelative, 1.0);
 
     // Textures repeat once per block. On +X and -Z faces U runs right to
     // left when seen from outside, so it is mirrored to keep textures the
