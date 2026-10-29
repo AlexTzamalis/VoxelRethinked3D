@@ -106,12 +106,14 @@ struct ChunkCullingCounts {
 // frames that drew them.
 //
 // Culling (Section 8.3). Every non empty face group of every resident chunk
-// is a candidate draw; the candidate list is rebuilt on the CPU only when
-// chunks change. Each frame the candidates go through, in order:
+// is a candidate draw; a chunk change only adds or removes that chunk's
+// candidates in the list (one region per pass), and only the changed entries
+// are copied to the GPU. Each frame the candidates go through, in order:
 //   frustum     Graphics.Culling.Frustum, with Graphics.Culling.FrustumPadding
 //   direction   Graphics.Terrain.FaceDirectionCulling (not for translucent)
 //   cave        Graphics.Culling.CaveCulling: CaveCuller over the chunks'
-//               connectivity, searched again when the camera changes chunk
+//               connectivity, searched again (on a job, setJobSystem) when
+//               the camera changes chunk or chunks change
 //   occlusion   Graphics.Culling.Occlusion: the chunk's box against the
 //               depth pyramid (HiZPyramid) built from last frame's depth
 // On the GPU (Graphics.Culling.Gpu, when the driver has indirect count
@@ -123,8 +125,9 @@ struct ChunkCullingCounts {
 // Debug.FreezeCulling keeps the camera the culling uses (and the depth
 // pyramid), so one can fly around and look at what was culled.
 //
-// Translucent draws go far to near by chunk; the order is rebuilt when the
-// camera moves into another chunk.
+// Translucent draws go far to near by chunk; the order is sorted again when
+// the camera moves into another chunk or a chunk with translucent quads
+// changes.
 //
 // Settings: World.Streaming.MaxUploadKBPerFrame, Graphics.Terrain.AoStrength,
 // Graphics.Terrain.FaceDirectionCulling, Graphics.Culling.*,
@@ -144,6 +147,9 @@ public:
     // The block texture array (Section 15.3) the quads' texture layers index,
     // and its sampler. Not owned; must outlive the renderer's draws.
     void setTextures(rhi::TextureHandle textures, rhi::SamplerHandle sampler) noexcept;
+    // Runs the cave search on `jobs` (CaveCuller::setJobSystem), or on the
+    // main thread with nullptr. Set nullptr before the job system goes away.
+    void setJobSystem(jobs::JobSystem* jobs) { m_caves.setJobSystem(jobs); }
     // Multiplies World.Streaming.MaxUploadKBPerFrame, still capped by the
     // staging memory per frame. Streaming raises it in burst mode while the
     // loading screen shows (Section 11.6).
@@ -191,6 +197,11 @@ public:
     [[nodiscard]] usize arenaCapacityBytes() const noexcept { return m_arenaBytes; }
     // Candidate draws (non empty face groups) of a pass, before culling.
     [[nodiscard]] u32 drawCount(ChunkPass pass) const noexcept;
+    // Where the pass's draws start in drawBuffer(), in draws. Each pass has
+    // a region of its own with room to grow.
+    [[nodiscard]] u32 drawFirst(ChunkPass pass) const noexcept {
+        return m_drawFirst.at(static_cast<usize>(pass));
+    }
     [[nodiscard]] usize uploadedBytesThisFrame() const noexcept { return m_stagingUsed; }
     [[nodiscard]] const ChunkCullingCounts& cullingCounts() const noexcept { return m_counts; }
     // One line for the debug overlay, for example
@@ -205,8 +216,21 @@ public:
     [[nodiscard]] rhi::BufferHandle metadataBuffer() const noexcept { return m_metadata; }
     [[nodiscard]] rhi::BufferHandle drawBuffer() const noexcept { return m_draws; }
 
+    // One indirect draw as the GPU reads it (DrawElementsIndirectCommand).
+    struct IndirectDraw {
+        u32 indexCount;
+        u32 instanceCount;
+        u32 firstIndex;
+        i32 baseVertex;
+        u32 baseInstance; // The chunk's metadata slot (gl_BaseInstance).
+    };
+
 private:
     explicit ChunkRenderer(const ChunkRendererDesc& desc);
+
+    // Passes whose draws are in no particular order (opaque, cutout).
+    static constexpr usize kSortedPassCount = 2;
+    static constexpr u32 kNoDraw = 0xFFFFFFFF;
     struct Resident {
         ChunkPos position{};
         OffsetAllocator::Allocation range{};
@@ -241,8 +265,13 @@ private:
     void registerStats();
     void release(const Resident& chunk);
     void writeMetadata(u32 slot, ChunkPos position, ChunkBounds bounds);
-    void rebuildDraws();
-    [[nodiscard]] bool growDrawBuffers(usize total);
+    [[nodiscard]] static IndirectDraw makeDraw(const Resident& chunk, usize group) noexcept;
+    void addDraws(const Resident& chunk);
+    void removeDraws(u32 slot);
+    void markDrawsChanged(u32 first, u32 count);
+    [[nodiscard]] bool relayoutDraws(const std::array<u32, kChunkPassCount>& capacities);
+    void sortTranslucent();
+    void flushDraws(rhi::CommandList& commands);
     void updateCaveBits(const Camera& cullCamera);
     void cullOnGpu(rhi::CommandList& commands, const Camera& cullCamera);
     void cullOnCpu(const Camera& cullCamera);
@@ -278,18 +307,29 @@ private:
     std::vector<DeferredFree> m_deferred;
     u64 m_frame = 0;
     u64 m_residentQuads = 0;
-    bool m_drawsDirty = true;
     ChunkPos m_cameraChunk{};
     Camera m_camera{};
     u32 m_viewWidth = 1920;
     u32 m_viewHeight = 1080;
-    // Indirect commands per pass, CPU side copy of the draw buffer, with the
-    // face of each command.
-    std::vector<std::byte> m_drawData;
+    // The draw list (see the .cpp): the CPU copy of the draw buffer with the
+    // face of each draw, one region per pass.
+    std::vector<IndirectDraw> m_drawData;
     std::vector<u32> m_drawFaceData;
-    std::array<u32, kChunkPassCount> m_drawFirst{};
-    std::array<u32, kChunkPassCount> m_drawCounts{};
-    std::vector<std::pair<i64, const Resident*>> m_sortScratch;
+    std::array<u32, kChunkPassCount> m_drawFirst{};      // Region starts.
+    std::array<u32, kChunkPassCount> m_regionCapacity{}; // Region sizes.
+    std::array<u32, kChunkPassCount> m_drawCounts{};     // Draws per region now.
+    std::array<u32, kChunkPassCount> m_gpuDrawCounts{};  // Draws per region on the GPU (last flush).
+    // Per metadata slot: where its opaque and cutout draws are, per face.
+    std::vector<std::array<u32, kSortedPassCount * kChunkFaceCount>> m_slotDraws;
+    std::vector<u32> m_translucentSlots;           // Slots with translucent quads.
+    std::vector<u32> m_translucentIndex;           // Per slot: its place in m_translucentSlots, or kNoDraw.
+    std::vector<std::pair<u32, u32>> m_dirtyDraws; // [first, end) of changed draws since the flush.
+    bool m_translucentDirty = true;
+    bool m_layoutDirty = true; // The regions moved: the whole list goes to the GPU.
+    CpuWriteRing m_drawStaging;
+    std::span<std::byte> m_drawStagingMemory;
+    usize m_drawStagingUsed = 0;
+    std::vector<std::pair<i64, u32>> m_sortScratch; // (distance, slot) of translucent chunks.
 
     // Culling.
     CaveCuller m_caves;

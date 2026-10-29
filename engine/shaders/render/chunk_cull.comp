@@ -22,7 +22,8 @@ VXE_BINDING_STD140(1, 0) uniform CullParams {
     ivec4 occlusionChunk;
     vec4 occlusionFraction;
     uvec4 occlusionSize;   // xy: depth buffer pixels, z: pyramid levels.
-    uvec4 passFirst;       // First candidate of opaque, cutout, translucent; w: all candidates.
+    uvec4 passFirst;       // Region start of opaque, cutout, translucent; w: threads to run.
+    uvec4 passCount;       // Candidates in each region (the rest of a region is unused room).
     uvec4 flags;           // x: tests, bit 0 frustum, 1 direction, 2 cave, 3 occlusion.
     vec4 tuning;           // x: frustum padding in blocks, y: near plane of the occlusion camera.
 } cull;
@@ -165,8 +166,8 @@ void main() {
     barrier();
 
     const uint index = gl_GlobalInvocationID.x;
-    if (index < cull.passFirst.w) {
-        const uint pass = index >= cull.passFirst.z ? 2u : (index >= cull.passFirst.y ? 1u : 0u);
+    const uint pass = index >= cull.passFirst.z ? 2u : (index >= cull.passFirst.y ? 1u : 0u);
+    if (index < cull.passFirst.w && index - cull.passFirst[pass] < cull.passCount[pass]) {
         const uint reason = cullReason(index, pass);
         atomicAdd(groupReasons[reason], 1u);
         DrawCommand draw = candidates[index];

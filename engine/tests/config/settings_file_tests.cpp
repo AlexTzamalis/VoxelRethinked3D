@@ -122,6 +122,26 @@ TEST_CASE("Saved settings load back into a fresh registry") {
     CHECK(b.worldTick.get() == 60);
 }
 
+TEST_CASE("Settings registered after loading take their saved value, and save once") {
+    SettingsRegistry original;
+    const TestSettings a(original);
+    REQUIRE(a.renderDistance.set(32).hasValue());
+    REQUIRE(a.presentMode.set(PresentMode::Adaptive).hasValue());
+    const std::string text = vxe::config::saveSettingsToString(original);
+
+    // Loaded before anything registered: every key is unknown for now.
+    SettingsRegistry later;
+    REQUIRE(vxe::config::loadSettingsFromString(later, text).hasValue());
+    CHECK_FALSE(later.unknown(Scope::Global).empty());
+    const TestSettings b(later);
+    CHECK(b.renderDistance.get() == 32);
+    CHECK(b.presentMode.get() == PresentMode::Adaptive);
+    CHECK(later.unknown(Scope::Global).empty());
+    const std::string saved = vxe::config::saveSettingsToString(later);
+    CHECK(saved.find("RenderDistance") == saved.rfind("RenderDistance"));
+    CHECK(vxe::config::loadSettingsFromString(later, saved).hasValue()); // Valid TOML: no key twice.
+}
+
 TEST_CASE("A hand edited file loads, with warnings instead of failures") {
     constexpr std::string_view kHandEdited = R"(
 # My settings, edited in Notepad.

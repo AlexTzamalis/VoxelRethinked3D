@@ -53,5 +53,49 @@ With chunks arriving every frame, the frame rate dropped from 1786 FPS
 average (1% low 934) standing still to 1204 to 1357 FPS (1% low 359 to 449)
 in the flight. Timing probes in the chunk renderer showed why: every chunk
 change rebuilt and uploaded the whole draw list (0.55 ms average, 3.5 ms
-max) and searched the caves again (0.51 ms average, 1.8 ms max). The
-follow up commit makes both incremental or asynchronous.
+max) and searched the caves again (0.51 ms average, 1.8 ms max).
+
+The second E9.7 commit changes both:
+
+- The draw list has a region per pass. A chunk adds or removes only its own
+  entries (removal moves the region's last entry into the gap), translucent
+  entries are sorted again only when the camera changes chunk or a chunk
+  with translucent quads changes, and only changed ranges are copied to the
+  GPU through a small staging ring.
+- The cave search runs on a job; the main thread copies the chunk list and
+  keeps using the previous result, with every chunk visible until the result
+  for the camera's current chunk is in.
+
+Timing probes in the same flight afterwards (per call, release):
+
+| Work | Before | After |
+|------|--------|-------|
+| Draw list per chunk change: full rebuild, now flushDraws | 0.55 ms average, 3.5 ms max | 0.004 ms average |
+| Translucent sort (about 12 percent of frames) | part of the rebuild | 0.06 ms average, 0.55 ms max |
+| Cave search on the main thread, now cave bits only | 0.51 ms average, 1.8 ms max | 0.008 ms average |
+| recordCulling in all | | 0.033 ms average |
+
+Whole frames, 20,000 frames each, release:
+
+| Run | Average FPS | 1% low FPS |
+|-----|-------------|------------|
+| Standing still, before | 1786 to 1964 | 934 to 1279 |
+| Standing still, after | 1965 to 1985 | 1183 to 1319 |
+| Flight at 300 blocks per second, before | 1204 to 1357 | 359 to 449 |
+| Flight, after the cave search moved to a job | 1222 to 1598 | 487 to 579 |
+| Flight, after both changes | 1135 to 1694 | 558 to 741 |
+
+Allocations per frame during the flight went from 14 to 54 down to 1.
+
+### Main thread stalls
+
+Over about 200,000 flight frames after these changes, the streaming update
+stayed under 1 ms except for 0 to 5 updates per 20,000 (at most 0.03
+percent), most of them 1.2 to 2.7 ms and once 5.8 ms. In every slow update
+logged with per step timings, a single tiny operation had stalled: one chunk
+snapshot (normally 3 to 5 us) or one job schedule call took 0.2 to 1.9 ms. A probe that only read the clock 200 times
+per frame (about 5 us) found the same 0.18 ms gaps during the flight (9 in
+15,000 frames) and almost none standing still (2), so the main thread itself
+is interrupted while the machine is busy; the streaming work is not what
+takes the time. Running the workers below normal thread priority made no
+measurable difference and was not kept.

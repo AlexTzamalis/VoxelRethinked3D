@@ -345,6 +345,7 @@ private:
                                                           std::vector<EnumOption> options);
     [[nodiscard]] detail::SettingEntry* findEntry(std::string_view id) const;
     static void storeValue(detail::SettingEntry& entry, const SettingValue& value);
+    void adoptUnknown(detail::SettingEntry& entry);
     void unsubscribe(u64 id) noexcept;
     void assertOwnerThread() const noexcept;
 

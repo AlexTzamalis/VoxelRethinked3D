@@ -237,6 +237,21 @@ void walk(const toml::table& table, const std::string& prefix, SettingsRegistry&
 
 } // namespace
 
+Result<SettingValue> parseTomlSettingValue(const SettingInfo& info, std::string_view tomlValueText) {
+    toml::table table;
+    try {
+        table = toml::parse(std::format("value = {}", tomlValueText));
+    } catch (const toml::parse_error& error) {
+        return Error(ErrorCode::ParseError, std::format("'{}' = {} is not valid TOML: {}", info.id,
+                                                        tomlValueText, error.description()));
+    }
+    const toml::node* node = table.get("value");
+    if (node == nullptr) {
+        return Error(ErrorCode::ParseError, std::format("'{}' has no value", info.id));
+    }
+    return convert(info, *node);
+}
+
 Result<LoadReport> loadSettingsFromString(SettingsRegistry& registry, std::string_view toml, Scope scope) {
     toml::table root;
     // toml++ reports parse errors by exception. The engine does not throw

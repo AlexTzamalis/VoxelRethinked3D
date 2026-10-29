@@ -2,6 +2,21 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#065] 2026-10-29, E9.7 Streaming without renderer hitches
+### Changed
+- The chunk draw list changes in place instead of being rebuilt for every chunk change. It has a region per pass with room to grow; a chunk adds or removes only its own entries (removing moves the region's last entry into the gap), the translucent region is sorted far to near again only when the camera changes chunk or a chunk with translucent quads changes, and only changed ranges are copied to the GPU through a 1 MB per frame staging ring. The culling shader takes a start and a count per region. ChunkRenderer::drawFirst tells where a pass's draws start.
+- The cave search runs on a job when the renderer has a job system (ChunkRenderer::setJobSystem, CaveCuller::setJobSystem; the engine loop sets it). The main thread copies the chunk list and keeps using the previous result; until the result for the camera's current chunk is in, every chunk counts as visible, so a stale result never hides anything.
+- The Null device performs buffer copies, so tests can read back what staging copies put into a buffer.
+### Fixed
+- Settings registered after the settings file was loaded (world streaming and the mesh settings register when a world starts) now take their saved value. Before, their keys stayed "unknown" and were written a second time at save, and the next start rejected the whole file ("cannot redefine existing boolean").
+### Added
+- Tests: the draw list against a full rebuild through 300 rounds of random uploads, replacements and removals; the cave search on a job against the one on the calling thread, including the everything visible window; settings registered after loading.
+### Performance
+- Flight at 300 blocks per second, demo world, render distance 16, release: draw list work per chunk change 0.004 ms on average instead of a 0.55 ms rebuild (up to 3.5 ms); cave work on the main thread 0.008 ms instead of 0.51 ms (up to 1.8 ms); 1% low FPS 558 to 741 instead of 359 to 449; allocations per frame 1 instead of 14 to 54. Standing still unchanged (about 1970 FPS, 1% low 1183 to 1319).
+- Streaming main thread time stays under 1 ms except for 0 to 5 updates in 20,000 (most 1.2 to 2.7 ms), each one a single snapshot or job schedule call stalled for 0.2 to 1.9 ms; a probe that only reads the clock sees the same stalls while the machine is busy, so they come from the system, not from streaming work.
+### Docs
+- docs/perf/streaming.md: renderer costs before and after, whole frame numbers and the main thread stall analysis.
+
 ## [#064] 2026-10-29, E9.7 Streaming manager
 ### Added
 - voxel::StreamingManager (Section 11): decides which chunks exist around the camera and drives each through the pipeline: request, load or generate on workers, insert into the VoxelWorld, mesh on workers once all 26 neighbors are there, upload within the sink's budget, unload. Chunks load within render distance + 1 (so every meshed chunk has its border), are meshed within the render distance, and stay for World.Streaming.UnloadHysteresisChunks more before they go, so a meshed chunk never sees a neighbor arrive and is meshed once. Remeshing follows edits (the world's changed chunk list), mesh setting changes (Graphics.Terrain) and new block registry views.

@@ -347,6 +347,9 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
     if (services.overlay) {
         services.overlay->setJobSystem(services.jobs.get());
     }
+    if (services.renderer) {
+        services.renderer->chunks().setJobSystem(services.jobs.get());
+    }
 
     // Engine owned settings, registered before the application's own.
     const config::Setting<bool> bindByKeyName = input::registerInputSettings(*services.settings);
@@ -450,6 +453,9 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
     }
     if (services.overlay) {
         services.overlay->setJobSystem(nullptr);
+    }
+    if (services.renderer) {
+        services.renderer->chunks().setJobSystem(nullptr);
     }
     services.jobs.reset();
     application.reset();

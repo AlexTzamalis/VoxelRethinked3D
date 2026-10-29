@@ -22,15 +22,14 @@ using rhi::BufferUsage;
 constexpr u32 kMaxQuadsPerDraw = 16 * 16 * 16;
 constexpr u32 kIndicesPerQuad = 6;
 
-// One indirect draw as the GPU reads it (DrawElementsIndirectCommand).
-struct IndirectDraw {
-    u32 indexCount;
-    u32 instanceCount;
-    u32 firstIndex;
-    i32 baseVertex;
-    u32 baseInstance; // The chunk's metadata slot (gl_BaseInstance).
-};
+using IndirectDraw = ChunkRenderer::IndirectDraw;
 static_assert(sizeof(IndirectDraw) == 20);
+
+// First capacities of the draw list regions; a full region doubles.
+constexpr std::array<u32, kChunkPassCount> kFirstRegionCapacity = {8192, 2048, 2048};
+// CPU write memory per frame for copying changed draws to the GPU; larger
+// changes go through Device::updateBuffer.
+constexpr usize kDrawStagingBytes = usize{1} << 20U;
 
 // Per chunk shader data (ChunkInfo in render/chunk.vert and chunk_cull.comp).
 struct ChunkInfo {
@@ -52,10 +51,11 @@ struct CullParams {
     Vec4 occlusionFraction{0.0F};
     glm::uvec4 occlusionSize{0};
     glm::uvec4 passFirst{0};
+    glm::uvec4 passCount{0};
     glm::uvec4 flags{0};
     Vec4 tuning{0.0F};
 };
-static_assert(sizeof(CullParams) == (6 * 16) + (2 * 16) + 64 + (6 * 16));
+static_assert(sizeof(CullParams) == (6 * 16) + (2 * 16) + 64 + (7 * 16));
 
 // The counts buffer of the culling shader: survivors per pass, then the
 // number of groups per reason (visible, frustum, direction, cave, occlusion).
@@ -160,6 +160,11 @@ ChunkRenderer::ChunkRenderer(const ChunkRendererDesc& desc)
         m_freeSlots.push_back(slot - 1);
     }
     m_slotInfo.resize(desc.maxChunks);
+    m_slotDraws.resize(desc.maxChunks);
+    for (auto& draws : m_slotDraws) {
+        draws.fill(kNoDraw);
+    }
+    m_translucentIndex.assign(desc.maxChunks, kNoDraw);
     m_caveBits.assign((usize{desc.maxChunks} + 31) / 32, 0xFFFFFFFFU);
 }
 
@@ -304,6 +309,11 @@ Result<void> ChunkRenderer::createCulling(const ChunkRendererDesc& desc) {
     VXE_TRY(m_device.updateBuffer(m_caveBitsBuffer, 0, std::as_bytes(std::span(m_caveBits))));
     VXE_TRY(
         m_cullParams.create(m_device, sizeof(CullParams), BufferUsage::Uniform, "Chunk culling parameters"));
+    VXE_TRY(
+        m_drawStaging.create(m_device, kDrawStagingBytes, BufferUsage::TransferSrc, "Chunk draw changes"));
+    if (!relayoutDraws(kFirstRegionCapacity)) {
+        return Error(ErrorCode::OutOfMemory, "Could not create the chunk draw buffers");
+    }
     for (Readback& readback : m_readbacks) {
         auto buffer = m_device.createBuffer({.sizeBytes = kCountsBytes,
                                              .usage = BufferUsage::CpuRead | BufferUsage::TransferDst,
@@ -401,6 +411,7 @@ ChunkRenderer::~ChunkRenderer() {
     m_staging.destroy(m_device);
     m_cullParams.destroy(m_device);
     m_cpuDraws.destroy(m_device);
+    m_drawStaging.destroy(m_device);
     m_hiZ.reset();
     for (const rhi::PipelineHandle pipeline : m_pipelines) {
         if (pipeline.isValid()) {
@@ -454,6 +465,8 @@ void ChunkRenderer::beginFrame(const Camera& camera) {
     ++m_frame;
     m_stagingMemory = m_staging.next(m_device);
     m_stagingUsed = 0;
+    m_drawStagingMemory = m_drawStaging.next(m_device);
+    m_drawStagingUsed = 0;
     m_pendingCopies.clear();
     m_cullPath = CullPath::None;
     // next() waited for the GPU to finish the frame kFramesInFlight ago, so
@@ -472,7 +485,7 @@ void ChunkRenderer::beginFrame(const Camera& camera) {
     const ChunkPos cameraChunk = camera.renderPosition().chunk;
     if (cameraChunk != m_cameraChunk) {
         m_cameraChunk = cameraChunk;
-        m_drawsDirty = true; // The translucent order depends on it.
+        m_translucentDirty = true; // The far to near order depends on it.
     }
     if (m_freezeCulling.get()) {
         if (!m_frozenCamera) {
@@ -508,9 +521,9 @@ ChunkRenderer::UploadResult ChunkRenderer::upload(const ChunkGeometry& geometry)
     if (bytes == 0) {
         // Nothing to draw, but the chunk may still block the view.
         if (const auto it = m_chunks.find(geometry.position); it != m_chunks.end()) {
+            removeDraws(it->second.slot);
             release(it->second);
             m_chunks.erase(it);
-            m_drawsDirty = true;
             m_caveBitsDirty = true;
         }
         m_caves.setChunk(geometry.position, geometry.connectivity);
@@ -548,24 +561,28 @@ ChunkRenderer::UploadResult ChunkRenderer::upload(const ChunkGeometry& geometry)
         // The old range may still be drawn by frames in flight; the slot
         // keeps its position, so it is reused right away.
         Resident& chunk = existing->second;
+        removeDraws(chunk.slot);
         m_residentQuads -= m_allocator.sizeOf(chunk.range);
         m_deferred.push_back({.frame = m_frame, .range = chunk.range, .slot = OffsetAllocator::kNoSpace});
         chunk.range = range;
         chunk.groupBegin = geometry.groupBegin;
         writeMetadata(chunk.slot, geometry.position, geometry.bounds);
+        addDraws(chunk);
     } else {
         const u32 slot = m_freeSlots.back();
         m_freeSlots.pop_back();
         writeMetadata(slot, geometry.position, geometry.bounds);
-        m_chunks.emplace(geometry.position, Resident{.position = geometry.position,
-                                                     .range = range,
-                                                     .slot = slot,
-                                                     .groupBegin = geometry.groupBegin});
+        const auto inserted = m_chunks
+                                  .emplace(geometry.position, Resident{.position = geometry.position,
+                                                                       .range = range,
+                                                                       .slot = slot,
+                                                                       .groupBegin = geometry.groupBegin})
+                                  .first;
+        addDraws(inserted->second);
         m_caveBitsDirty = true;
     }
     m_caves.setChunk(geometry.position, geometry.connectivity);
     m_residentQuads += quads;
-    m_drawsDirty = true;
     return UploadResult::Uploaded;
 }
 
@@ -575,9 +592,9 @@ bool ChunkRenderer::remove(ChunkPos position) {
     if (it == m_chunks.end()) {
         return false;
     }
+    removeDraws(it->second.slot);
     release(it->second);
     m_chunks.erase(it);
-    m_drawsDirty = true;
     m_caveBitsDirty = true;
     return true;
 }
@@ -607,121 +624,272 @@ void ChunkRenderer::recordUploads(rhi::CommandList& commands) {
     if (!m_pendingCopies.empty()) {
         commands.resourceBarrier(rhi::BarrierScope::StorageData);
     }
-    if (m_drawsDirty) {
-        rebuildDraws();
-    }
+    flushDraws(commands);
     publishStats();
 }
 
-void ChunkRenderer::rebuildDraws() {
-    VXE_PROFILE_FUNCTION();
-    m_drawsDirty = false;
-    // Culling results this frame index the old list.
-    m_cullPath = CullPath::None;
-    m_drawData.clear();
-    m_drawFaceData.clear();
-    std::array<std::vector<IndirectDraw>, kChunkPassCount> perPass;
-    std::array<std::vector<u32>, kChunkPassCount> perPassFaces;
-    const auto addDraws = [&](const Resident& chunk, usize pass) {
-        for (u32 face = 0; face < kChunkFaceCount; ++face) {
-            const usize group = (pass * kChunkFaceCount) + face;
-            const u32 first = chunk.groupBegin.at(group);
-            const u32 count = std::min(chunk.groupBegin.at(group + 1) - first, kMaxQuadsPerDraw);
-            if (count == 0) {
-                continue;
-            }
-            perPass.at(pass).push_back({.indexCount = count * kIndicesPerQuad,
-                                        .instanceCount = 1,
-                                        .firstIndex = 0,
-                                        .baseVertex = static_cast<i32>((chunk.range.offset + first) * 4),
-                                        .baseInstance = chunk.slot});
-            perPassFaces.at(pass).push_back(face);
-        }
-    };
-    m_sortScratch.clear();
-    for (const auto& entry : m_chunks) {
-        const Resident& chunk = entry.second;
-        addDraws(chunk, static_cast<usize>(ChunkPass::Opaque));
-        addDraws(chunk, static_cast<usize>(ChunkPass::Cutout));
-        const usize translucent = static_cast<usize>(ChunkPass::Translucent) * kChunkFaceCount;
-        if (chunk.groupBegin.at(translucent + kChunkFaceCount) > chunk.groupBegin.at(translucent)) {
-            const i64 dx = static_cast<i64>(chunk.position.x) - m_cameraChunk.x;
-            const i64 dy = static_cast<i64>(chunk.position.y) - m_cameraChunk.y;
-            const i64 dz = static_cast<i64>(chunk.position.z) - m_cameraChunk.z;
-            m_sortScratch.emplace_back((dx * dx) + (dy * dy) + (dz * dz), &chunk);
-        }
-    }
-    // Blended chunks far to near, so nearer water and glass blend over farther ones.
-    std::ranges::sort(m_sortScratch, [](const auto& a, const auto& b) { return a.first > b.first; });
-    for (const auto& [distance, chunk] : m_sortScratch) {
-        addDraws(*chunk, static_cast<usize>(ChunkPass::Translucent));
-    }
+// The draw list. Every non empty face group of a resident chunk is one
+// candidate draw. The list has a region per pass (opaque, cutout,
+// translucent), each a dense array with room to grow, so the culling shader
+// and the draws address a pass by its region start. Opaque and cutout
+// entries are in no particular order: a chunk adds its entries at the end of
+// a region, and removing one moves the region's last entry into the gap, so
+// a chunk change touches a dozen entries instead of rebuilding the list (with
+// chunks streaming in every frame, a full rebuild cost 0.55 ms on average
+// and up to 3.5 ms). m_slotDraws remembers where each chunk's entries are.
+// Translucent entries must stay far to near, so that region is sorted again
+// when the camera changes chunk or a chunk with translucent quads changes;
+// only those chunks are walked. Changed entries reach the GPU as copies from
+// a small staging ring in flushDraws().
 
-    usize total = 0;
-    for (usize pass = 0; pass < kChunkPassCount; ++pass) {
-        m_drawFirst.at(pass) = static_cast<u32>(total);
-        m_drawCounts.at(pass) = static_cast<u32>(perPass.at(pass).size());
-        total += perPass.at(pass).size();
-    }
-    if (!growDrawBuffers(total)) {
-        m_drawCounts.fill(0);
-        return;
-    }
-    for (usize pass = 0; pass < kChunkPassCount; ++pass) {
-        const auto bytes = std::as_bytes(std::span(perPass.at(pass)));
-        m_drawData.insert(m_drawData.end(), bytes.begin(), bytes.end());
-        m_drawFaceData.insert(m_drawFaceData.end(), perPassFaces.at(pass).begin(),
-                              perPassFaces.at(pass).end());
-    }
-    if (!m_drawData.empty()) {
-        static_cast<void>(m_device.updateBuffer(m_draws, 0, m_drawData));
-        static_cast<void>(m_device.updateBuffer(m_drawFaces, 0, std::as_bytes(std::span(m_drawFaceData))));
+IndirectDraw ChunkRenderer::makeDraw(const Resident& chunk, usize group) noexcept {
+    const u32 first = chunk.groupBegin.at(group);
+    const u32 count = std::min(chunk.groupBegin.at(group + 1) - first, kMaxQuadsPerDraw);
+    return {.indexCount = count * kIndicesPerQuad,
+            .instanceCount = 1,
+            .firstIndex = 0,
+            .baseVertex = static_cast<i32>((chunk.range.offset + first) * 4),
+            .baseInstance = chunk.slot};
+}
+
+void ChunkRenderer::markDrawsChanged(u32 first, u32 count) {
+    if (count > 0) {
+        m_dirtyDraws.emplace_back(first, first + count);
     }
 }
 
-// Grows the candidate, face and survivor buffers to the next power of two
-// that holds `total` draws; the device destroys the old ones once the GPU is
-// done with them.
-bool ChunkRenderer::growDrawBuffers(usize total) {
-    if (total <= m_drawCapacity) {
-        return true;
-    }
-    usize capacity = std::max<usize>(m_drawCapacity, 1024);
-    while (capacity < total) {
-        capacity *= 2;
-    }
-    for (rhi::BufferHandle* buffer : {&m_draws, &m_drawFaces, &m_survivors}) {
-        if (buffer->isValid()) {
-            m_device.destroy(*buffer);
-            *buffer = {};
+void ChunkRenderer::addDraws(const Resident& chunk) {
+    for (usize pass = 0; pass < kSortedPassCount; ++pass) {
+        for (u32 face = 0; face < kChunkFaceCount; ++face) {
+            const usize group = (pass * kChunkFaceCount) + face;
+            if (chunk.groupBegin.at(group + 1) == chunk.groupBegin.at(group)) {
+                continue;
+            }
+            if (m_drawCounts.at(pass) == m_regionCapacity.at(pass)) {
+                std::array<u32, kChunkPassCount> grown = m_regionCapacity;
+                grown.at(pass) *= 2;
+                if (!relayoutDraws(grown)) {
+                    return; // Out of GPU memory: the chunk stays undrawn.
+                }
+            }
+            const u32 index = m_drawFirst.at(pass) + m_drawCounts.at(pass)++;
+            m_drawData[index] = makeDraw(chunk, group);
+            m_drawFaceData[index] = face;
+            m_slotDraws[chunk.slot].at(group) = index;
+            markDrawsChanged(index, 1);
         }
     }
-    m_drawCapacity = 0;
-    auto draws = m_device.createBuffer({.sizeBytes = capacity * sizeof(IndirectDraw),
-                                        .usage = BufferUsage::Indirect | BufferUsage::Storage |
-                                                 BufferUsage::TransferDst | BufferUsage::TransferSrc,
-                                        .debugName = "Chunk draws"});
-    auto faces = m_device.createBuffer({.sizeBytes = capacity * sizeof(u32),
-                                        .usage = BufferUsage::Storage | BufferUsage::TransferDst,
-                                        .debugName = "Chunk draw faces"});
-    auto survivors = m_device.createBuffer(
-        {.sizeBytes = capacity * sizeof(IndirectDraw),
+    const usize translucent = static_cast<usize>(ChunkPass::Translucent) * kChunkFaceCount;
+    if (chunk.groupBegin.at(translucent + kChunkFaceCount) > chunk.groupBegin.at(translucent)) {
+        m_translucentIndex[chunk.slot] = static_cast<u32>(m_translucentSlots.size());
+        m_translucentSlots.push_back(chunk.slot);
+        m_translucentDirty = true;
+    }
+}
+
+void ChunkRenderer::removeDraws(u32 slot) {
+    std::array<u32, kSortedPassCount * kChunkFaceCount>& draws = m_slotDraws[slot];
+    for (usize group = 0; group < draws.size(); ++group) {
+        const u32 index = draws.at(group);
+        if (index == kNoDraw) {
+            continue;
+        }
+        draws.at(group) = kNoDraw;
+        const usize pass = group / kChunkFaceCount;
+        const u32 last = m_drawFirst.at(pass) + --m_drawCounts.at(pass);
+        if (index != last) {
+            // The region's last entry fills the gap; its chunk learns where.
+            m_drawData[index] = m_drawData[last];
+            m_drawFaceData[index] = m_drawFaceData[last];
+            const usize movedGroup = (pass * kChunkFaceCount) + m_drawFaceData[index];
+            m_slotDraws[m_drawData[index].baseInstance].at(movedGroup) = index;
+            markDrawsChanged(index, 1);
+        }
+    }
+    if (const u32 place = m_translucentIndex[slot]; place != kNoDraw) {
+        const u32 moved = m_translucentSlots.back();
+        m_translucentSlots[place] = moved;
+        m_translucentIndex[moved] = place;
+        m_translucentSlots.pop_back();
+        m_translucentIndex[slot] = kNoDraw;
+        m_translucentDirty = true;
+    }
+}
+
+// Gives the regions new capacities: new GPU buffers (the device destroys the
+// old ones once the GPU is done with them) and every entry moved to its
+// region's new start. The whole list goes to the GPU at the next flush.
+bool ChunkRenderer::relayoutDraws(const std::array<u32, kChunkPassCount>& capacities) {
+    VXE_PROFILE_FUNCTION();
+    usize total = 0;
+    std::array<u32, kChunkPassCount> first{};
+    for (usize pass = 0; pass < kChunkPassCount; ++pass) {
+        first.at(pass) = static_cast<u32>(total);
+        total += capacities.at(pass);
+    }
+    rhi::BufferHandle draws;
+    rhi::BufferHandle faces;
+    rhi::BufferHandle survivors;
+    auto createdDraws = m_device.createBuffer({.sizeBytes = total * sizeof(IndirectDraw),
+                                               .usage = BufferUsage::Indirect | BufferUsage::Storage |
+                                                        BufferUsage::TransferDst | BufferUsage::TransferSrc,
+                                               .debugName = "Chunk draws"});
+    auto createdFaces = m_device.createBuffer({.sizeBytes = total * sizeof(u32),
+                                               .usage = BufferUsage::Storage | BufferUsage::TransferDst,
+                                               .debugName = "Chunk draw faces"});
+    auto createdSurvivors = m_device.createBuffer(
+        {.sizeBytes = total * sizeof(IndirectDraw),
          .usage = BufferUsage::Indirect | BufferUsage::Storage | BufferUsage::TransferSrc,
          .debugName = "Chunk draws after culling"});
-    if (draws) {
-        m_draws = draws.value();
+    if (createdDraws) {
+        draws = createdDraws.value();
     }
-    if (faces) {
-        m_drawFaces = faces.value();
+    if (createdFaces) {
+        faces = createdFaces.value();
     }
-    if (survivors) {
-        m_survivors = survivors.value();
+    if (createdSurvivors) {
+        survivors = createdSurvivors.value();
     }
-    if (!draws || !faces || !survivors) {
+    if (!createdDraws || !createdFaces || !createdSurvivors) {
+        for (const rhi::BufferHandle buffer : {draws, faces, survivors}) {
+            if (buffer.isValid()) {
+                m_device.destroy(buffer);
+            }
+        }
         return false;
     }
-    m_drawCapacity = capacity;
+    for (const rhi::BufferHandle buffer : {m_draws, m_drawFaces, m_survivors}) {
+        if (buffer.isValid()) {
+            m_device.destroy(buffer);
+        }
+    }
+    m_draws = draws;
+    m_drawFaces = faces;
+    m_survivors = survivors;
+
+    std::vector<IndirectDraw> drawData(total);
+    std::vector<u32> faceData(total, 0);
+    for (usize pass = 0; pass < kChunkPassCount; ++pass) {
+        const u32 from = m_drawFirst.at(pass);
+        const u32 to = first.at(pass);
+        const u32 count = m_drawCounts.at(pass);
+        std::copy_n(m_drawData.begin() + from, count, drawData.begin() + to);
+        std::copy_n(m_drawFaceData.begin() + from, count, faceData.begin() + to);
+        if (pass < kSortedPassCount) {
+            for (u32 i = 0; i < count; ++i) {
+                const usize group = (pass * kChunkFaceCount) + faceData[to + i];
+                m_slotDraws[drawData[to + i].baseInstance].at(group) = to + i;
+            }
+        }
+    }
+    m_drawData = std::move(drawData);
+    m_drawFaceData = std::move(faceData);
+    m_drawFirst = first;
+    m_regionCapacity = capacities;
+    m_drawCapacity = total;
+    m_dirtyDraws.clear();
+    m_layoutDirty = true;
     return true;
+}
+
+// Writes the translucent region far to near by chunk, so nearer water and
+// glass blend over farther ones.
+void ChunkRenderer::sortTranslucent() {
+    VXE_PROFILE_FUNCTION();
+    m_translucentDirty = false;
+    m_sortScratch.clear();
+    u32 needed = 0;
+    for (const u32 slot : m_translucentSlots) {
+        const ChunkPos position = m_slotInfo[slot].position;
+        const i64 dx = static_cast<i64>(position.x) - m_cameraChunk.x;
+        const i64 dy = static_cast<i64>(position.y) - m_cameraChunk.y;
+        const i64 dz = static_cast<i64>(position.z) - m_cameraChunk.z;
+        m_sortScratch.emplace_back((dx * dx) + (dy * dy) + (dz * dz), slot);
+        needed += kChunkFaceCount;
+    }
+    constexpr auto kTranslucent = static_cast<usize>(ChunkPass::Translucent);
+    if (needed > m_regionCapacity.at(kTranslucent)) {
+        std::array<u32, kChunkPassCount> grown = m_regionCapacity;
+        while (grown.at(kTranslucent) < needed) {
+            grown.at(kTranslucent) *= 2;
+        }
+        if (!relayoutDraws(grown)) {
+            m_drawCounts.at(kTranslucent) = 0;
+            return;
+        }
+    }
+    std::ranges::sort(m_sortScratch, [](const auto& a, const auto& b) { return a.first > b.first; });
+    const u32 first = m_drawFirst.at(kTranslucent);
+    u32 count = 0;
+    for (const auto& [distance, slot] : m_sortScratch) {
+        const auto it = m_chunks.find(m_slotInfo[slot].position);
+        VXE_ASSERT(it != m_chunks.end(), "A translucent slot without its chunk");
+        for (u32 face = 0; face < kChunkFaceCount; ++face) {
+            const usize group = (kTranslucent * kChunkFaceCount) + face;
+            if (it->second.groupBegin.at(group + 1) == it->second.groupBegin.at(group)) {
+                continue;
+            }
+            m_drawData[first + count] = makeDraw(it->second, group);
+            m_drawFaceData[first + count] = face;
+            ++count;
+        }
+    }
+    m_drawCounts.at(kTranslucent) = count;
+    markDrawsChanged(first, count);
+}
+
+// Sends this frame's draw list changes to the GPU: copies of the changed
+// ranges through the draw staging ring, or the whole list after a relayout.
+// Record outside render passes.
+void ChunkRenderer::flushDraws(rhi::CommandList& commands) {
+    if (m_translucentDirty) {
+        sortTranslucent();
+    }
+    if (m_layoutDirty) {
+        m_layoutDirty = false;
+        m_dirtyDraws.clear();
+        static_cast<void>(m_device.updateBuffer(m_draws, 0, std::as_bytes(std::span(m_drawData))));
+        static_cast<void>(m_device.updateBuffer(m_drawFaces, 0, std::as_bytes(std::span(m_drawFaceData))));
+    } else if (!m_dirtyDraws.empty()) {
+        // Overlapping and touching ranges become one copy.
+        std::ranges::sort(m_dirtyDraws);
+        usize merged = 0;
+        for (usize i = 1; i < m_dirtyDraws.size(); ++i) {
+            if (m_dirtyDraws[i].first <= m_dirtyDraws[merged].second) {
+                m_dirtyDraws[merged].second = std::max(m_dirtyDraws[merged].second, m_dirtyDraws[i].second);
+            } else {
+                m_dirtyDraws[++merged] = m_dirtyDraws[i];
+            }
+        }
+        m_dirtyDraws.resize(merged + 1);
+        bool copied = false;
+        for (const auto& [begin, end] : m_dirtyDraws) {
+            const auto drawBytes = std::as_bytes(std::span(m_drawData).subspan(begin, end - begin));
+            const auto faceBytes = std::as_bytes(std::span(m_drawFaceData).subspan(begin, end - begin));
+            if (m_drawStagingUsed + drawBytes.size() + faceBytes.size() <= m_drawStagingMemory.size()) {
+                std::memcpy(m_drawStagingMemory.data() + m_drawStagingUsed, drawBytes.data(),
+                            drawBytes.size());
+                commands.copyBuffer(m_drawStaging.current(), m_drawStagingUsed, m_draws,
+                                    usize{begin} * sizeof(IndirectDraw), drawBytes.size());
+                m_drawStagingUsed += drawBytes.size();
+                std::memcpy(m_drawStagingMemory.data() + m_drawStagingUsed, faceBytes.data(),
+                            faceBytes.size());
+                commands.copyBuffer(m_drawStaging.current(), m_drawStagingUsed, m_drawFaces,
+                                    usize{begin} * sizeof(u32), faceBytes.size());
+                m_drawStagingUsed += faceBytes.size();
+                copied = true;
+            } else {
+                static_cast<void>(
+                    m_device.updateBuffer(m_draws, usize{begin} * sizeof(IndirectDraw), drawBytes));
+                static_cast<void>(m_device.updateBuffer(m_drawFaces, usize{begin} * sizeof(u32), faceBytes));
+            }
+        }
+        if (copied) {
+            commands.resourceBarrier(rhi::BarrierScope::StorageData | rhi::BarrierScope::IndirectCommands);
+        }
+        m_dirtyDraws.clear();
+    }
+    m_gpuDrawCounts = m_drawCounts;
 }
 
 void ChunkRenderer::updateCaveBits(const Camera& cullCamera) {
@@ -743,15 +911,13 @@ void ChunkRenderer::updateCaveBits(const Camera& cullCamera) {
 
 void ChunkRenderer::recordCulling(rhi::CommandList& commands) {
     VXE_PROFILE_FUNCTION();
-    if (m_drawsDirty) {
-        rebuildDraws();
-    }
+    flushDraws(commands);
     m_culledFrame = m_frame;
     const Camera& cullCamera = m_frozenCamera ? *m_frozenCamera : m_camera;
     if (m_caveCulling.get()) {
         updateCaveBits(cullCamera);
     }
-    if (m_drawData.empty()) {
+    if (m_gpuDrawCounts[0] + m_gpuDrawCounts[1] + m_gpuDrawCounts[2] == 0) {
         m_cullPath = CullPath::Cpu;
         m_cpuDrawCounts.fill(0);
         m_counts = {.onGpu = false};
@@ -765,7 +931,10 @@ void ChunkRenderer::recordCulling(rhi::CommandList& commands) {
 }
 
 void ChunkRenderer::cullOnGpu(rhi::CommandList& commands, const Camera& cullCamera) {
-    const auto total = static_cast<u32>(m_drawData.size() / sizeof(IndirectDraw));
+    // Threads cover the regions up to the end of the translucent entries;
+    // the shader skips the unused room at the end of each region.
+    const u32 total = m_drawFirst[2] + m_gpuDrawCounts[2];
+    const u32 candidates = m_gpuDrawCounts[0] + m_gpuDrawCounts[1] + m_gpuDrawCounts[2];
     const f32 aspect = m_frozenCamera ? m_frozenAspect : viewAspect();
     const Frustum frustum = Frustum::fromViewProjection(cullCamera.viewProjection(aspect));
     const CameraPosition position = cullCamera.renderPosition();
@@ -790,6 +959,7 @@ void ChunkRenderer::cullOnGpu(rhi::CommandList& commands, const Camera& cullCame
         params.occlusionSize = glm::uvec4(m_hiZ->depthWidth(), m_hiZ->depthHeight(), m_hiZ->levels(), 0);
     }
     params.passFirst = glm::uvec4(m_drawFirst[0], m_drawFirst[1], m_drawFirst[2], total);
+    params.passCount = glm::uvec4(m_gpuDrawCounts[0], m_gpuDrawCounts[1], m_gpuDrawCounts[2], 0);
     params.flags = glm::uvec4(tests, 0, 0, 0);
     params.tuning = Vec4(m_frustumPadding.get(), m_occlusionCamera.nearPlane, 0.0F, 0.0F);
     const std::span<std::byte> memory = m_cullParams.next(m_device);
@@ -814,7 +984,7 @@ void ChunkRenderer::cullOnGpu(rhi::CommandList& commands, const Camera& cullCame
         if (!readback.pending) {
             commands.copyBuffer(m_cullCounts, 0, readback.buffer, 0, kCountsBytes);
             readback.pending = true;
-            readback.candidates = total;
+            readback.candidates = candidates;
             m_lastReadback = i;
             m_readbackWritten = true;
             break;
@@ -844,8 +1014,9 @@ void ChunkRenderer::cullOnCpu(const Camera& cullCamera) {
     const bool caveOn = m_caveCulling.get();
     const f32 padding = m_frustumPadding.get();
     ChunkCullingCounts counts{.onGpu = false};
-    // A chunk's face groups sit next to each other in the list, so the box
-    // and the frustum test are worked out once per chunk, not per group.
+    // A chunk's face groups are mostly next to each other in the list (a
+    // chunk adds them together; only removals move single entries), so the
+    // box and the frustum test are worked out about once per chunk.
     u32 boxSlot = OffsetAllocator::kNoSpace;
     Vec3 boxMin(0.0F);
     Vec3 boxMax(0.0F);
@@ -854,8 +1025,7 @@ void ChunkRenderer::cullOnCpu(const Camera& cullCamera) {
         const u32 first = m_drawFirst.at(pass);
         u32 kept = 0;
         for (u32 i = first; i < first + m_drawCounts.at(pass); ++i) {
-            IndirectDraw draw{};
-            std::memcpy(&draw, m_drawData.data() + (usize{i} * sizeof(IndirectDraw)), sizeof(draw));
+            const IndirectDraw& draw = m_drawData[i];
             if (draw.baseInstance != boxSlot) {
                 boxSlot = draw.baseInstance;
                 const SlotInfo& info = m_slotInfo[boxSlot];
@@ -918,11 +1088,11 @@ void ChunkRenderer::readCullingCounts() {
 }
 
 void ChunkRenderer::record(rhi::CommandList& commands, ChunkPass pass) {
-    if (m_drawsDirty) {
-        rebuildDraws();
-    }
+    // Changes after the last flush wait for the next frame: the GPU copy of
+    // the list is what the GPU draws from, and stale entries stay valid
+    // because freed ranges and slots are only reused frames later.
     const auto index = static_cast<usize>(pass);
-    const u32 count = m_drawCounts.at(index);
+    const u32 count = m_gpuDrawCounts.at(index);
     if (count == 0 || !m_textures.isValid() ||
         (m_cullPath == CullPath::Cpu && m_cpuDrawCounts.at(index) == 0)) {
         return;

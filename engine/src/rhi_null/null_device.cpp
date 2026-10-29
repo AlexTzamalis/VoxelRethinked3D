@@ -245,10 +245,30 @@ public:
                     query->written = true;
                 }
             }
+            if (command.type == CommandType::CopyBuffer) {
+                copyBuffer(command.as<cmd::CopyBuffer>());
+            }
         }
         if (insidePass) {
             ++m_invalidCommands; // A render pass was never ended.
         }
+    }
+
+    // Buffer copies really happen, so tests can read back what the GPU would
+    // hold (for example staging uploads). A range past either end is invalid.
+    void copyBuffer(const cmd::CopyBuffer& copy) {
+        NullBuffer* source = m_buffers.get(copy.src);
+        NullBuffer* target = m_buffers.get(copy.dst);
+        if (source == nullptr || target == nullptr) {
+            return; // Already counted as invalid.
+        }
+        if (copy.srcOffset + copy.size > source->memory.size() ||
+            copy.dstOffset + copy.size > target->memory.size()) {
+            ++m_invalidCommands;
+            return;
+        }
+        std::memmove(target->memory.data() + copy.dstOffset, source->memory.data() + copy.srcOffset,
+                     copy.size);
     }
 
     void beginFrame() override {}

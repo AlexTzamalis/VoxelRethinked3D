@@ -2,10 +2,13 @@
 
 #include <vxe/core/containers.hpp>
 #include <vxe/core/types.hpp>
+#include <vxe/jobs/job_system.hpp>
 #include <vxe/math/coords.hpp>
 #include <vxe/math/vector.hpp>
 
 #include <array>
+#include <atomic>
+#include <utility>
 #include <vector>
 
 namespace vxe::render {
@@ -68,13 +71,36 @@ struct ChunkBounds {
 // 0.46 ms when only the camera moved (the grid of cells is reused), about
 // 1.1 ms after chunks changed (stat Render.Culling.CaveSearchMs).
 //
-// Thread safety: main thread only.
+// With a job system (setJobSystem) the search runs on a worker while the
+// main thread keeps using the previous result, so streaming, which changes
+// chunks nearly every frame, costs the main thread only a copy of the chunk
+// list. Until the result for the camera's current chunk is in (normally the
+// next frame), every chunk counts as visible: a stale result could hide what
+// the new position shows. Chunks that changed since the search started use
+// the old result for that time, which errs towards visible for new chunks
+// (outside the box or behind open space) and lags one search for edits.
+//
+// Thread safety: main thread only; the search job touches only the back
+// buffer, which the main thread does not touch while the job runs.
 class CaveCuller {
 public:
     // The largest box searched, in chunks. Beyond this (a camera thousands
     // of chunks from the world) the culler gives up and reports everything
     // visible.
     static constexpr usize kMaxCells = usize{1} << 22U;
+
+    CaveCuller() = default;
+    // Waits for a running search.
+    ~CaveCuller();
+    CaveCuller(const CaveCuller&) = delete;
+    CaveCuller& operator=(const CaveCuller&) = delete;
+    CaveCuller(CaveCuller&&) = delete;
+    CaveCuller& operator=(CaveCuller&&) = delete;
+
+    // Searches on `jobs` from now on, or on the calling thread with nullptr.
+    // Waits for a running search first, so call it with nullptr before the
+    // job system goes away.
+    void setJobSystem(jobs::JobSystem* jobs);
 
     // Tells the culler how a chunk connects. kChunkAllConnected is the same
     // as removing it.
@@ -83,45 +109,71 @@ public:
     [[nodiscard]] usize knownChunks() const noexcept { return m_chunks.size(); }
 
     // Searches again if the camera chunk or any chunk changed since the last
-    // search. Returns true if it searched.
+    // search: right away without a job system, else by starting a job (if
+    // none runs) and taking a finished job's result. Returns true when the
+    // answers of isVisible() changed.
     bool update(ChunkPos camera);
     // Whether the latest search reached the chunk. Chunks outside the
-    // searched box, and every chunk when the search gave up, are visible.
+    // searched box, and every chunk when the search gave up or its result is
+    // for another camera chunk, are visible.
     [[nodiscard]] bool isVisible(ChunkPos position) const noexcept;
-    // Bumped by every search, so users know when to rebuild what they derive.
+    // Bumped whenever the answers of isVisible() may have changed, so users
+    // know when to rebuild what they derive.
     [[nodiscard]] u64 generation() const noexcept { return m_generation; }
+    // A search job runs.
+    [[nodiscard]] bool isSearching() const noexcept { return m_running; }
     // Chunks the latest search reached (including empty space).
-    [[nodiscard]] usize reachedCells() const noexcept { return m_reached; }
-    [[nodiscard]] f64 lastSearchMilliseconds() const noexcept { return m_searchMs; }
+    [[nodiscard]] usize reachedCells() const noexcept { return m_front.reached; }
+    [[nodiscard]] f64 lastSearchMilliseconds() const noexcept { return m_front.searchMs; }
 
 private:
-    [[nodiscard]] bool cellIndex(ChunkPos position, usize& index) const noexcept;
-    [[nodiscard]] bool buildGrid(ChunkPos camera);
-    void search(ChunkPos camera);
+    // One search: its copy of the chunks, the grid built from them and the
+    // result. There are two: the front one answers isVisible(), the back one
+    // is filled by the job, then they swap.
+    struct Search {
+        std::vector<std::pair<ChunkPos, u16>> chunks;
+        u64 chunksVersion = ~u64{0}; // CaveCuller::m_version the copy was made at.
+        u64 gridVersion = ~u64{0};   // chunksVersion when the grid was built.
+        bool searched = false;
+        bool gaveUp = false;
+        ChunkPos camera{};
+        // The searched box and, per cell, the faces it was entered through
+        // (bits 0 to 5; 0 means never reached).
+        ChunkPos origin{};
+        std::array<i32, 3> size{};
+        std::vector<u16> connectivity;
+        std::vector<u8> entered;
+        struct Step {
+            u32 cell;
+            i32 x; // The cell in the box.
+            i32 y;
+            i32 z;
+            u8 enteredFace;
+            u8 directions; // Bit d: the path moved towards face d at some point.
+        };
+        std::vector<Step> queue;
+        usize reached = 0;
+        f64 searchMs = 0.0;
+
+        [[nodiscard]] bool cellIndex(ChunkPos position, usize& index) const noexcept;
+        [[nodiscard]] bool buildGrid(ChunkPos from);
+        void run(ChunkPos viewChunk);
+        [[nodiscard]] bool isVisible(ChunkPos position) const noexcept;
+    };
+
+    void copyChunks(Search& search);
 
     HashMap<ChunkPos, u16> m_chunks; // Only chunks that are not fully connected.
-    bool m_dirty = true;             // Chunks changed since the grid was built.
-    bool m_searched = false;
-    bool m_gaveUp = false;
-    ChunkPos m_camera{};
-    // The searched box and, per cell, the faces it was entered through
-    // (bits 0 to 5; 0 means never reached).
-    ChunkPos m_origin{};
-    std::array<i32, 3> m_size{};
-    std::vector<u16> m_connectivity;
-    std::vector<u8> m_entered;
-    struct Step {
-        u32 cell;
-        i32 x; // The cell in the box.
-        i32 y;
-        i32 z;
-        u8 enteredFace;
-        u8 directions; // Bit d: the path moved towards face d at some point.
-    };
-    std::vector<Step> m_queue;
-    usize m_reached = 0;
+    u64 m_version = 0;               // Bumped when m_chunks changes.
+    Search m_front;
+    Search m_back;
+    jobs::JobSystem* m_jobs = nullptr;
+    jobs::JobCounter m_counter;
+    std::atomic<bool> m_backDone{false};
+    bool m_running = false;
+    bool m_hasCamera = false;
+    ChunkPos m_camera{}; // The camera of the latest update().
     u64 m_generation = 0;
-    f64 m_searchMs = 0.0;
 };
 
 // The face direction test (Section 8.3): a group of faces that all point

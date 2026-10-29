@@ -2,6 +2,7 @@
 
 #include <vxe/config/settings.hpp>
 #include <vxe/core/stats.hpp>
+#include <vxe/jobs/job_system.hpp>
 #include <vxe/platform/platform.hpp>
 #include <vxe/platform/window.hpp>
 #include <vxe/render/chunk_culling.hpp>
@@ -17,6 +18,7 @@
 #include <array>
 #include <memory>
 #include <numbers>
+#include <thread>
 #include <vector>
 
 using namespace vxe;
@@ -128,6 +130,68 @@ TEST_CASE("Cave culling follows tunnels but never sees back around a bend") {
     CHECK_FALSE(caves.isVisible({.x = 3, .y = 1, .z = 0})); // The rock around the tunnel.
     MESSAGE("Cave search: " << caves.reachedCells() << " cells reached in " << caves.lastSearchMilliseconds()
                             << " ms");
+}
+
+TEST_CASE("Cave culling on a job gives the same answers, and everything until they are in") {
+    jobs::JobSystem jobs(jobs::JobSystemConfig{.workerCount = 2, .ioThreadCount = 1});
+    CaveCuller onThread;
+    CaveCuller onJob;
+    onJob.setJobSystem(&jobs);
+    // Rock with a tunnel along +X from the camera.
+    for (CaveCuller* caves : {&onThread, &onJob}) {
+        for (i32 z = -1; z <= 1; ++z) {
+            for (i32 y = -1; y <= 1; ++y) {
+                for (i32 x = -1; x <= 6; ++x) {
+                    caves->setChunk({.x = x, .y = y, .z = z}, 0);
+                }
+            }
+        }
+        caves->setChunk({}, kChunkAllConnected);
+        for (i32 x = 1; x <= 5; ++x) {
+            caves->setChunk({.x = x, .y = 0, .z = 0}, connecting({{kPosX, kNegX}}));
+        }
+    }
+    const auto settle = [&onJob](ChunkPos camera) {
+        // The first update starts the job; until a later update takes its
+        // result, nothing is hidden.
+        CHECK(onJob.update(camera));
+        CHECK(onJob.isVisible({.x = 3, .y = 1, .z = 0}));
+        while (onJob.isSearching()) {
+            onJob.update(camera);
+            std::this_thread::yield();
+        }
+    };
+    const auto same = [&] {
+        for (i32 z = -2; z <= 2; ++z) {
+            for (i32 y = -2; y <= 2; ++y) {
+                for (i32 x = -2; x <= 7; ++x) {
+                    const ChunkPos position{.x = x, .y = y, .z = z};
+                    CHECK(onJob.isVisible(position) == onThread.isVisible(position));
+                }
+            }
+        }
+    };
+    onThread.update({});
+    settle({});
+    CHECK_FALSE(onJob.isVisible({.x = 3, .y = 1, .z = 0})); // The rock beside the tunnel.
+    same();
+    onThread.update({.x = 2, .y = 0, .z = 0});
+    settle({.x = 2, .y = 0, .z = 0});
+    same();
+    // A chunk change searches again on the job too: a cave opening off the
+    // tunnel shows the rock above it.
+    CHECK_FALSE(onJob.isVisible({.x = 3, .y = 1, .z = 0}));
+    onThread.setChunk({.x = 3, .y = 0, .z = 0}, kChunkAllConnected);
+    onJob.setChunk({.x = 3, .y = 0, .z = 0}, kChunkAllConnected);
+    onThread.update({.x = 2, .y = 0, .z = 0});
+    onJob.update({.x = 2, .y = 0, .z = 0});
+    while (onJob.isSearching()) {
+        onJob.update({.x = 2, .y = 0, .z = 0});
+        std::this_thread::yield();
+    }
+    same();
+    CHECK(onJob.isVisible({.x = 3, .y = 1, .z = 0}));
+    onJob.setJobSystem(nullptr);
 }
 
 TEST_CASE("Cave culling search time over a large world") {

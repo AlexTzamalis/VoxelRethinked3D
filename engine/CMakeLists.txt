@@ -212,6 +212,7 @@ vxe_add_module(render
     DEPENDS
         core
         math
+        jobs
         platform
         config
         input

@@ -1,5 +1,6 @@
 #include "vxe/config/settings.hpp"
 
+#include <vxe/config/settings_file.hpp>
 #include <vxe/core/log.hpp>
 #include <vxe/core/profile.hpp>
 
@@ -139,7 +140,31 @@ detail::SettingEntry* SettingsRegistry::addEntry(SettingInfo info, SettingType e
     entry.info = std::move(info);
     storeValue(entry, entry.info.defaultValue);
     m_byId.emplace(entry.info.id, &entry);
+    adoptUnknown(entry);
     return &entry;
+}
+
+// A setting registered after the settings file was loaded (systems that
+// start later, such as world streaming) finds its saved value among the
+// unknown keys. It takes the value over, and the key stops being unknown,
+// so saving writes it once.
+void SettingsRegistry::adoptUnknown(detail::SettingEntry& entry) {
+    auto& list = m_unknown[static_cast<usize>(entry.info.scope)];
+    const auto position =
+        std::ranges::lower_bound(list, entry.info.id, {}, &std::pair<std::string, std::string>::first);
+    if (position == list.end() || position->first != entry.info.id) {
+        return;
+    }
+    const std::string text = std::move(position->second);
+    list.erase(position);
+    const Result<SettingValue> value = parseTomlSettingValue(entry.info, text);
+    if (!value) {
+        VXE_LOG_WARN(log::core, "Saved value of '{}' not used: {}", entry.info.id, value.error().message());
+        return;
+    }
+    if (const Result<void> applied = setEntry(entry, value.value()); !applied) {
+        VXE_LOG_WARN(log::core, "Saved value of '{}' not used: {}", entry.info.id, applied.error().message());
+    }
 }
 
 Setting<bool> SettingsRegistry::registerBool(const BoolSettingDesc& desc) {

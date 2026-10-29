@@ -31,6 +31,12 @@ struct LoadReport {
 
 // Parses TOML text and applies every value of `scope` to the registry.
 // Fails only when the text is not valid TOML at all.
+// Converts the TOML text of one value (what SettingsRegistry::unknown keeps,
+// for example "16" or "\"Vsync\"") into a value of the setting, with the
+// same rules as loading a file.
+[[nodiscard]] Result<SettingValue> parseTomlSettingValue(const SettingInfo& info,
+                                                         std::string_view tomlValueText);
+
 [[nodiscard]] Result<LoadReport> loadSettingsFromString(SettingsRegistry& registry, std::string_view toml,
                                                         Scope scope = Scope::Global);
 

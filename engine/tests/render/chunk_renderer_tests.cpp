@@ -18,7 +18,9 @@
 #include <bit>
 #include <cmath>
 #include <initializer_list>
+#include <map>
 #include <memory>
+#include <random>
 #include <vector>
 
 using namespace vxe;
@@ -66,6 +68,10 @@ struct FakeMesh {
         for (const auto& [group, count] : groups) {
             counts.at(group) = count;
         }
+        fill(counts);
+    }
+    explicit FakeMesh(const std::array<u32, render::kChunkFaceGroups>& counts) { fill(counts); }
+    void fill(const std::array<u32, render::kChunkFaceGroups>& counts) {
         for (usize g = 0; g < render::kChunkFaceGroups; ++g) {
             groupBegin.at(g + 1) = groupBegin.at(g) + counts.at(g);
         }
@@ -76,13 +82,18 @@ struct FakeMesh {
     }
 };
 
+// Every draw on the GPU, pass by pass (each pass has its own region).
 std::vector<Draw> readDraws(rhi::Device& device, const ChunkRenderer& renderer) {
-    const u32 total = renderer.drawCount(ChunkPass::Opaque) + renderer.drawCount(ChunkPass::Cutout) +
-                      renderer.drawCount(ChunkPass::Translucent);
-    std::vector<Draw> draws(total);
-    if (total > 0) {
-        REQUIRE(
-            device.readBuffer(renderer.drawBuffer(), 0, std::as_writable_bytes(std::span(draws))).hasValue());
+    std::vector<Draw> draws;
+    for (const ChunkPass pass : {ChunkPass::Opaque, ChunkPass::Cutout, ChunkPass::Translucent}) {
+        std::vector<Draw> region(renderer.drawCount(pass));
+        if (!region.empty()) {
+            REQUIRE(device
+                        .readBuffer(renderer.drawBuffer(), usize{renderer.drawFirst(pass)} * sizeof(Draw),
+                                    std::as_writable_bytes(std::span(region)))
+                        .hasValue());
+        }
+        draws.insert(draws.end(), region.begin(), region.end());
     }
     return draws;
 }
@@ -217,6 +228,84 @@ TEST_CASE("A full arena refuses uploads instead of failing") {
     frame(*device, *renderer);
     stats.endFrame(0.016);
     CHECK(stats.value(stats.find("Render.Chunks.UploadsOutOfMemory")) == 1.0);
+}
+
+TEST_CASE("The draw list stays exact through random uploads, replacements and removals") {
+    // The list changes in place (entries move when others leave), so this
+    // compares it with what a full rebuild would give after every frame.
+    const auto device = rhi::createNullDevice();
+    config::SettingsRegistry settings;
+    auto renderer = makeRenderer(*device, settings);
+    std::mt19937 random(1234); // NOLINT(bugprone-random-generator-seed): the same changes every run.
+    // Expected draw sizes (index counts) per chunk and pass, sorted.
+    std::map<ChunkPos, std::array<std::vector<u32>, render::kChunkPassCount>> expected;
+    for (i32 round = 0; round < 300; ++round) {
+        renderer->beginFrame({});
+        for (i32 change = 0; change < 6; ++change) {
+            const ChunkPos position{
+                .x = static_cast<i32>(random() % 5), .y = 0, .z = static_cast<i32>(random() % 6)};
+            if (random() % 4 == 0) {
+                static_cast<void>(renderer->remove(position));
+                expected.erase(position);
+                continue;
+            }
+            std::array<u32, render::kChunkFaceGroups> counts{};
+            std::array<std::vector<u32>, render::kChunkPassCount> sizes;
+            for (usize group = 0; group < counts.size(); ++group) {
+                if (random() % 3 == 0) {
+                    counts.at(group) = 1 + static_cast<u32>(random() % 9);
+                    sizes.at(group / 6).push_back(counts.at(group) * 6);
+                }
+            }
+            const FakeMesh mesh(counts);
+            const UploadResult result = renderer->upload(mesh.at(position));
+            REQUIRE(result != UploadResult::OverBudget);
+            if (result == UploadResult::OutOfMemory) {
+                continue; // Freed slots come back a few frames later.
+            }
+            if (mesh.quads.empty()) {
+                expected.erase(position);
+                continue;
+            }
+            for (auto& pass : sizes) {
+                std::ranges::sort(pass);
+            }
+            expected[position] = sizes;
+        }
+        rhi::CommandList commands;
+        renderer->recordUploads(commands);
+        device->beginFrame();
+        device->submit(commands);
+        device->present();
+        REQUIRE(device->stats().invalidCommands == 0);
+
+        // Group the GPU's draws by chunk (through the metadata slot).
+        std::array<std::array<i32, 4>, 64> slots{};
+        REQUIRE(device->readBuffer(renderer->metadataBuffer(), 0, std::as_writable_bytes(std::span(slots)))
+                    .hasValue());
+        std::map<ChunkPos, std::array<std::vector<u32>, render::kChunkPassCount>> actual;
+        for (const ChunkPass pass : {ChunkPass::Opaque, ChunkPass::Cutout, ChunkPass::Translucent}) {
+            std::vector<Draw> draws(renderer->drawCount(pass));
+            if (!draws.empty()) {
+                REQUIRE(device
+                            ->readBuffer(renderer->drawBuffer(),
+                                         usize{renderer->drawFirst(pass)} * sizeof(Draw),
+                                         std::as_writable_bytes(std::span(draws)))
+                            .hasValue());
+            }
+            for (const Draw& draw : draws) {
+                const std::array<i32, 4>& info = slots.at(draw.baseInstance);
+                const ChunkPos position{.x = info[0], .y = info[1], .z = info[2]};
+                actual[position].at(static_cast<usize>(pass)).push_back(draw.indexCount);
+            }
+        }
+        for (auto& [position, passes] : actual) {
+            for (auto& pass : passes) {
+                std::ranges::sort(pass);
+            }
+        }
+        REQUIRE(actual == expected);
+    }
 }
 
 TEST_CASE("Translucent draws go far to near and follow the camera") {
