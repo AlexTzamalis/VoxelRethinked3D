@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#082] 2026-10-30, G2.4 Pack validator
+### Added
+- render::validatePack: checks a pack folder the way the loader reads it (pack.toml, every blocks/*.png readable, a power of two wide, square or a strip of square frames, at the declared resolution; every blocks/*.anim.toml valid, with a texture and frametime 1 to 255) and against the default pack's keys (missing textures fall back, unused ones are reported).
+- tools/pack_validator (vxe_pack_validator <pack folder> [--reference <pack folder>]): prints errors and warnings with their files; exit code 1 on errors. A ctest runs it on the default pack.
+- Tests: the validator reports each kind of problem with its file; a broken image in a higher pack falls back to the next pack.
+### Changed
+- A broken or unusable image in a higher pack now falls back to the next pack that has a usable one (with a warning) instead of the magenta checker, which is left for keys no pack can provide.
+
 ## [#081] 2026-10-30, G2.3 Texture hot reload and LOD colors
 ### Added
 - Hot reload of texture packs (Section 15.3): with Graphics.Textures.HotReload on (default in debug builds), saving any file in the packs folder loads the packs again on a job and swaps them in live; the far terrain color table follows every load (from G2.2).

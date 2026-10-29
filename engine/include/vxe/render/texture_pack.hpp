@@ -124,4 +124,21 @@ struct BlockTextureOptions {
                                                   std::span<const std::string> keys,
                                                   const BlockTextureOptions& options = {});
 
+// One finding of validatePack.
+struct PackIssue {
+    bool error = false; // Errors make a texture or the pack unusable; warnings do not.
+    std::string file;   // Inside the pack, for example "blocks/stone.png"; empty for the whole pack.
+    std::string message;
+};
+
+// Checks a pack folder the way the loader will read it (Section 15.4):
+// pack.toml (format, resolution), every blocks/*.png (readable, a power of two
+// wide, square or a vertical strip of square frames, the declared
+// resolution), every blocks/*.anim.toml (valid, with a texture, frametime 1
+// to 255), and against `referenceKeys` (the default pack's keys) which
+// textures are missing (they fall back to lower packs) or used by nothing.
+// Never fails itself: problems are issues.
+[[nodiscard]] std::vector<PackIssue> validatePack(const std::filesystem::path& folder,
+                                                  std::span<const std::string> referenceKeys);
+
 } // namespace vxe::render

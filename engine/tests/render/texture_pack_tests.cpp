@@ -101,6 +101,21 @@ TEST_CASE("Pack manifests are checked") {
     CHECK(render::parsePackManifest("name = [", "a").error().code() == ErrorCode::ParseError);
 }
 
+TEST_CASE("A broken image in a higher pack falls back to the next pack") {
+    const auto root = freshFolder("fallback");
+    writePack(root / "low", 16, {{"blocks/dirt.png", solid(16, kGreen)}});
+    writePack(root / "high", 16, {{"blocks/dirt.png", std::vector<std::byte>(12, std::byte{7})}});
+    const auto low = open(root / "low");
+    const auto high = open(root / "high");
+    const std::vector<const PackSource*> stack = {high.get(), low.get()};
+    const std::vector<std::string> keys = {"dirt"};
+    const BlockTextureData data = render::buildBlockTextures(stack, keys);
+    CHECK(texel(data, 0, 2, 2) == kGreen);
+    CHECK(data.sources[0] == "low");
+    REQUIRE(data.warnings.size() == 1);
+    CHECK(data.warnings[0].find("pack 'high'") != std::string::npos);
+}
+
 TEST_CASE("Higher packs override lower ones by key; missing keys get the checker") {
     const auto root = freshFolder("stack");
     writePack(root / "base", 16,
@@ -340,4 +355,43 @@ TEST_CASE("Saving a texture reloads the packs live (hot reload), and another fol
     }
     CHECK_FALSE(manager.isLoading());
     CHECK(manager.textures()->averageColors[0] == kGreen);
+}
+
+TEST_CASE("The pack validator reports errors and warnings with their files") {
+    const auto root = freshFolder("validate");
+    const std::string badAnim = "frametime = [";
+    const std::string slowAnim = "frametime = 900\n";
+    writePack(root / "a", 16,
+              {{"blocks/stone.png", solid(16, kRed)},
+               {"blocks/odd.png", solid(12, kRed)},
+               {"blocks/tall.png", png(16, 20, [](int, int) { return kRed; })},
+               {"blocks/big.png", solid(32, kRed)},
+               {"blocks/strip.png", png(16, 32, [](int, int) { return kRed; })},
+               {"blocks/junk.png", std::vector<std::byte>(10, std::byte{1})}});
+    REQUIRE(io::writeFile(root / "a" / "blocks" / "ghost.anim.toml", std::as_bytes(std::span(slowAnim)))
+                .hasValue());
+    REQUIRE(io::writeFile(root / "a" / "blocks" / "stone.anim.toml", std::as_bytes(std::span(badAnim)))
+                .hasValue());
+    const std::vector<std::string> reference = {"stone", "dirt", "odd", "tall", "big", "strip", "junk"};
+    const std::vector<render::PackIssue> issues = render::validatePack(root / "a", reference);
+    const auto find = [&](std::string_view file, bool error) {
+        return std::ranges::count_if(issues, [&](const render::PackIssue& issue) {
+            return issue.file == file && issue.error == error;
+        });
+    };
+    CHECK(find("blocks/odd.png", true) == 1);    // 12 wide: not a power of two.
+    CHECK(find("blocks/tall.png", true) == 1);   // 16 x 20: not square frames.
+    CHECK(find("blocks/junk.png", true) == 1);   // Not a PNG.
+    CHECK(find("blocks/big.png", false) == 1);   // 32 in a 16 pack: scaled.
+    CHECK(find("blocks/strip.png", false) == 1); // Frames without an .anim.toml.
+    CHECK(find("blocks/stone.anim.toml", true) == 1);
+    CHECK(find("blocks/ghost.anim.toml", false) == 2); // No ghost.png, frametime out of range.
+    CHECK(find("blocks/dirt.png", false) == 1);        // Missing: falls back.
+    CHECK(issues.size() == 10);
+
+    const auto noManifest = freshFolder("validate_none");
+    const auto none = render::validatePack(noManifest, reference);
+    REQUIRE(none.size() == 1);
+    CHECK(none[0].error);
+    CHECK(none[0].file == "pack.toml");
 }

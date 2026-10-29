@@ -85,7 +85,7 @@ std::string_view asText(std::span<const std::byte> bytes) {
 struct Decoded {
     u32 width = 0;
     u32 height = 0;
-    std::vector<u32> pixels{};
+    std::vector<u32> pixels;
 };
 
 std::optional<Decoded> decodePng(std::span<const std::byte> bytes) {
@@ -99,8 +99,9 @@ std::optional<Decoded> decodePng(std::span<const std::byte> bytes) {
         stbi_image_free(data);
         return std::nullopt;
     }
-    Decoded image{.width = static_cast<u32>(width), .height = static_cast<u32>(height)};
-    image.pixels.resize(usize{image.width} * image.height);
+    Decoded image{.width = static_cast<u32>(width),
+                  .height = static_cast<u32>(height),
+                  .pixels = std::vector<u32>(static_cast<usize>(width) * static_cast<usize>(height))};
     std::memcpy(image.pixels.data(), data, image.pixels.size() * sizeof(u32));
     stbi_image_free(data);
     return image;
@@ -200,9 +201,9 @@ void preserveCoverage(std::vector<u32>& pixels, f64 target) {
     }
 }
 
-// The first pack of the stack that has `png`, decoded. Problems (missing,
-// unreadable, frames that are not square) go to `warnings`; then the image is
-// empty and the caller uses the checker.
+// The first pack of the stack with a usable `png`, decoded. Problems
+// (missing, unreadable, frames that are not square) go to `warnings`; without
+// any usable image the result is empty and the caller uses the checker.
 struct Found {
     const PackSource* source = nullptr;
     std::optional<Decoded> image;
@@ -210,29 +211,33 @@ struct Found {
 
 Found findImage(std::span<const PackSource* const> stack, const std::string& png,
                 std::vector<std::string>& warnings) {
-    Found found;
-    std::optional<std::vector<std::byte>> bytes;
+    // A broken image in a higher pack falls through to the next pack that
+    // has a usable one, with a warning; the checker is for keys no pack can
+    // provide.
+    bool anyFile = false;
     for (const PackSource* pack : stack) {
-        bytes = pack->read(png);
-        if (bytes) {
-            found.source = pack;
-            break;
+        const std::optional<std::vector<std::byte>> bytes = pack->read(png);
+        if (!bytes) {
+            continue;
         }
+        anyFile = true;
+        std::optional<Decoded> image = decodePng(*bytes);
+        if (!image) {
+            warnings.push_back(
+                std::format("{} in pack '{}' is not a readable PNG", png, pack->manifest().id));
+            continue;
+        }
+        if (image->height % image->width != 0) {
+            warnings.push_back(std::format("{} in pack '{}' is {} x {}: frames must be square", png,
+                                           pack->manifest().id, image->width, image->height));
+            continue;
+        }
+        return {.source = pack, .image = std::move(image)};
     }
-    if (!bytes) {
+    if (!anyFile) {
         warnings.push_back(std::format("No pack has {}", png));
-        return found;
     }
-    found.image = decodePng(*bytes);
-    if (!found.image) {
-        warnings.push_back(
-            std::format("{} in pack '{}' is not a readable PNG", png, found.source->manifest().id));
-    } else if (found.image->height % found.image->width != 0) {
-        warnings.push_back(std::format("{} in pack '{}' is {} x {}: frames must be square", png,
-                                       found.source->manifest().id, found.image->width, found.image->height));
-        found.image.reset();
-    }
-    return found;
+    return {};
 }
 
 // Game ticks per frame from blocks/<key>.anim.toml ("frametime"), 1 without it.
@@ -330,6 +335,93 @@ std::vector<std::unique_ptr<PackSource>> discoverPacks(const std::filesystem::pa
     }
     std::ranges::sort(packs, {}, [](const std::unique_ptr<PackSource>& pack) { return pack->manifest().id; });
     return packs;
+}
+
+std::vector<PackIssue> validatePack(const std::filesystem::path& folder,
+                                    std::span<const std::string> referenceKeys) {
+    std::vector<PackIssue> issues;
+    const auto issue = [&](bool error, std::string file, std::string message) {
+        issues.push_back({.error = error, .file = std::move(file), .message = std::move(message)});
+    };
+    auto manifestText = io::readFile(folder / "pack.toml");
+    if (!manifestText) {
+        issue(true, "pack.toml", "missing: every pack needs a pack.toml in its root folder");
+        return issues;
+    }
+    const auto manifest = parsePackManifest(asText(manifestText.value()), folder.filename().string());
+    if (!manifest) {
+        issue(true, "pack.toml", manifest.error().message());
+        return issues;
+    }
+    const u32 resolution = manifest.value().resolution;
+    std::error_code error;
+    if (!std::filesystem::is_directory(folder / "blocks", error)) {
+        issue(false, "blocks", "no blocks/ folder: the pack changes no block textures");
+        return issues;
+    }
+    std::vector<std::string> keys;
+    std::vector<std::string> animations;
+    for (const auto& entry : std::filesystem::directory_iterator(folder / "blocks", error)) {
+        const std::string name = entry.path().filename().string();
+        if (name.ends_with(".anim.toml")) {
+            animations.push_back(name.substr(0, name.size() - std::string_view(".anim.toml").size()));
+        } else if (name.ends_with(".png")) {
+            keys.push_back(name.substr(0, name.size() - 4));
+        } else if (entry.is_regular_file(error)) {
+            issue(false, "blocks/" + name, "not a .png or .anim.toml file; the loader ignores it");
+        }
+    }
+    std::ranges::sort(keys);
+    for (const std::string& key : keys) {
+        const std::string file = "blocks/" + key + ".png";
+        const auto bytes = io::readFile(folder / file);
+        const std::optional<Decoded> image = bytes ? decodePng(bytes.value()) : std::nullopt;
+        if (!image) {
+            issue(true, file, "not a readable PNG");
+            continue;
+        }
+        if (!std::has_single_bit(image->width)) {
+            issue(true, file,
+                  std::format("{} pixels wide: use a power of two (16, 32, 64, 128 or 256)", image->width));
+        } else if (image->height % image->width != 0) {
+            issue(true, file,
+                  std::format("{} x {}: textures are square, or a vertical strip of square frames",
+                              image->width, image->height));
+        } else if (image->width != resolution) {
+            issue(false, file,
+                  std::format("{} pixels wide but the pack says resolution {}; it will be scaled",
+                              image->width, resolution));
+        }
+        if (image->height > image->width && std::ranges::find(animations, key) == animations.end()) {
+            issue(false, file, "a frame strip without " + key + ".anim.toml: plays at 1 tick per frame");
+        }
+        if (!referenceKeys.empty() && std::ranges::find(referenceKeys, key) == referenceKeys.end()) {
+            issue(false, file, "no block uses this texture key");
+        }
+    }
+    for (const std::string& key : animations) {
+        const std::string file = "blocks/" + key + ".anim.toml";
+        if (!std::ranges::binary_search(keys, key)) {
+            issue(false, file, "no " + key + ".png next to it");
+        }
+        const auto text = io::readFile(folder / file);
+        try {
+            const toml::table table = toml::parse(text ? asText(text.value()) : std::string_view());
+            const i64 frametime = table["frametime"].value_or(i64{1});
+            if (frametime < 1 || frametime > 255) {
+                issue(false, file,
+                      std::format("frametime {} is outside 1 to 255; it will be clamped", frametime));
+            }
+        } catch (const toml::parse_error& parseError) {
+            issue(true, file, std::string(parseError.description()));
+        }
+    }
+    for (const std::string& key : referenceKeys) {
+        if (!std::ranges::binary_search(keys, key)) {
+            issue(false, "blocks/" + key + ".png", "missing: lower packs (or the default pack) provide it");
+        }
+    }
+    return issues;
 }
 
 BlockTextureData buildBlockTextures(std::span<const PackSource* const> stack,
