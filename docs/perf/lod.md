@@ -84,3 +84,14 @@ is shown, so the first frame in the world has the whole horizon.
 Meshing tiles for the renderer runs at Normal priority: at Low, the chunk
 burst held it back and far terrain was ready only after 750 to 860 ms even
 with every tile cached (more LOD job slots or upload budget did not help).
+
+## E11.5 Edit downsampling (2026-10-29)
+
+| Case | Result |
+|------|--------|
+| One edited chunk column (7 loaded chunks) into all 6 levels, tiles from the cache, written back (unit test, release) | 11.1 to 11.4 ms on an IO thread, nothing on the main thread |
+
+The edit job downsamples the column into its 64 level 1 cells, merges them
+with the spans outside the loaded height, and rebuilds the 32 x 32 parent
+cells over it in each level up to the clipmap's coarsest, reading and
+writing each tile in the cache. Edits run one at a time.

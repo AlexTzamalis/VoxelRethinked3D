@@ -6,8 +6,11 @@
 #include <vxe/core/types.hpp>
 #include <vxe/jobs/job_system.hpp>
 #include <vxe/math/vector.hpp>
+#include <vxe/voxel/block_registry.hpp>
+#include <vxe/voxel/column_summary.hpp>
 #include <vxe/voxel/lod_cache.hpp>
 #include <vxe/voxel/lod_tile.hpp>
+#include <vxe/voxel/voxel_world.hpp>
 
 #include <array>
 #include <atomic>
@@ -99,9 +102,19 @@ struct LodManagerDesc {
 // CavesInLod and MaxJobsInFlight, all live. Changing the spans or caves makes
 // every tile stale (they are part of the cache hash) and samples them again.
 //
+// Edits (Section 13.6): columnEdited() takes a chunk column whose blocks
+// changed (saved edits) and, on a job, downsamples its loaded chunks into
+// the level 1 cells it covers, then rebuilds the cells above it level by
+// level up to the clipmap's coarsest level. Each tile comes from what is
+// shown, else the cache, else the sampler; every rebuilt tile is written to
+// the cache and replaces the shown one, so the far view keeps the edit. Edits
+// run one at a time (they are rare and touch the same parent tiles). Without
+// a cache only shown tiles change, and the edit is lost when they are
+// sampled again.
+//
 // Stats: Voxel.Lod.Tiles (ready), .Queued, .Running, .Retiring (gauges),
-// .MemoryBytes (gauge), .Sampled, .FromCache (counters) and .SampleTime
-// (timer, per tile, on workers).
+// .MemoryBytes (gauge), .Sampled, .FromCache, .Edits (counters), .SampleTime
+// (timer, per tile, on workers) and .EditTime (timer, per column).
 //
 // Thread safety: update() and every accessor on the main thread only. The
 // jobs work on slots the main thread hands out and takes back; the
@@ -139,8 +152,15 @@ public:
         std::array<usize, kLodMaxLevel + 1> readyPerLevel{};
     };
     [[nodiscard]] Counts counts() const;
-    // True when every wanted tile is ready, nothing is retiring and no job
-    // is running.
+    // Rebuilds far terrain from a chunk column whose blocks changed. Copies
+    // the column's loaded chunks now; the work happens on a job.
+    void columnEdited(const VoxelWorld& world, ColumnPos column,
+                      std::shared_ptr<const BlockRegistryView> blocks);
+    // Edits waiting or running.
+    [[nodiscard]] usize pendingEdits() const noexcept { return m_edits.size(); }
+
+    // True when every wanted tile is ready, nothing is retiring, no edit is
+    // waiting and no job is running.
     [[nodiscard]] bool isSettled() const noexcept;
 
 private:
@@ -220,6 +240,28 @@ private:
     std::vector<std::unique_ptr<Slot>> m_slots;
     std::vector<u16> m_freeSlots;
     std::vector<u16> m_busySlots;
+
+    // One column edit: the chunk copies and the shown tiles of each level go
+    // in, rebuilt tiles come out.
+    struct Edit {
+        ColumnPos column{};
+        i32 firstChunkY = 0;
+        std::vector<ChunkStorage> chunks;
+        std::vector<bool> present;
+        std::shared_ptr<const BlockRegistryView> blocks;
+        u64 hash = 0;
+        LodSampleOptions options;
+        u8 topLevel = kLodMinLevel;
+        std::vector<std::shared_ptr<const LodTile>> shown; // Index level - 1.
+        std::vector<std::shared_ptr<const LodTile>> results;
+        std::atomic<bool> done{false};
+    };
+    void processEdits();
+    void runEdit(Edit& edit);
+    [[nodiscard]] std::shared_ptr<LodTile> editBase(const Edit& edit, const LodTileKey& key);
+    std::vector<std::unique_ptr<Edit>> m_edits; // Front runs; the rest wait.
+    bool m_editRunning = false;
+    std::atomic<bool> m_stopping{false};
     jobs::JobCounter m_jobCounter;
 
     struct StatIds {
@@ -231,6 +273,8 @@ private:
         stats::StatId sampled;
         stats::StatId fromCache;
         stats::StatId sampleTime;
+        stats::StatId edits;
+        stats::StatId editTime;
     } m_statIds;
 };
 

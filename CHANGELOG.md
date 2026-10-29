@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#075] 2026-10-29, E11.5 Edit downsampling and dirty propagation
+### Added
+- lod_downsample: chunk columns into level 1 cells (runs of visible blocks over each 2 x 2 block cell, materials from the run's top block), merging new spans into a height range of old ones, four cells into one of the next level, a tile into its parent's quadrant, and limiting spans per cell by joining across the smallest gaps.
+- LodManager::columnEdited: copies an edited chunk column's loaded chunks and, on an IO job, puts the edit into the level 1 tile and every level above up to the clipmap's coarsest, starting from the shown tile, the cache or the sampler; rebuilt tiles go to the cache and replace shown ones. Edits run one at a time; pendingEdits() and isSettled() include them. Stats Voxel.Lod.Edits and Voxel.Lod.EditTime.
+- Tests: span limiting, column downsampling with overhangs, replacing a height range, four cells into one and a tile into its parent; an edited column reaches all six levels in the cache and on screen while the ground next to it stays.
+### Performance
+- One column edit through six cached levels: 11 ms on an IO thread.
+### Docs
+- docs/perf/lod.md: E11.5.
+
 ## [#074] 2026-10-29, E11.4 Premapping job and progress API
 ### Added
 - LodPremapper: bakes the clipmap tiles within a radius around a spawn into the LOD cache (an IO job checks the cache, a worker samples, an IO job writes), nearest first, cancellable, with progress() (total, done, already cached, failed) for a loading screen; stats Voxel.Lod.Premap.Done, Skipped and Total.

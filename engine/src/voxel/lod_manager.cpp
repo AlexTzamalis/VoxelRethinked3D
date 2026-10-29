@@ -4,6 +4,7 @@
 #include <vxe/core/log.hpp>
 #include <vxe/core/profile.hpp>
 #include <vxe/core/time.hpp>
+#include <vxe/voxel/lod_downsample.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -39,6 +40,7 @@ LodManager::LodManager(const LodManagerDesc& desc)
 }
 
 LodManager::~LodManager() {
+    m_stopping.store(true, std::memory_order_relaxed);
     for (const u16 index : m_busySlots) {
         m_slots[index]->cancelled.store(true, std::memory_order_relaxed);
     }
@@ -107,6 +109,13 @@ void LodManager::registerStats() {
                                 .description = "Time to sample one LOD tile, on a worker.",
                                 .type = stats::StatType::Timer,
                                 .unit = stats::StatUnit::Milliseconds});
+    m_statIds.edits =
+        add({.name = "Voxel.Lod.Edits", .description = "Chunk column edits put into far terrain."});
+    m_statIds.editTime =
+        add({.name = "Voxel.Lod.EditTime",
+             .description = "Time to put one column edit into every LOD level, on an IO thread.",
+             .type = stats::StatType::Timer,
+             .unit = stats::StatUnit::Milliseconds});
 }
 
 LodClipmapDesc LodManager::clipmapDesc() const {
@@ -133,6 +142,7 @@ void LodManager::update(const DVec3& cameraPosition) {
     VXE_PROFILE_FUNCTION();
     m_camera = cameraPosition;
     collect();
+    processEdits();
     if (!m_enabled.get()) {
         if (m_wasEnabled) {
             clearAll();
@@ -417,6 +427,171 @@ void LodManager::runSample(Slot& slot) {
     slot.done.store(true, std::memory_order_release);
 }
 
+void LodManager::columnEdited(const VoxelWorld& world, ColumnPos column,
+                              std::shared_ptr<const BlockRegistryView> blocks) {
+    const ColumnSummary* summary = world.findColumn(column);
+    if (summary == nullptr || summary->loadedChunkYs().empty() || blocks == nullptr) {
+        return;
+    }
+    const auto [lowest, highest] = std::ranges::minmax(summary->loadedChunkYs());
+    auto edit = std::make_unique<Edit>();
+    edit->column = column;
+    edit->firstChunkY = lowest;
+    for (i32 y = lowest; y <= highest; ++y) {
+        const Chunk* chunk = world.findChunk({.x = column.x, .y = y, .z = column.z});
+        edit->present.push_back(chunk != nullptr);
+        edit->chunks.push_back(chunk != nullptr ? chunk->blocks() : ChunkStorage{});
+    }
+    edit->blocks = std::move(blocks);
+    m_edits.push_back(std::move(edit));
+}
+
+// Takes a finished edit's tiles into the view and starts the next edit.
+void LodManager::processEdits() {
+    if (m_editRunning) {
+        Edit& edit = *m_edits.front();
+        if (!edit.done.load(std::memory_order_acquire)) {
+            return;
+        }
+        m_editRunning = false;
+        for (std::shared_ptr<const LodTile>& tile : edit.results) {
+            const LodTileKey key = tile->key();
+            const auto wanted = m_wanted.find(key);
+            if (edit.hash != m_appliedHash || (wanted == m_wanted.end() && !m_ready.contains(key))) {
+                continue; // Stale, or not in view: the cache has it.
+            }
+            if (wanted != m_wanted.end()) {
+                if (wanted->second.running) {
+                    cancelSlot(key); // Its result would be older.
+                    wanted->second.running = false;
+                }
+                wanted->second.ready = true;
+            }
+            m_ready.insert_or_assign(key, Shown{.tile = tile, .hash = edit.hash});
+            if (m_sink != nullptr) {
+                m_sink->addTile(std::move(tile));
+            }
+        }
+        if (m_stats != nullptr && m_statIds.edits.isValid()) {
+            m_stats->add(m_statIds.edits);
+        }
+        m_edits.erase(m_edits.begin());
+        m_retireDirty = true;
+    }
+    if (m_edits.empty()) {
+        return;
+    }
+    Edit& edit = *m_edits.front();
+    edit.hash = m_appliedHash;
+    edit.options = sampleOptions();
+    edit.topLevel = static_cast<u8>(m_appliedDesc.firstLevel + m_appliedDesc.levels - 1);
+    edit.shown.clear();
+    const i64 blockX = i64{edit.column.x} * kChunkSize;
+    const i64 blockZ = i64{edit.column.z} * kChunkSize;
+    for (u8 level = kLodMinLevel; level <= edit.topLevel; ++level) {
+        const auto it = m_ready.find(lodTileAt(level, blockX, blockZ));
+        const bool current = it != m_ready.end() && it->second.hash == m_appliedHash;
+        edit.shown.push_back(current ? it->second.tile : nullptr);
+    }
+    m_editRunning = true;
+    Edit* job = &edit;
+    // On an IO thread: mostly cache reads and writes, plus a little
+    // downsampling; edits are rare, so the CPU part does not matter there.
+    m_jobs.schedule(m_jobCounter, [this, job] { runEdit(*job); },
+                    {jobs::Priority::Normal, {}, jobs::Pool::Io});
+}
+
+// The tile an edit starts from: what is shown, else the cached tile, else a
+// freshly sampled one (only with a cache, where the result is kept).
+std::shared_ptr<LodTile> LodManager::editBase(const Edit& edit, const LodTileKey& key) {
+    const usize index = key.level - kLodMinLevel;
+    if (index < edit.shown.size() && edit.shown[index] != nullptr && edit.shown[index]->key() == key) {
+        return std::make_shared<LodTile>(*edit.shown[index]);
+    }
+    if (m_cache == nullptr) {
+        return nullptr;
+    }
+    if (auto cached = m_cache->load(key, edit.hash)) {
+        return std::make_shared<LodTile>(std::move(*cached));
+    }
+    LodTileBuilder builder(key);
+    if (!m_sampler->sampleTile(key, edit.options, builder, m_stopping) ||
+        builder.cellsAdded() != kLodCellCount) {
+        return nullptr;
+    }
+    return std::make_shared<LodTile>(std::move(builder).build());
+}
+
+void LodManager::runEdit(Edit& edit) {
+    VXE_PROFILE_FUNCTION();
+    const Stopwatch stopwatch;
+    const usize maxSpans = edit.options.maxSpansPerCell;
+    const auto save = [&](const std::shared_ptr<LodTile>& tile) {
+        if (m_cache != nullptr) {
+            if (auto saved = m_cache->save(*tile, edit.hash); !saved) {
+                VXE_LOG_WARN(log::core, "LOD edit: saving tile {} {} {} failed: {}", tile->key().level,
+                             tile->key().x, tile->key().z, saved.error().message());
+            }
+        }
+        edit.results.push_back(tile);
+    };
+
+    std::array<std::vector<LodSpan>, kLodCellsPerColumn> cells;
+    std::vector<const ChunkStorage*> chunks;
+    chunks.reserve(edit.chunks.size());
+    for (usize i = 0; i < edit.chunks.size(); ++i) {
+        chunks.push_back(edit.present[i] ? &edit.chunks[i] : nullptr);
+    }
+    downsampleChunkColumn(chunks, edit.firstChunkY, *edit.blocks, maxSpans, cells);
+    const i64 low = i64{edit.firstChunkY} * kChunkSize;
+    const i64 high = low + (static_cast<i64>(edit.chunks.size()) * kChunkSize) - 1;
+    const i64 blockX = i64{edit.column.x} * kChunkSize;
+    const i64 blockZ = i64{edit.column.z} * kChunkSize;
+
+    std::shared_ptr<LodTile> child = editBase(edit, lodTileAt(kLodMinLevel, blockX, blockZ));
+    if (child != nullptr) {
+        // The column's 8 x 8 cells inside its level 1 tile, rebuilt with the
+        // new spans between the loaded heights.
+        const LodTileKey key = child->key();
+        const auto firstX = static_cast<u32>((blockX - key.originX()) / key.cellSize());
+        const auto firstZ = static_cast<u32>((blockZ - key.originZ()) / key.cellSize());
+        LodTileBuilder builder(key);
+        std::vector<LodSpan> merged;
+        for (u32 z = 0; z < kLodTileCells; ++z) {
+            for (u32 x = 0; x < kLodTileCells; ++x) {
+                const bool inside = x >= firstX && x < firstX + kLodCellsPerChunk && z >= firstZ &&
+                                    z < firstZ + kLodCellsPerChunk;
+                if (!inside) {
+                    builder.addCell(child->cell(x, z));
+                    continue;
+                }
+                const auto& fresh = cells.at(((z - firstZ) * kLodCellsPerChunk) + (x - firstX));
+                replaceLodSpanRange(child->cell(x, z), fresh, low, high, maxSpans, merged);
+                builder.addCell(merged);
+            }
+        }
+        *child = std::move(builder).build();
+        save(child);
+    }
+    // Each level above from the one below it.
+    for (u32 level = kLodMinLevel + 1; child != nullptr && level <= edit.topLevel; ++level) {
+        if (m_stopping.load(std::memory_order_relaxed)) {
+            break;
+        }
+        std::shared_ptr<LodTile> parent = editBase(edit, child->key().parent());
+        if (parent == nullptr) {
+            break;
+        }
+        downsampleLodTile(*child, *parent, maxSpans);
+        save(parent);
+        child = std::move(parent);
+    }
+    if (m_stats != nullptr && m_statIds.editTime.isValid()) {
+        m_stats->addTime(m_statIds.editTime, stopwatch.elapsed());
+    }
+    edit.done.store(true, std::memory_order_release);
+}
+
 std::shared_ptr<const LodTile> LodManager::tile(const LodTileKey& key) const {
     const auto it = m_ready.find(key);
     return it == m_ready.end() ? nullptr : it->second.tile;
@@ -439,7 +614,8 @@ LodManager::Counts LodManager::counts() const {
 }
 
 bool LodManager::isSettled() const noexcept {
-    return m_busySlots.empty() && m_savesRunning.load(std::memory_order_acquire) == 0 && m_retiring.empty() &&
+    return m_edits.empty() && m_busySlots.empty() && m_savesRunning.load(std::memory_order_acquire) == 0 &&
+           m_retiring.empty() &&
            std::ranges::all_of(m_wanted, [](const auto& entry) { return entry.second.ready; });
 }
 

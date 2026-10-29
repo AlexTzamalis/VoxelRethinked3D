@@ -271,6 +271,7 @@ vxe_add_module(voxel
         src/voxel/region_store.cpp
         src/voxel/lod_tile.cpp
         src/voxel/lod_cache.cpp
+        src/voxel/lod_downsample.cpp
         src/voxel/lod_manager.cpp
         src/voxel/lod_mesher.cpp
         src/voxel/lod_premapper.cpp

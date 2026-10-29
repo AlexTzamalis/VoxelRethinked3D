@@ -55,6 +55,7 @@ add_executable(vxe_tests
     voxel/lod_manager_tests.cpp
     voxel/lod_mesher_tests.cpp
     voxel/lod_premapper_tests.cpp
+    voxel/lod_downsample_tests.cpp
     voxel/lod_render_sink_tests.cpp
     voxel/chunk_storage_tests.cpp
     voxel/mesher_tests.cpp
