@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#062] 2026-10-29, E9.6 RHI storage images and readback buffers
+### Added
+- CommandList::bindStorageImage binds one mip level of a Storage texture to a compute shader (imageLoad, imageStore). Images get their own binding space, set * 2 + slot, because OpenGL only guarantees 8 image units; shaders use the new VXE_IMAGE_BINDING macro. The depth pyramid for occlusion culling builds its levels this way.
+- BufferUsage::CpuRead: persistently mapped buffers the CPU reads after a fence says the GPU copy into them is done, so GPU results (culling counts for the overlay) reach the CPU without stalling. readBuffer stays the slow path for tests.
+- Validation rejects CpuWrite plus CpuRead on one buffer and storage images in depth, sRGB or BGRA formats. The Null device checks image binds (Storage usage, existing level, slot).
+- Tests: Null checks for image binds and readback mapping; a GPU test that reduces one mip level into the next through storage images and reads a copy back through a CpuRead buffer.
+
 ## [#061] 2026-10-29, Demo world in the game
 ### Added
 - vr::DemoTerrain (game worldgen, temporary until G3): deterministic terrain from value noise with lowlands and higher hills, grass, dirt, beaches, lakes at sea level 62, snow above 100, ores and gravel pockets in the stone, caves, a foundation stone floor, and oak trees gathered per chunk from 7 x 7 cells so chunks never need their neighbors (Section 12.2).

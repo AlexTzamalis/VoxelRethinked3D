@@ -28,6 +28,7 @@ enum class CommandType : u16 {
     BindUniformBuffer,
     BindStorageBuffer,
     BindTexture,
+    BindStorageImage,
     BindIndexBuffer,
     SetViewport,
     SetScissor,
@@ -67,6 +68,13 @@ struct BindTexture {
     u32 slot = 0;
     TextureHandle texture;
     SamplerHandle sampler;
+};
+struct BindStorageImage {
+    u32 set = 0;
+    u32 slot = 0;
+    TextureHandle texture;
+    u32 mipLevel = 0;
+    ImageAccess access = ImageAccess::ReadOnly;
 };
 struct BindIndexBuffer {
     BufferHandle buffer;
@@ -183,6 +191,18 @@ public:
     void bindTexture(u32 set, u32 slot, TextureHandle texture, SamplerHandle sampler) {
         record(CommandType::BindTexture,
                cmd::BindTexture{.set = set, .slot = slot, .texture = texture, .sampler = sampler});
+    }
+    // Binds one mip level of a texture created with TextureUsage::Storage as
+    // a storage image, for compute shaders that read or write single texels
+    // (imageLoad, imageStore), for example the levels of a depth pyramid.
+    // Images have their own small binding space: OpenGL only guarantees 8
+    // image units, so the OpenGL backend flattens (set, slot) as
+    // set * 2 + slot, which allows slots 0 and 1 in sets 0 to 3. Shaders use
+    // VXE_IMAGE_BINDING from bindings.glsl.
+    void bindStorageImage(u32 set, u32 slot, TextureHandle texture, u32 mipLevel, ImageAccess access) {
+        record(CommandType::BindStorageImage,
+               cmd::BindStorageImage{
+                   .set = set, .slot = slot, .texture = texture, .mipLevel = mipLevel, .access = access});
     }
     void bindIndexBuffer(BufferHandle buffer, IndexType type, usize offset = 0) {
         record(CommandType::BindIndexBuffer,

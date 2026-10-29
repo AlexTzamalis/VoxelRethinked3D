@@ -20,6 +20,8 @@ constexpr u32 kIndexedIndirectCommandSize = 20;
 
 // Bindings are flattened as set * 16 + slot (engine/shaders/include/bindings.glsl).
 constexpr u32 kSlotsPerSet = 16;
+// Storage images as set * 2 + slot, because OpenGL only guarantees 8 image units.
+constexpr u32 kImageSlotsPerSet = 2;
 
 // OpenGL takes offsets into bound buffers as pointers, a leftover from client
 // side arrays. This is the one place that turns an offset into one.
@@ -76,6 +78,7 @@ void CommandReplayer::initialize() {
     m_limits.uniformBufferBindings = glLimit(GL_MAX_UNIFORM_BUFFER_BINDINGS);
     m_limits.storageBufferBindings = glLimit(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS);
     m_limits.textureUnits = glLimit(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS);
+    m_limits.imageUnits = glLimit(GL_MAX_IMAGE_UNITS);
     for (u32 axis = 0; axis < 3; ++axis) {
         GLint groups = 0;
         glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, axis, &groups);
@@ -154,6 +157,8 @@ bool CommandReplayer::replay(const CommandView& command) {
                                command.as<cmd::BindBufferRange>());
     case CommandType::BindTexture:
         return bindTexture(command.as<cmd::BindTexture>());
+    case CommandType::BindStorageImage:
+        return bindStorageImage(command.as<cmd::BindStorageImage>());
     case CommandType::BindIndexBuffer:
         return bindIndexBuffer(command.as<cmd::BindIndexBuffer>());
     case CommandType::SetViewport:
@@ -431,6 +436,28 @@ bool CommandReplayer::bindTexture(const cmd::BindTexture& bind) {
     }
     glBindTextureUnit(unit, texture->id);
     glBindSampler(unit, sampler->id);
+    return true;
+}
+
+bool CommandReplayer::bindStorageImage(const cmd::BindStorageImage& bind) {
+    const Texture* texture = m_resources.textures.get(bind.texture);
+    const u32 unit = bind.set * kImageSlotsPerSet + bind.slot;
+    if (texture == nullptr || !hasFlag(texture->desc.usage, TextureUsage::Storage) ||
+        bind.slot >= kImageSlotsPerSet || unit >= m_limits.imageUnits ||
+        bind.mipLevel >= texture->desc.mipLevels) {
+        return false;
+    }
+    GLenum access = GL_READ_ONLY;
+    if (bind.access == ImageAccess::WriteOnly) {
+        access = GL_WRITE_ONLY;
+    } else if (bind.access == ImageAccess::ReadWrite) {
+        access = GL_READ_WRITE;
+    }
+    // Arrays bind all their layers (layered); the shader then declares an
+    // image2DArray. Plain 2D textures bind their one layer.
+    const GLboolean layered = texture->desc.type == TextureType::Texture2DArray ? GL_TRUE : GL_FALSE;
+    glBindImageTexture(unit, texture->id, static_cast<GLint>(bind.mipLevel), layered, 0, access,
+                       formatInfo(texture->desc.format).internalFormat);
     return true;
 }
 

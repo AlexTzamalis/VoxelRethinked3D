@@ -195,16 +195,25 @@ public:
         // Dynamic storage permits updateBuffer (glNamedBufferSubData). Staging
         // buffers are mapped once, persistently and coherently, so CPU writes
         // become visible to the GPU without explicit flushes (Section 7.5).
+        // Readback buffers (CpuRead) are mapped the same way for reading;
+        // GPU copies into them are visible once a later fence signals.
         const bool cpuWrite = hasFlag(desc.usage, BufferUsage::CpuWrite);
-        constexpr GLbitfield kMapFlags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
-        const GLbitfield storageFlags = GL_DYNAMIC_STORAGE_BIT | (cpuWrite ? kMapFlags : 0U);
-        glNamedBufferStorage(id, static_cast<GLsizeiptr>(desc.sizeBytes), nullptr, storageFlags);
-        std::byte* mapped = nullptr;
+        const bool cpuRead = hasFlag(desc.usage, BufferUsage::CpuRead);
+        constexpr GLbitfield kPersistent = GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+        GLbitfield mapFlags = 0;
         if (cpuWrite) {
-            mapped = static_cast<std::byte*>(
-                glMapNamedBufferRange(id, 0, static_cast<GLsizeiptr>(desc.sizeBytes), kMapFlags));
+            mapFlags = GL_MAP_WRITE_BIT | kPersistent;
+        } else if (cpuRead) {
+            mapFlags = GL_MAP_READ_BIT | kPersistent;
         }
-        if (const GLenum error = glGetError(); error != GL_NO_ERROR || (cpuWrite && mapped == nullptr)) {
+        glNamedBufferStorage(id, static_cast<GLsizeiptr>(desc.sizeBytes), nullptr,
+                             GL_DYNAMIC_STORAGE_BIT | mapFlags);
+        std::byte* mapped = nullptr;
+        if (mapFlags != 0) {
+            mapped = static_cast<std::byte*>(
+                glMapNamedBufferRange(id, 0, static_cast<GLsizeiptr>(desc.sizeBytes), mapFlags));
+        }
+        if (const GLenum error = glGetError(); error != GL_NO_ERROR || (mapFlags != 0 && mapped == nullptr)) {
             glDeleteBuffers(1, &id);
             return creationError("buffer", desc.debugName, error);
         }

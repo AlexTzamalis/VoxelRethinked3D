@@ -1,0 +1,23 @@
+// Writes the smallest of each 2 x 2 block of texels of one mip level of an
+// r32f image into the next level. The RHI tests use it to prove that
+// storage image bindings reach the right mip levels, the same access the
+// depth pyramid (render/hiz_reduce.comp) relies on.
+#include "include/bindings.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+VXE_IMAGE_BINDING(1, 0, r32f) readonly uniform image2D sourceLevel;
+VXE_IMAGE_BINDING(1, 1, r32f) writeonly uniform image2D targetLevel;
+
+void main() {
+    const ivec2 target = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(target, imageSize(targetLevel)))) {
+        return;
+    }
+    const ivec2 source = target * 2;
+    const float a = imageLoad(sourceLevel, source).r;
+    const float b = imageLoad(sourceLevel, source + ivec2(1, 0)).r;
+    const float c = imageLoad(sourceLevel, source + ivec2(0, 1)).r;
+    const float d = imageLoad(sourceLevel, source + ivec2(1, 1)).r;
+    imageStore(targetLevel, target, vec4(min(min(a, b), min(c, d))));
+}

@@ -138,6 +138,8 @@ TEST_CASE("Descriptions that can never work are rejected") {
     CHECK(validate(BufferDesc{.sizeBytes = 64, .usage = BufferUsage::None, .debugName = "x"}).hasError());
     CHECK(validate(BufferDesc{.sizeBytes = 64, .usage = BufferUsage::Storage | BufferUsage::Indirect})
               .hasValue());
+    CHECK(validate(BufferDesc{.sizeBytes = 64, .usage = BufferUsage::CpuWrite | BufferUsage::CpuRead})
+              .hasError()); // One direction per buffer.
 
     TextureDesc texture{.type = TextureType::Texture2DArray,
                         .format = Format::RGBA8Unorm,
@@ -157,6 +159,10 @@ TEST_CASE("Descriptions that can never work are rejected") {
     CHECK(validate(depth).hasValue());
     const TextureDesc twoLayers2D{.type = TextureType::Texture2D, .layers = 2};
     CHECK(validate(twoLayers2D).hasError());
+    const TextureDesc srgbImage{.format = Format::RGBA8Srgb, .usage = TextureUsage::Storage};
+    CHECK(validate(srgbImage).hasError()); // No sRGB storage images in OpenGL.
+    const TextureDesc floatImage{.format = Format::R32Float, .usage = TextureUsage::Storage};
+    CHECK(validate(floatImage).hasValue());
 
     CHECK(
         validate(ShaderDesc{.stage = ShaderStage::Fragment, .source = "", .debugName = "empty"}).hasError());

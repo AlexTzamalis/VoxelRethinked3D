@@ -201,7 +201,8 @@ public:
 
     std::span<std::byte> mappedRange(BufferHandle handle) override {
         NullBuffer* buffer = m_buffers.get(handle);
-        if (buffer == nullptr || !hasFlag(buffer->usage, BufferUsage::CpuWrite)) {
+        if (buffer == nullptr || !(hasFlag(buffer->usage, BufferUsage::CpuWrite) ||
+                                   hasFlag(buffer->usage, BufferUsage::CpuRead))) {
             return {};
         }
         return buffer->memory;
@@ -320,6 +321,12 @@ private:
         case CommandType::BindTexture: {
             const auto bind = command.as<cmd::BindTexture>();
             return m_textures.isLive(bind.texture) && m_samplers.isLive(bind.sampler);
+        }
+        case CommandType::BindStorageImage: {
+            const auto bind = command.as<cmd::BindStorageImage>();
+            const NullTexture* texture = m_textures.get(bind.texture);
+            return texture != nullptr && hasFlag(texture->desc.usage, TextureUsage::Storage) &&
+                   bind.slot < 2 && bind.mipLevel < texture->desc.mipLevels;
         }
         case CommandType::BindIndexBuffer:
             return m_buffers.isLive(command.as<cmd::BindIndexBuffer>().buffer);

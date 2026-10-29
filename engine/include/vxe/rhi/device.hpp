@@ -110,7 +110,8 @@ public:
     // Uploads one mip level of one layer of a texture.
     [[nodiscard]] virtual Result<void> uploadTexture(TextureHandle texture, const TextureUpload& upload) = 0;
 
-    // Returns a CPU pointer to a buffer created with BufferUsage::CpuWrite.
+    // Returns a CPU pointer to a buffer created with BufferUsage::CpuWrite or
+    // CpuRead (for CpuRead: read only after a fence covering the GPU write).
     // The pointer stays valid for the lifetime of the buffer. Worker threads
     // may write into it, but the caller must use fences so the GPU is not
     // reading the same bytes at the same time. Empty for other buffers.

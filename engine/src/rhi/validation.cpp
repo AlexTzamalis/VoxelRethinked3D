@@ -118,6 +118,10 @@ Result<void> validate(const BufferDesc& desc) {
     if (desc.usage == BufferUsage::None) {
         return invalid("Buffer", desc.debugName, "no usage flags; say what the buffer is for");
     }
+    if (hasFlag(desc.usage, BufferUsage::CpuWrite) && hasFlag(desc.usage, BufferUsage::CpuRead)) {
+        return invalid("Buffer", desc.debugName,
+                       "CpuWrite and CpuRead together; use one buffer per direction");
+    }
     return {};
 }
 
@@ -145,6 +149,10 @@ Result<void> validate(const TextureDesc& desc) {
     }
     if (hasFlag(desc.usage, TextureUsage::RenderTarget) && isDepthFormat(desc.format)) {
         return invalid("Texture", desc.debugName, "a depth format cannot be a color render target");
+    }
+    if (hasFlag(desc.usage, TextureUsage::Storage) && !isStorageImageFormat(desc.format)) {
+        return invalid("Texture", desc.debugName,
+                       "storage images need a linear color format (no depth, no sRGB, no BGRA)");
     }
     return {};
 }

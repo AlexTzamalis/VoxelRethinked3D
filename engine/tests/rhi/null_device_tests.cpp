@@ -136,6 +136,33 @@ TEST_CASE("Mapped staging memory is real and persistent") {
     CHECK(scene.device->mappedRange(scene.arena).empty());               // Not a CpuWrite buffer.
 }
 
+TEST_CASE("Readback buffers are mapped and storage images are checked") {
+    const Scene scene;
+    const BufferHandle readback =
+        scene.device
+            ->createBuffer({.sizeBytes = 64, .usage = BufferUsage::CpuRead | BufferUsage::TransferDst})
+            .value();
+    CHECK(scene.device->mappedRange(readback).size() == 64);
+    const TextureHandle pyramid =
+        scene.device
+            ->createTexture({.format = Format::R32Float,
+                             .width = 64,
+                             .height = 32,
+                             .mipLevels = 7,
+                             .usage = TextureUsage::Storage | TextureUsage::Sampled})
+            .value();
+    const vxe::u64 before = scene.device->stats().invalidCommands;
+    CommandList list;
+    list.bindStorageImage(1, 0, pyramid, 6, ImageAccess::WriteOnly);      // Fine: the 1 x 1 level.
+    list.bindStorageImage(1, 0, pyramid, 7, ImageAccess::WriteOnly);      // No such level.
+    list.bindStorageImage(1, 2, pyramid, 0, ImageAccess::ReadOnly);       // Only 2 image slots per set.
+    list.bindStorageImage(1, 0, scene.blocks, 0, ImageAccess::ReadWrite); // Not a Storage texture.
+    scene.device->submit(list);
+    CHECK(scene.device->stats().invalidCommands - before == 3);
+    scene.device->destroy(pyramid);
+    scene.device->destroy(readback);
+}
+
 TEST_CASE("Uploads are checked like on the GPU") {
     const Scene scene;
     const std::array<std::byte, 16> small{};

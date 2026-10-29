@@ -71,6 +71,7 @@ private:
     bool bindBufferRange(GLenum target, BufferUsage requiredUsage, u32 alignment, u32 maxBindings,
                          const cmd::BindBufferRange& bind);
     bool bindTexture(const cmd::BindTexture& bind);
+    bool bindStorageImage(const cmd::BindStorageImage& bind);
     bool bindIndexBuffer(const cmd::BindIndexBuffer& bind);
     [[nodiscard]] bool setViewport(const cmd::SetViewport& viewport) const;
     bool setScissor(const cmd::SetScissor& scissor);
@@ -123,6 +124,7 @@ private:
         u32 uniformBufferBindings = 0;
         u32 storageBufferBindings = 0;
         u32 textureUnits = 0;
+        u32 imageUnits = 0;
         std::array<u32, 3> computeGroups{};
     };
 

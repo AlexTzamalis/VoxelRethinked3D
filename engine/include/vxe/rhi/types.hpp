@@ -74,6 +74,13 @@ enum class Format : u8 {
     return format == Format::D32Float || format == Format::D24UnormS8Uint;
 }
 
+// Formats a compute shader can read and write as a storage image. OpenGL
+// has no image formats for depth, sRGB or BGRA texels.
+[[nodiscard]] constexpr bool isStorageImageFormat(Format format) noexcept {
+    return format != Format::Undefined && !isDepthFormat(format) && format != Format::RGBA8Srgb &&
+           format != Format::BGRA8Unorm;
+}
+
 // Size of one texel in bytes, for upload size checks. 0 for Undefined.
 [[nodiscard]] constexpr u32 bytesPerTexel(Format format) noexcept {
     switch (format) {
@@ -117,6 +124,10 @@ enum class BufferUsage : u32 {
     TransferSrc = 1U << 5U,
     TransferDst = 1U << 6U,
     CpuWrite = 1U << 7U, // Persistently mapped for CPU writes (staging rings, Section 7.5).
+    // Persistently mapped for CPU reads: the GPU copies results into it
+    // (copyBuffer) and the CPU reads them once a fence says the copy is done,
+    // without stalling (culling counts for the overlay). Not with CpuWrite.
+    CpuRead = 1U << 8U,
 };
 
 enum class TextureType : u8 {
@@ -132,6 +143,13 @@ enum class TextureUsage : u32 {
     Storage = 1U << 3U,
     TransferDst = 1U << 4U,
     TransferSrc = 1U << 5U, // Can be read back (Device::readTexture), for tests and screenshots.
+};
+
+// How a compute shader uses a storage image (CommandList::bindStorageImage).
+enum class ImageAccess : u8 {
+    ReadOnly,
+    WriteOnly,
+    ReadWrite,
 };
 
 enum class Filter : u8 {

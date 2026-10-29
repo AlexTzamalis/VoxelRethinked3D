@@ -676,6 +676,83 @@ void checkComputeAndCopies(RenderRig& rig) {
     device.destroy(copy);
 }
 
+// One mip level written from another through storage images, and a GPU
+// result read through a CpuRead buffer once a fence says the copy is done.
+void checkStorageImagesAndReadback(RenderRig& rig) {
+    Device& device = rig.device;
+    constexpr vxe::u32 kSize = 8;
+    const TextureHandle pyramid =
+        device
+            .createTexture({.format = Format::R32Float,
+                            .width = kSize,
+                            .height = kSize,
+                            .mipLevels = 2,
+                            .usage = TextureUsage::Storage | TextureUsage::Sampled |
+                                     TextureUsage::TransferDst | TextureUsage::TransferSrc,
+                            .debugName = "Test pyramid"})
+            .value();
+    std::vector<float> level0(std::size_t{kSize} * kSize);
+    for (std::size_t i = 0; i < level0.size(); ++i) {
+        level0[i] = static_cast<float>((i * 7) % 23);
+    }
+    REQUIRE(device.uploadTexture(pyramid, {.data = std::as_bytes(std::span(level0))}).hasValue());
+    const ShaderFileReader shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR);
+    const ShaderHandle shader = createShaderFromFile(device, "debug/image_min.comp", shaders).value();
+    const PipelineHandle reduce = device.createPipeline({.compute = shader, .debugName = "Test min"}).value();
+    device.destroy(shader);
+
+    CommandList commands;
+    commands.bindPipeline(reduce);
+    commands.bindStorageImage(1, 0, pyramid, 0, ImageAccess::ReadOnly);
+    commands.bindStorageImage(1, 1, pyramid, 1, ImageAccess::WriteOnly);
+    commands.dispatch(1);
+    commands.resourceBarrier(BarrierScope::StorageImage | BarrierScope::TransferData);
+    device.submit(commands);
+    std::vector<float> level1(std::size_t{kSize / 2} * (kSize / 2));
+    REQUIRE(device.readTexture(pyramid, 1, 0, std::as_writable_bytes(std::span(level1))).hasValue());
+    const auto at = [&level0](vxe::u32 x, vxe::u32 y) { return level0[(y * kSize) + x]; };
+    bool reduced = true;
+    for (vxe::u32 y = 0; y < kSize / 2; ++y) {
+        for (vxe::u32 x = 0; x < kSize / 2; ++x) {
+            const float expected = std::min(std::min(at(2 * x, 2 * y), at((2 * x) + 1, 2 * y)),
+                                            std::min(at(2 * x, (2 * y) + 1), at((2 * x) + 1, (2 * y) + 1)));
+            reduced = reduced && level1[(y * (kSize / 2)) + x] == expected;
+        }
+    }
+    CHECK(reduced);
+
+    const BufferHandle source = device
+                                    .createBuffer({.sizeBytes = 256,
+                                                   .usage = BufferUsage::Storage | BufferUsage::TransferDst |
+                                                            BufferUsage::TransferSrc,
+                                                   .debugName = "Test readback source"})
+                                    .value();
+    const BufferHandle readback = device
+                                      .createBuffer({.sizeBytes = 256,
+                                                     .usage = BufferUsage::CpuRead | BufferUsage::TransferDst,
+                                                     .debugName = "Test readback"})
+                                      .value();
+    const std::vector<std::byte> bytes = pattern(256, 5);
+    REQUIRE(device.updateBuffer(source, 0, bytes).hasValue());
+    commands.reset();
+    commands.copyBuffer(source, 0, readback, 0, 256);
+    device.submit(commands);
+    const FenceHandle fence = device.insertFence();
+    for (int spin = 0; spin < 10000 && !device.isFenceSignaled(fence); ++spin) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+    REQUIRE(device.isFenceSignaled(fence));
+    device.destroy(fence);
+    const std::span<std::byte> mapped = device.mappedRange(readback);
+    REQUIRE(mapped.size() == 256);
+    CHECK(std::equal(mapped.begin(), mapped.end(), bytes.begin()));
+
+    device.destroy(readback);
+    device.destroy(source);
+    device.destroy(reduce);
+    device.destroy(pyramid);
+}
+
 void checkGpuTimer(RenderRig& rig) {
     GpuFrameTimer timer;
     REQUIRE(timer.create(rig.device).hasValue());
@@ -746,6 +823,9 @@ TEST_CASE("OpenGL device renders through the full command path (VXE_GUI_TESTS=1)
             }
             SUBCASE("compute, barriers and copies") {
                 checkComputeAndCopies(rig);
+            }
+            SUBCASE("storage images and readback buffers") {
+                checkStorageImagesAndReadback(rig);
             }
             SUBCASE("GPU frame timer") {
                 checkGpuTimer(rig);
