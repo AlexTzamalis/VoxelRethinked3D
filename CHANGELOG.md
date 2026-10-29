@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#061] 2026-10-29, Demo world in the game
+### Added
+- vr::DemoTerrain (game worldgen, temporary until G3): deterministic terrain from value noise with lowlands and higher hills, grass, dirt, beaches, lakes at sea level 62, snow above 100, ores and gravel pockets in the stone, caves, a foundation stone floor, and oak trees gathered per chunk from 7 x 7 cells so chunks never need their neighbors (Section 12.2).
+- vr::DemoWorld (game client, temporary until G0.2, G3 and E9.7): a 32 x 8 x 32 chunk field around the origin, generated and meshed on the job system while the game shows LoadingWorld, then uploaded to the chunk renderer within the per frame budget, nearest first. Flat placeholder colors per texture key until the default texture pack (G2).
+- voxel_rethinked now starts into the demo world: about 0.4 s from LoadingWorld to InGame in release (8192 chunks generated in 331 ms, 4747 meshed in 56 ms on 14 workers), then 4735 chunks and 2.1 million quads on the GPU. The overview line shows the loading progress.
+- Tests: terrain determinism and seed dependence, floor, surface and water rules, tree crowns across chunk borders, and the loading phases headless.
+### Docs
+- README: the demo world.
+
 ## [#060] 2026-10-29, G1.2 Block registry loader
 ### Added
 - vr::BlockCatalog (game common module): loads the block definition files, gives every state an id (air 0, then file name order, so the same files give the same ids), names states ("oak_log[axis=y]") and maps names and ids both ways for save palettes (Section 9.3), resolves face textures (all, side, top, bottom, one face; the most specific wins; variants override), gives texture keys their array layers in first use order and builds the engine's BlockRegistryView.

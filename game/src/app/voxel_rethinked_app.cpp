@@ -40,9 +40,10 @@ vxe::Result<void> VoxelRethinkedApp::onInit(vxe::EngineContext& context) {
     if (context.overlay != nullptr) {
         context.overlay->addOverviewLine([this] {
             const vxe::CameraPosition position = m_camera.renderPosition();
-            return std::format("{}   XYZ {:.1f} {:.1f} {:.1f}   chunk {} {} {}", nameOf(m_states.current()),
+            return std::format("{}   XYZ {:.1f} {:.1f} {:.1f}   chunk {} {} {}{}", nameOf(m_states.current()),
                                m_camera.position.x, m_camera.position.y, m_camera.position.z,
-                               position.chunk.x, position.chunk.y, position.chunk.z);
+                               position.chunk.x, position.chunk.y, position.chunk.z,
+                               m_demo ? "   " + m_demo->progressText() : std::string());
         });
     }
     return {};
@@ -77,6 +78,9 @@ void VoxelRethinkedApp::onTransition(vxe::EngineContext& context, GameState from
         m_input->popContext(m_actions->menu);
     }
     context.inMenu = isMenuState(to);
+    if (to == GameState::LoadingWorld) {
+        startDemoWorld(context);
+    }
     if (to == GameState::Paused) {
         setMouseCaptured(context, false);
     }
@@ -125,6 +129,16 @@ void VoxelRethinkedApp::advanceStartup(vxe::EngineContext& context) {
         m_states.request(GameState::LoadingWorld);
         break;
     case GameState::LoadingWorld:
+        // The demo world stands in for the real one until G3 and E9.7.
+        if (m_demo) {
+            m_demo->advance();
+            if (!m_demo->isLoaded()) {
+                break;
+            }
+            m_camera.position = m_demo->spawnPosition();
+            m_camera.yaw = 0.0F;
+            m_camera.pitch = glm::radians(-25.0F);
+        }
         m_states.request(GameState::InGame);
         break;
     default:
@@ -180,9 +194,32 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
     }
     vxe::render::Renderer& renderer = *context.renderer;
     renderer.beginFrame(m_camera, time);
+    if (m_demo) {
+        m_demo->advance();
+        m_demo->upload();
+        return;
+    }
+    // Without a world, a grid shows where the ground would be.
     constexpr vxe::u32 kMinor = vxe::render::debugColor(90, 96, 110, 160);
     constexpr vxe::u32 kMajor = vxe::render::debugColor(90, 150, 255, 220);
     renderer.debugDraw().grid(m_camera.position, kGridHeight, 96, 1.0, kMinor, kMajor, 16);
+}
+
+void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
+    if (!m_blocks || !m_blockRegistry) {
+        return;
+    }
+    auto demo =
+        DemoWorld::create({.jobs = &context.jobs,
+                           .catalog = &*m_blocks,
+                           .blocks = m_blockRegistry->current(),
+                           .device = context.device,
+                           .chunks = context.renderer != nullptr ? &context.renderer->chunks() : nullptr});
+    if (!demo) {
+        VXE_LOG_ERROR(gameLog, "The demo world could not start: {}", demo.error().describe());
+        return;
+    }
+    m_demo = std::move(demo).value();
 }
 
 void VoxelRethinkedApp::onFrame(vxe::EngineContext& context, const vxe::FrameTime& time) {
@@ -204,6 +241,11 @@ void VoxelRethinkedApp::onQuitRequested(vxe::EngineContext& context) {
 
 void VoxelRethinkedApp::onShutdown(vxe::EngineContext& context) {
     setMouseCaptured(context, false);
+    // Its jobs must finish while the job system still runs.
+    if (m_demo) {
+        m_demo->shutdown();
+        m_demo.reset();
+    }
     m_flight.reset();
     VXE_LOG_INFO(gameLog, "Voxel Rethinked shutting down");
 }

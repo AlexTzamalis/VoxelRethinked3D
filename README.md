@@ -98,7 +98,7 @@ Code style is enforced with clang-format (`--target format-check`, or `--target 
 
 Executables end up in `build/<preset>/bin/`.
 
-**Running:** `build/release/bin/voxel_rethinked.exe` starts the game. Until the menus exist it goes straight into a free flight: W, A, S, D, Space and Left Shift fly, the right mouse button looks, Escape pauses, F11 switches fullscreen, F3 shows the performance overlay and the Grave key opens the developer console. `--exec "set Video.FpsLimit 144"` runs a console command at startup and `--frames N` quits after N frames. `vxe_rhi_demo --terrain` shows a field of terrain chunks through the chunk renderer.
+**Running:** `build/release/bin/voxel_rethinked.exe` starts the game. Until the menus exist it goes straight into a demo world (a 512 x 128 x 512 block field with hills, beaches, lakes, caves and trees, generated in parallel at startup) in free flight: W, A, S, D, Space and Left Shift fly, the right mouse button looks, Escape pauses, F11 switches fullscreen, F3 shows the performance overlay and the Grave key opens the developer console. `--exec "set Video.FpsLimit 144"` runs a console command at startup and `--frames N` quits after N frames. `vxe_rhi_demo --terrain` shows a field of terrain chunks through the chunk renderer.
 
 **Profiling:** the `relwithdebinfo` preset includes the [Tracy](https://github.com/wolfpld/tracy) 0.14.1 client. Start the game, then connect with the Tracy 0.14.1 profiler (the versions must match). Set `TRACY_NO_EXIT=1` to keep a short run open until the profiler has received its data. In CLion, select the **Visual Studio** toolchain and enable the CMake presets.
 

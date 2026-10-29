@@ -1,5 +1,6 @@
 #pragma once
 
+#include "client/demo_world.hpp"
 #include "common/block_catalog.hpp"
 #include "game_settings.hpp"
 #include "game_state.hpp"
@@ -16,11 +17,11 @@ namespace vr {
 // The game application (Section 20.2 app module): owns the state machine,
 // registers the game's settings and actions, and drives each state.
 //
-// Until the menus (G4) and the world (G0.2 onwards) exist, startup goes
-// Boot -> LoadingCoreAssets -> StartingIntegratedServer -> LoadingWorld ->
-// InGame, one state per frame, and InGame is a free flight over a debug
-// grid under the sky. Escape pauses (the camera stops and the mouse is
-// free), F11 switches fullscreen, F3 shows the overlay and Grave the console.
+// Until the menus (G4) and the real world (G0.2, G3, E9.7) exist, startup
+// goes Boot -> LoadingCoreAssets (block definitions) ->
+// StartingIntegratedServer -> LoadingWorld (the demo world generates and
+// meshes) -> InGame, and InGame is a free flight over the demo world. Escape pauses (the camera stops and the
+// mouse is free), F11 switches fullscreen, F3 shows the overlay and Grave the console.
 //
 // Thread safety: main thread only, like every Application.
 class VoxelRethinkedApp final : public vxe::Application {
@@ -40,10 +41,12 @@ private:
     void updateWorld(vxe::EngineContext& context, const vxe::FrameTime& time);
     void setMouseCaptured(vxe::EngineContext& context, bool captured);
     void registerCommands(vxe::EngineContext& context);
+    void startDemoWorld(vxe::EngineContext& context);
 
     GameStateMachine m_states;
     std::optional<BlockCatalog> m_blocks;
     std::unique_ptr<vxe::voxel::BlockRegistry> m_blockRegistry;
+    std::unique_ptr<DemoWorld> m_demo;
     std::unique_ptr<GameSettings> m_settings;
     std::unique_ptr<GameActions> m_actions;
     vxe::render::Camera m_camera;

@@ -10,8 +10,12 @@ set(vrGameSources
     src/app/game_state.hpp
     src/app/voxel_rethinked_app.cpp
     src/app/voxel_rethinked_app.hpp
+    src/client/demo_world.cpp
+    src/client/demo_world.hpp
     src/common/block_catalog.cpp
     src/common/block_catalog.hpp
+    src/worldgen/demo_terrain.cpp
+    src/worldgen/demo_terrain.hpp
 )
 
 find_package(tomlplusplus CONFIG REQUIRED)
