@@ -2,6 +2,21 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#066] 2026-10-29, E9.8 Region file IO
+### Added
+- io::RandomAccessFile: reads and writes at explicit offsets (Windows ReadFile and WriteFile with offsets, POSIX pread and pwrite), sync (FlushFileBuffers, fsync), so several threads can read while one writes elsewhere in the file.
+- voxel::encodeChunk and voxel::decodeChunk: the chunk payload of Section 21. Each payload lists the names of the states its chunk uses (in order of first use, so the same chunk always gives the same bytes), then 4096 bit packed palette indices. Names the game no longer knows load as a fallback state and are counted. Malformed payloads fail with an error, never read out of bounds.
+- voxel::BlockStateNames, the interface through which the game names states; vr::CatalogStateNames answers it from the BlockCatalog.
+- voxel::RegionFile (Section 21, ADR-018): 4096 chunks per file in 512 byte sectors. A commit writes compressed payloads and a chunk table into sectors the last commit does not use, syncs, then writes a checksummed superblock into the other of two slots and syncs again; opening takes the newest valid superblock. Payloads and the table carry XXH3 checksums. Readers on any thread run alongside a commit.
+- voxel::RegionStore: the region files of a world (r.<x>.<y>.<z>.vxr), kept open up to Server.Save.MaxOpenRegionFiles, one commit per region for a batch of saved chunks, zstd level Server.Save.CompressionLevel (default 3). Stats Voxel.Regions.OpenFiles, ChunksRead, ChunksWritten, BytesRead, BytesWritten, Commits, CommitTime.
+- Tests: offsets in files, payload round trips from 1 to 4096 states, unknown names and malformed payloads, region positions below zero, commits, replacing, removing and space reuse, a simulated crash at every byte of a commit, damaged superblocks and payloads, reads from four threads during commits, a writer process killed 12 times mid commit (vxe_region_crash_writer, started through SDL's process API), the region store across regions with an open file limit, and demo terrain chunks through the codec and region files by catalog name.
+- Benchmarks: payload encode and decode, commit and read (benchmarks/region_bench.cpp).
+### Performance
+- 4 bit terrain chunk: encode 9.4 us, decode 10.4 us, read from a region file 5.7 us; a 64 chunk commit with both syncs 2.7 ms (43 us per chunk). Demo terrain takes about 0.8 KB per chunk on disk.
+### Docs
+- ADR-018: region files commit copy on write behind two superblocks; chunks carry their own name palettes (Section 9.3's per region palette becomes per chunk, compressed per file).
+- docs/perf/regions.md: E9.8 measurements and the crash tests.
+
 ## [#065] 2026-10-29, E9.7 Streaming without renderer hitches
 ### Changed
 - The chunk draw list changes in place instead of being rebuilt for every chunk change. It has a region per pass with room to grow; a chunk adds or removes only its own entries (removing moves the region's last entry into the gap), the translucent region is sorted far to near again only when the camera changes chunk or a chunk with translucent quads changes, and only changed ranges are copied to the GPU through a 1 MB per frame staging ring. The culling shader takes a start and a count per region. ChunkRenderer::drawFirst tells where a pass's draws start.

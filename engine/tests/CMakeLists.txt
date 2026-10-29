@@ -50,17 +50,26 @@ add_executable(vxe_tests
     voxel/block_registry_tests.cpp
     voxel/chunk_storage_tests.cpp
     voxel/mesher_tests.cpp
+    voxel/region_tests.cpp
     voxel/streaming_tests.cpp
     voxel/voxel_world_tests.cpp
 )
-# SDL is linked directly only so platform tests can push synthetic OS events.
+# A program the region crash test starts and kills while it commits (E9.8).
+add_executable(vxe_region_crash_writer tools/region_crash_writer.cpp)
+target_link_libraries(vxe_region_crash_writer PRIVATE vxe::vxe)
+vxe_set_warnings(vxe_region_crash_writer)
+add_dependencies(vxe_tests vxe_region_crash_writer)
+
+# SDL is linked directly only so platform tests can push synthetic OS events
+# (and the region crash test can start and kill a process).
 find_package(SDL3 CONFIG REQUIRED)
 target_link_libraries(vxe_tests PRIVATE vxe::vxe doctest::doctest SDL3::SDL3)
 # doctest forward declares std types by default; with real std headers it can
 # print std::string_view and other values in failure messages.
 target_compile_definitions(vxe_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS
     # The GPU tests compile the real engine shaders from the source tree.
-    "VXE_ENGINE_SHADER_DIR=\"${PROJECT_SOURCE_DIR}/engine/shaders\"")
+    "VXE_ENGINE_SHADER_DIR=\"${PROJECT_SOURCE_DIR}/engine/shaders\""
+    "VXE_REGION_CRASH_WRITER=\"$<TARGET_FILE:vxe_region_crash_writer>\"")
 vxe_set_warnings(vxe_tests)
 
 # Registered as a single CTest test. doctest returns a non zero exit code when

@@ -92,6 +92,7 @@ vxe_add_module(io
         src/io/compression.cpp
         src/io/file_io.cpp
         src/io/file_watcher.cpp
+        src/io/random_access_file.cpp
         src/io/vfs.cpp
     DEPENDS
         core
@@ -262,10 +263,14 @@ vxe_add_module(voxel
         src/voxel/mesher.cpp
         src/voxel/streaming.cpp
         src/voxel/chunk_render_sink.cpp
+        src/voxel/chunk_codec.cpp
+        src/voxel/region_file.cpp
+        src/voxel/region_store.cpp
     DEPENDS
         core
         math
         jobs
+        io
         config
         render
 )

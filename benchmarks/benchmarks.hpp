@@ -12,4 +12,7 @@ void runWorldBenchmarks();
 // Binary greedy meshing (meshing_bench.cpp, E9.4).
 void runMeshingBenchmarks();
 
+// Chunk payloads and region files (region_bench.cpp, E9.8).
+void runRegionBenchmarks();
+
 } // namespace vxe::bench

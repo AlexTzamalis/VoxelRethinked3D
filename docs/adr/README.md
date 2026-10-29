@@ -24,3 +24,4 @@ then update the record (or add a new one that supersedes it) in the same commit 
 | [ADR-015](0015-module-layer-order.md) | Engine modules in a strict layer order, enforced by CMake |
 | [ADR-016](0016-rhi-coordinate-conventions.md) | RHI coordinate conventions follow OpenGL with zero to one depth |
 | [ADR-017](0017-stat-registry-in-core.md) | The stat registry lives in core, the overlay in debug |
+| [ADR-018](0018-region-file-format.md) | Region files commit copy on write behind two superblocks; chunks carry their own name palettes |

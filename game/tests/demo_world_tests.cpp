@@ -1,5 +1,6 @@
 #include "client/demo_world.hpp"
 #include "common/block_catalog.hpp"
+#include "common/catalog_state_names.hpp"
 #include "worldgen/demo_terrain.hpp"
 
 #include <vxe/config/settings.hpp>
@@ -7,13 +8,18 @@
 #include <vxe/jobs/job_system.hpp>
 #include <vxe/render/camera.hpp>
 #include <vxe/voxel/block_registry.hpp>
+#include <vxe/voxel/chunk_codec.hpp>
+#include <vxe/voxel/region_store.hpp>
 #include <vxe/voxel/voxel_world.hpp>
 
 #include <doctest/doctest.h>
 
 #include <array>
+#include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <utility>
+#include <vector>
 
 using vxe::voxel::BlockStateId;
 using States = std::array<BlockStateId, vxe::kChunkVolume>;
@@ -126,4 +132,55 @@ TEST_CASE("The demo world streams in around the camera without a renderer") {
     CHECK(demo.spawnPosition().y > vr::DemoTerrain::kSeaLevel);
     demo.shutdown();
     CHECK(demo.world().chunkCount() == 0);
+}
+
+TEST_CASE("Demo terrain chunks round trip through the chunk codec and region files by state name") {
+    const auto ids = vr::DemoBlocks::fromCatalog(catalog());
+    REQUIRE(ids.hasValue());
+    const vr::DemoTerrain terrain(ids.value(), 777);
+    const vr::CatalogStateNames names(catalog());
+    const auto folder = std::filesystem::temp_directory_path() / "vr_tests" / "regions";
+    std::error_code error;
+    std::filesystem::remove_all(folder, error);
+    vxe::config::SettingsRegistry settings;
+    vxe::voxel::RegionStore store({.folder = folder, .settings = &settings});
+
+    // A column of chunks from the floor to the sky, across two regions.
+    std::vector<vxe::voxel::ChunkStorage> originals;
+    std::vector<std::vector<std::byte>> payloads;
+    std::vector<vxe::voxel::RegionStore::SavedChunk> saved;
+    std::array<vxe::voxel::BlockStateId, vxe::kChunkVolume> states{};
+    vxe::usize bytes = 0;
+    for (vxe::i32 y = 0; y < 8; ++y) {
+        for (vxe::i32 x = 14; x < 18; ++x) {
+            const vxe::ChunkPos position{.x = x, .y = y, .z = -3};
+            terrain.generate(position, states);
+            vxe::voxel::ChunkStorage blocks;
+            blocks.assign(states);
+            vxe::io::BinaryWriter writer;
+            vxe::voxel::encodeChunk(blocks, names, writer);
+            bytes += writer.size();
+            payloads.push_back(writer.takeBytes());
+            originals.push_back(std::move(blocks));
+            saved.push_back({.position = position, .payload = payloads.back()});
+        }
+    }
+    REQUIRE(store.save(saved).hasValue());
+    std::vector<std::byte> loaded;
+    for (vxe::usize i = 0; i < saved.size(); ++i) {
+        auto found = store.load(saved[i].position, loaded);
+        REQUIRE(found.hasValue());
+        REQUIRE(found.value());
+        auto decoded = vxe::voxel::decodeChunk(loaded, names);
+        REQUIRE(decoded.hasValue());
+        CHECK(decoded.value().unknownStates == 0);
+        for (vxe::u16 block = 0; block < vxe::kChunkVolume; ++block) {
+            REQUIRE(decoded.value().blocks.getIndex(block) == originals[i].getIndex(block));
+        }
+    }
+    std::uintmax_t onDisk = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(folder)) {
+        onDisk += entry.file_size();
+    }
+    MESSAGE(saved.size() << " terrain chunks: " << bytes << " payload bytes, " << onDisk << " bytes on disk");
 }
