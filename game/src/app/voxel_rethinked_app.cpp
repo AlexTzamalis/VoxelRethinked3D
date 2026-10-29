@@ -6,6 +6,7 @@
 #include <vxe/render/debug_draw.hpp>
 #include <vxe/render/renderer.hpp>
 
+#include <array>
 #include <charconv>
 #include <format>
 #include <string>
@@ -60,6 +61,41 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
              return vxe::config::CommandOutput{
                  .lines = {
                      std::format("{} ({} transitions)", nameOf(m_states.current()), m_states.transitions())}};
+         }});
+    // Puts the camera somewhere exact, for repeatable captures and measurements.
+    context.commands.registerCommand(
+        {.name = "camera",
+         .usage = "camera <x> <y> <z> [yaw pitch]",
+         .description = "Moves the camera to a block position, angles in degrees (yaw 0 looks along -Z).",
+         .handler = [this](std::span<const std::string> arguments) {
+             vxe::config::CommandOutput output;
+             if (arguments.size() != 3 && arguments.size() != 5) {
+                 output.lines.push_back(
+                     std::format("Camera at {:.1f} {:.1f} {:.1f}, yaw {:.0f}, pitch {:.0f}",
+                                 m_camera.position.x, m_camera.position.y, m_camera.position.z,
+                                 glm::degrees(m_camera.yaw), glm::degrees(m_camera.pitch)));
+                 return output;
+             }
+             std::array<vxe::f64, 5> values{0.0, 0.0, 0.0, static_cast<vxe::f64>(glm::degrees(m_camera.yaw)),
+                                            static_cast<vxe::f64>(glm::degrees(m_camera.pitch))};
+             for (vxe::usize i = 0; i < arguments.size(); ++i) {
+                 const std::string& text = arguments[i];
+                 const auto [end, error] =
+                     std::from_chars(text.data(), text.data() + text.size(), values.at(i));
+                 if (error != std::errc{} || end != text.data() + text.size()) {
+                     output.lines.emplace_back("Expected numbers: camera <x> <y> <z> [yaw pitch]");
+                     output.success = false;
+                     return output;
+                 }
+             }
+             vxe::render::Camera camera = m_camera;
+             camera.position = vxe::DVec3(values[0], values[1], values[2]);
+             camera.yaw = glm::radians(static_cast<vxe::f32>(values[3]));
+             camera.pitch = glm::radians(static_cast<vxe::f32>(values[4]));
+             m_camera = camera;
+             m_cameraOverride = camera;
+             output.lines.emplace_back("Camera moved");
+             return output;
          }});
     // A debug autopilot until the benchmark flight (G9.2): measurement runs
     // pass it with --exec, for example "autofly 300" for a fast flight.
@@ -246,7 +282,8 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
                            .blocks = m_blockRegistry.get(),
                            .stats = &context.stats,
                            .device = context.device,
-                           .chunks = context.renderer != nullptr ? &context.renderer->chunks() : nullptr});
+                           .chunks = context.renderer != nullptr ? &context.renderer->chunks() : nullptr,
+                           .lod = context.renderer != nullptr ? &context.renderer->lod() : nullptr});
     if (!demo) {
         VXE_LOG_ERROR(gameLog, "The demo world could not start: {}", demo.error().describe());
         return;
@@ -257,6 +294,9 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
     m_camera.position = m_demo->spawnPosition();
     m_camera.yaw = 0.0F;
     m_camera.pitch = glm::radians(-25.0F);
+    if (m_cameraOverride) {
+        m_camera = *m_cameraOverride;
+    }
 }
 
 void VoxelRethinkedApp::onFrame(vxe::EngineContext& context, const vxe::FrameTime& time) {

@@ -11,6 +11,7 @@
 #include <vxe/render/debug_draw.hpp>
 #include <vxe/render/frame_constants.hpp>
 #include <vxe/render/frame_graph.hpp>
+#include <vxe/render/lod_renderer.hpp>
 #include <vxe/render/post_process.hpp>
 #include <vxe/render/sky.hpp>
 #include <vxe/rhi/command_list.hpp>
@@ -33,6 +34,7 @@ struct RendererDesc {
     rhi::ShaderFileReader shaders{};
     usize chunkArenaBytes = usize{256} << 20U;
     u32 maxChunks = 32768;
+    usize lodArenaBytes = usize{96} << 20U;
 };
 
 // The engine's standard frame (Section 8.1), owned by the main loop: every
@@ -40,7 +42,9 @@ struct RendererDesc {
 //
 //   ChunkUpload        new chunk meshes into the vertex arena (transfer)
 //   Visibility         chunk culling: frustum, face direction, caves, occlusion (compute)
+//   LodUpload          new far terrain tiles into their arena (transfer)
 //   Chunks             opaque and cutout chunks into the HDR scene
+//   Lod                far terrain, hidden over columns real chunks draw
 //   Sky                sky where nothing was drawn, height fog over the rest
 //   ChunksTranslucent  water and glass, blended
 //   HiZ                depth pyramid for next frame's occlusion culling (compute)
@@ -49,8 +53,8 @@ struct RendererDesc {
 //   WindowOverlay      whatever the owner hooks in (the debug UI), never disabled
 //
 // Each pass can be switched off with Debug.Passes.<name> and is timed on the
-// GPU (Gpu.Pass.<name>). Passes not built yet (LOD, game UI) slot in here in
-// their steps.
+// GPU (Gpu.Pass.<name>). Passes not built yet (game UI) slot in here in their
+// steps.
 //
 // A frame: the application sets the camera and calls beginFrame once its
 // camera is final for the frame, then uploads chunks and adds debug lines;
@@ -79,6 +83,7 @@ public:
 
     [[nodiscard]] const Camera& camera() const noexcept { return m_camera; }
     [[nodiscard]] ChunkRenderer& chunks() noexcept { return *m_chunks; }
+    [[nodiscard]] LodRenderer& lod() noexcept { return *m_lod; }
     [[nodiscard]] DebugDraw& debugDraw() noexcept { return *m_debugDraw; }
     [[nodiscard]] SkyRenderer& sky() noexcept { return *m_sky; }
     [[nodiscard]] rhi::Device& device() noexcept { return m_device; }
@@ -97,6 +102,7 @@ private:
     std::unique_ptr<FrameGraph> m_graph;
     FrameConstantsBuffer m_constants;
     std::unique_ptr<ChunkRenderer> m_chunks;
+    std::unique_ptr<LodRenderer> m_lod;
     std::unique_ptr<SkyRenderer> m_sky;
     std::unique_ptr<PostProcess> m_post;
     std::unique_ptr<DebugDraw> m_debugDraw;

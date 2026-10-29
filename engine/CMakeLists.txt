@@ -207,6 +207,7 @@ vxe_add_module(render
         src/render/frame_graph.cpp
         src/render/frame_pacer.cpp
         src/render/hi_z.cpp
+        src/render/lod_renderer.cpp
         src/render/post_process.cpp
         src/render/renderer.cpp
         src/render/sky.cpp
@@ -271,6 +272,8 @@ vxe_add_module(voxel
         src/voxel/lod_tile.cpp
         src/voxel/lod_cache.cpp
         src/voxel/lod_manager.cpp
+        src/voxel/lod_mesher.cpp
+        src/voxel/lod_render_sink.cpp
     DEPENDS
         core
         math

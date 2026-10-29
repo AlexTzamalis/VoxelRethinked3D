@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/block_catalog.hpp"
+#include "worldgen/demo_lod_sampler.hpp"
 #include "worldgen/demo_terrain.hpp"
 
 #include <vxe/config/settings.hpp>
@@ -12,10 +13,13 @@
 #include <vxe/math/vector.hpp>
 #include <vxe/render/camera.hpp>
 #include <vxe/render/chunk_renderer.hpp>
+#include <vxe/render/lod_renderer.hpp>
 #include <vxe/rhi/device.hpp>
 #include <vxe/voxel/block_registry.hpp>
 #include <vxe/voxel/chunk_render_sink.hpp>
 #include <vxe/voxel/chunk_source.hpp>
+#include <vxe/voxel/lod_manager.hpp>
+#include <vxe/voxel/lod_render_sink.hpp>
 #include <vxe/voxel/streaming.hpp>
 #include <vxe/voxel/voxel_world.hpp>
 
@@ -33,6 +37,7 @@ struct DemoWorldDesc {
     vxe::stats::StatRegistry* stats = nullptr;    // Optional.
     vxe::rhi::Device* device = nullptr;           // Optional: no textures and no drawing without it.
     vxe::render::ChunkRenderer* chunks = nullptr; // Optional, with the device.
+    vxe::render::LodRenderer* lod = nullptr;      // Optional, with the device: far terrain.
     vxe::u64 seed = 12345;
 };
 
@@ -58,6 +63,10 @@ private:
 //
 // Textures are flat placeholder colors per texture key until the default
 // texture pack (G2).
+//
+// Far terrain (Section 13) comes from DemoLodSampler through the engine's
+// LodManager, without a cache (the demo saves nothing), drawn by the
+// renderer's LodRenderer and hidden over chunk columns streaming has meshed.
 //
 // Thread safety: main thread only. Call shutdown() before the job system
 // and the renderer go away.
@@ -107,6 +116,12 @@ private:
     vxe::voxel::VoxelWorld m_world;
     DemoChunkSource m_source;
     std::optional<vxe::voxel::ChunkRenderSink> m_sink;
+    vxe::render::LodRenderer* m_lodRenderer;
+    std::shared_ptr<const vxe::voxel::BlockRegistryView> m_view;
+    DemoLodSampler m_lodSampler;
+    std::optional<vxe::voxel::LodRenderSink> m_lodSink;
+    std::optional<vxe::voxel::CoveringChunkSink> m_coveringSink;
+    std::unique_ptr<vxe::voxel::LodManager> m_lod;
     std::unique_ptr<vxe::voxel::StreamingManager> m_streaming; // Last: it waits for its jobs first.
     vxe::Stopwatch m_loadClock;
     bool m_loaded = false;

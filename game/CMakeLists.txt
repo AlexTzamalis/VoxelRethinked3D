@@ -14,6 +14,8 @@ set(vrGameSources
     src/client/demo_world.hpp
     src/common/block_catalog.cpp
     src/common/block_catalog.hpp
+    src/worldgen/demo_lod_sampler.cpp
+    src/worldgen/demo_lod_sampler.hpp
     src/worldgen/demo_terrain.cpp
     src/worldgen/demo_terrain.hpp
 )

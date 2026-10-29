@@ -68,20 +68,37 @@ DemoWorld::DemoWorld(const DemoWorldDesc& desc, const DemoBlocks& blocks)
     , m_catalog(*desc.catalog)
     , m_terrain(blocks, desc.seed)
     , m_world({}, desc.stats)
-    , m_source(m_terrain) {
+    , m_source(m_terrain)
+    , m_lodRenderer(desc.lod)
+    , m_view(desc.blocks->current())
+    , m_lodSampler(m_terrain, blocks, *m_view, desc.seed) {
     if (m_chunks != nullptr) {
         m_sink.emplace(*m_chunks);
     }
-    m_streaming = std::make_unique<vxe::voxel::StreamingManager>(
-        vxe::voxel::StreamingDesc{.world = &m_world,
-                                  .source = &m_source,
-                                  .jobs = desc.jobs,
-                                  .settings = desc.settings,
-                                  .sink = m_sink ? &*m_sink : nullptr,
-                                  .blocks = desc.blocks,
-                                  .stats = desc.stats,
-                                  .minChunkY = kMinChunkY,
-                                  .maxChunkY = kMaxChunkY});
+    vxe::voxel::ChunkMeshSink* chunkSink = m_sink ? &*m_sink : nullptr;
+    if (m_lodRenderer != nullptr) {
+        m_lodSink.emplace(*m_lodRenderer, *desc.jobs, &m_world);
+        if (chunkSink != nullptr) {
+            m_coveringSink.emplace(*chunkSink, *m_lodSink);
+            chunkSink = &*m_coveringSink;
+        }
+    }
+    m_lod = std::make_unique<vxe::voxel::LodManager>(
+        vxe::voxel::LodManagerDesc{.jobs = desc.jobs,
+                                   .settings = desc.settings,
+                                   .sampler = &m_lodSampler,
+                                   .sink = m_lodSink ? &*m_lodSink : nullptr,
+                                   .stats = desc.stats});
+    m_streaming =
+        std::make_unique<vxe::voxel::StreamingManager>(vxe::voxel::StreamingDesc{.world = &m_world,
+                                                                                 .source = &m_source,
+                                                                                 .jobs = desc.jobs,
+                                                                                 .settings = desc.settings,
+                                                                                 .sink = chunkSink,
+                                                                                 .blocks = desc.blocks,
+                                                                                 .stats = desc.stats,
+                                                                                 .minChunkY = kMinChunkY,
+                                                                                 .maxChunkY = kMaxChunkY});
     m_streaming->startBurst();
 }
 
@@ -115,6 +132,9 @@ vxe::Result<void> DemoWorld::createTextures() {
     }
     m_textures = textures.value();
     m_chunks->setTextures(m_textures.texture, m_textures.sampler);
+    if (m_lodRenderer != nullptr) {
+        m_lodRenderer->setMaterialColors(colors);
+    }
     return {};
 }
 
@@ -140,6 +160,10 @@ void DemoWorld::release() noexcept {
     }
     m_shutDown = true;
     m_streaming->unloadAll();
+    m_lod.reset(); // Waits for its jobs; the renderer forgets the tiles below.
+    if (m_lodRenderer != nullptr) {
+        m_lodRenderer->clear();
+    }
     if (m_device != nullptr) {
         if (m_chunks != nullptr) {
             m_chunks->setTextures({}, {});
@@ -159,6 +183,10 @@ void DemoWorld::update(const vxe::render::Camera& camera) {
         return;
     }
     m_streaming->update({.position = camera.position, .forward = camera.forward()});
+    m_lod->update(camera.position);
+    if (m_lodSink) {
+        m_lodSink->update();
+    }
     m_world.publishStats();
     if (m_loaded) {
         return;

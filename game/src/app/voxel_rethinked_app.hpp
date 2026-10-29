@@ -53,6 +53,9 @@ private:
     std::unique_ptr<vxe::render::FreeCameraController> m_flight;
     bool m_mouseCaptured = false;
     vxe::f64 m_autoFlySpeed = 0.0; // The autofly command, blocks per second.
+    // The camera command: where to put the camera, applied once the world
+    // has placed it at the spawn (so --exec works before the world exists).
+    std::optional<vxe::render::Camera> m_cameraOverride;
     vxe::input::InputSystem* m_input = nullptr;
 };
 

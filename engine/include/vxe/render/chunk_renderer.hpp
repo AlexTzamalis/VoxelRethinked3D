@@ -160,6 +160,8 @@ public:
     // renderer sets it from the time of day every frame; quads keep their
     // sky light level, and this scales its brightness.
     void setDaylight(f32 daylight) noexcept;
+    // Graphics.Lighting.Brightness, for other renderers that light terrain alike.
+    [[nodiscard]] f32 brightness() const { return m_brightness.get(); }
     // Multiplies World.Streaming.MaxUploadKBPerFrame, still capped by the
     // staging memory per frame. Streaming raises it in burst mode while the
     // loading screen shows (Section 11.6).

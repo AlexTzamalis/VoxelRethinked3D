@@ -2,6 +2,22 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#073] 2026-10-29, E11.3 LOD mesher and renderer
+### Added
+- LodMesher: tile spans to 12 byte quads (LodQuad): tops of the highest spans merged greedily, tops of lower spans and undersides of spans with a span below, the exposed parts of span sides merged along each edge, skirts at tile edges (4 cells deep, at least 16 blocks).
+- render::LodRenderer: a vertex arena with budgeted staging uploads, CPU frustum culling per tile, per frame tile positions relative to the camera chunk, multi draw indirect, a material color table, a 128 x 128 wrapping coverage map that discards far terrain over chunk columns real chunks draw, and tiles skipped whole when every column under them is covered. Shaders render/lod.vert and render/lod.frag. Passes LodUpload and Lod in the renderer's frame.
+- voxel::LodRenderSink (meshes tiles on workers, uploads them, keeps the coverage map from meshed chunks) and voxel::CoveringChunkSink (passes chunk meshes on and reports them for coverage).
+- Settings Graphics.LOD.MaxUploadKBPerFrame, Graphics.LOD.CoverageDiscard, Debug.LOD.ColorLevels and Debug.LOD.ShowCoverage. Stats Render.Lod.Tiles, Quads, ArenaBytes, DrawnTiles, CoveredTiles, UploadBytes, UploadsOverBudget and UploadsOutOfMemory.
+- The demo world shows far terrain: DemoLodSampler samples the demo terrain's height per cell, colored by the blocks on top, through LodManager, LodRenderSink and the renderer.
+- Game console command camera <x> <y> <z> [yaw pitch] for repeatable captures.
+- Tests: LOD quads cover every top, underside and exposed side exactly once against a block by block count; flat tiles are one top and four skirts; the renderer uploads, culls, splits big tiles into draws, keeps its budget and wraps the coverage map; the sink gets every tile of the clipmap to the renderer; coverage follows meshed chunks from the lowest surface up.
+### Changed
+- ChunkRenderer::brightness() so far and near terrain are lit alike.
+### Performance
+- Lod pass 0.21 ms GPU in the demo world with 304 tiles to 16,384 blocks; frame rate within run to run noise of LOD off (1169 and 1079 FPS standing and flying, against 1010 and 997 without LOD).
+### Docs
+- docs/perf/lod.md: E11.3.
+
 ## [#072] 2026-10-29, E11.2 LOD sampler interface and manager
 ### Added
 - LodTileSampler: the interface the game's column sampler implements (sampleTile on workers with spans per cell, caves and a cancel flag; worldHash for the cache).

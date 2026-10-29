@@ -71,6 +71,17 @@ Result<std::unique_ptr<Renderer>> Renderer::create(const RendererDesc& desc) {
         return fail(chunks.error());
     }
     renderer->m_chunks = std::move(chunks.value());
+    auto lod = LodRenderer::create({.device = &device,
+                                    .settings = desc.settings,
+                                    .stats = desc.stats,
+                                    .shaders = desc.shaders,
+                                    .colorFormat = kSceneFormat,
+                                    .depthFormat = kDepthFormat,
+                                    .arenaBytes = desc.lodArenaBytes});
+    if (!lod) {
+        return fail(lod.error());
+    }
+    renderer->m_lod = std::move(lod.value());
     auto sky = SkyRenderer::create({.device = &device,
                                     .settings = desc.settings,
                                     .stats = desc.stats,
@@ -115,6 +126,7 @@ Renderer::~Renderer() {
     m_debugDraw.reset();
     m_post.reset();
     m_sky.reset();
+    m_lod.reset();
     m_chunks.reset();
     m_constants.destroy(m_device);
     if (m_timerCreated) {
@@ -127,6 +139,10 @@ Result<void> Renderer::buildGraph() {
     static_cast<void>(graph.addPass(
         {.name = "ChunkUpload", .type = PassType::Transfer, .record = [this](PassContext& context) {
              m_chunks->recordUploads(context.commands);
+         }}));
+    static_cast<void>(graph.addPass(
+        {.name = "LodUpload", .type = PassType::Transfer, .record = [this](PassContext& context) {
+             m_lod->recordUploads(context.commands);
          }}));
     // Switched off, every chunk face group is drawn.
     static_cast<void>(graph.addPass(
@@ -144,6 +160,15 @@ Result<void> Renderer::buildGraph() {
     // Reversed Z: depth 0 is infinitely far (ADR-010).
     chunks.colorAttachment(color, rhi::LoadOp::Clear, {0.0F, 0.0F, 0.0F, 1.0F});
     chunks.depthAttachment(depth, rhi::LoadOp::Clear, 0.0F);
+
+    // Far terrain after the chunks: its depth test against them is cheap,
+    // and the coverage map keeps it off columns they draw.
+    auto lod = graph.addPass({.name = "Lod", .record = [this](PassContext& context) {
+                                  m_constants.bind(context.commands);
+                                  m_lod->record(context.commands);
+                              }});
+    lod.colorAttachment(color, rhi::LoadOp::Load);
+    lod.depthAttachment(depth, rhi::LoadOp::Load);
 
     auto sky = graph.addPass({.name = "Sky", .record = [this, depth](PassContext& context) {
                                   m_constants.bind(context.commands);
@@ -205,7 +230,9 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
     const u32 height = std::max(m_device.backBufferHeight(), 1U);
     m_graph->setOutputSize(width, height);
     m_sky->update(time.deltaSeconds);
-    m_chunks->setDaylight(daylightOf(m_sky->params()));
+    const f32 daylight = daylightOf(m_sky->params());
+    m_chunks->setDaylight(daylight);
+    m_lod->setLight(daylight, m_chunks->brightness());
     m_post->update(width, height);
     m_constants.update(m_device, makeFrameConstants(camera, {.width = width,
                                                              .height = height,
@@ -214,6 +241,8 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
                                                              .frameIndex = m_frameIndex}));
     m_chunks->setViewSize(width, height);
     m_chunks->beginFrame(camera);
+    m_lod->setViewSize(width, height);
+    m_lod->beginFrame(camera);
     m_debugDraw->handleInput();
     m_debugDraw->beginFrame(camera);
     if (const std::optional<Camera> frozen = m_chunks->frozenCullingCamera()) {

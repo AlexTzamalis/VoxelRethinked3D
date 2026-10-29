@@ -38,6 +38,7 @@ add_executable(vxe_tests
     render/camera_tests.cpp
     render/chunk_culling_tests.cpp
     render/chunk_renderer_tests.cpp
+    render/lod_renderer_tests.cpp
     render/debug_draw_tests.cpp
     render/frame_graph_tests.cpp
     render/frame_pacer_tests.cpp
@@ -52,6 +53,8 @@ add_executable(vxe_tests
     voxel/chunk_light_tests.cpp
     voxel/lod_tests.cpp
     voxel/lod_manager_tests.cpp
+    voxel/lod_mesher_tests.cpp
+    voxel/lod_render_sink_tests.cpp
     voxel/chunk_storage_tests.cpp
     voxel/mesher_tests.cpp
     voxel/region_tests.cpp
