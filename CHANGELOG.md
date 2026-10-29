@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#080] 2026-10-30, Default pack hand edits
+### Changed
+- textures/default: stone, dirt, gravel, grass side, coal ore and gold ore refined by hand in Aseprite.
+
 ## [#079] 2026-10-29, G2.2 Texture pack loader
 ### Added
 - render/texture_pack: pack manifests (pack.toml: name, format, resolution 16 to 256, options), pack sources from folders and from memory, pack discovery, and buildBlockTextures: each texture key from the first pack of the stack that has blocks/<key>.png, decoded with stb_image, flipped bottom row first (ADR-016), scaled with nearest filtering to the largest resolution of the stack (capped by Graphics.Textures.MaxResolution), mipmaps averaged by alpha with alpha coverage kept for cut out textures (leaves do not thin out with distance), animations from vertical frame strips plus blocks/<key>.anim.toml (frames after the key layers, so layer numbers never change), a magenta checker and a warning for anything missing or broken, and each layer's average color.
