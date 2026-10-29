@@ -52,6 +52,7 @@ private:
     vxe::render::Camera m_camera;
     std::unique_ptr<vxe::render::FreeCameraController> m_flight;
     bool m_mouseCaptured = false;
+    vxe::f64 m_autoFlySpeed = 0.0; // The autofly command, blocks per second.
     vxe::input::InputSystem* m_input = nullptr;
 };
 

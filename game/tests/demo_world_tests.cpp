@@ -2,14 +2,18 @@
 #include "common/block_catalog.hpp"
 #include "worldgen/demo_terrain.hpp"
 
+#include <vxe/config/settings.hpp>
 #include <vxe/core/time.hpp>
 #include <vxe/jobs/job_system.hpp>
+#include <vxe/render/camera.hpp>
+#include <vxe/voxel/block_registry.hpp>
 #include <vxe/voxel/voxel_world.hpp>
 
 #include <doctest/doctest.h>
 
 #include <array>
 #include <memory>
+#include <utility>
 
 using vxe::voxel::BlockStateId;
 using States = std::array<BlockStateId, vxe::kChunkVolume>;
@@ -97,21 +101,29 @@ TEST_CASE("Demo terrain has a floor, a surface on its height and water at sea le
     CHECK(crowns > 0);
 }
 
-TEST_CASE("The demo world generates and meshes on the job system without a renderer") {
-    vxe::jobs::JobSystem jobs({.workerCount = 4, .ioThreadCount = 1});
+TEST_CASE("The demo world streams in around the camera without a renderer") {
+    vxe::config::SettingsRegistry settings;
+    vxe::voxel::BlockRegistry blocks;
     auto view = catalog().buildRegistry();
     REQUIRE(view.hasValue());
+    blocks.publish(std::move(view).value());
+    vxe::jobs::JobSystem jobs({.workerCount = 4, .ioThreadCount = 1});
     auto world = vr::DemoWorld::create(
-        {.jobs = &jobs, .catalog = &catalog(), .blocks = view.value(), .radiusChunks = 2, .heightChunks = 8});
+        {.jobs = &jobs, .settings = &settings, .catalog = &catalog(), .blocks = &blocks});
     REQUIRE(world.hasValue());
     vr::DemoWorld& demo = *world.value();
+    REQUIRE(settings.set("World.Streaming.RenderDistance", vxe::config::SettingValue{2}).hasValue());
+    vxe::render::Camera camera;
+    camera.position = demo.spawnPosition();
     const vxe::Stopwatch stopwatch;
-    while (demo.phase() != vr::DemoWorld::Phase::Ready && stopwatch.elapsedMilliseconds() < 30000.0) {
-        demo.advance();
-        demo.upload();
+    while ((!demo.isLoaded() || !demo.streaming().isSettled()) && stopwatch.elapsedMilliseconds() < 30000.0) {
+        demo.update(camera);
     }
-    CHECK(demo.phase() == vr::DemoWorld::Phase::Ready);
-    CHECK(demo.world().chunkCount() == 4 * 4 * 8);
+    CHECK(demo.isLoaded());
+    REQUIRE(demo.streaming().isSettled());
+    // Within render distance + 1 sideways, all 8 layers of the world.
+    CHECK(demo.world().chunkCount() == 7 * 7 * 8);
     CHECK(demo.spawnPosition().y > vr::DemoTerrain::kSeaLevel);
     demo.shutdown();
+    CHECK(demo.world().chunkCount() == 0);
 }

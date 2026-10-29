@@ -6,8 +6,10 @@
 #include <vxe/render/debug_draw.hpp>
 #include <vxe/render/renderer.hpp>
 
+#include <charconv>
 #include <format>
 #include <string>
+#include <system_error>
 
 namespace vr {
 namespace {
@@ -58,6 +60,30 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
              return vxe::config::CommandOutput{
                  .lines = {
                      std::format("{} ({} transitions)", nameOf(m_states.current()), m_states.transitions())}};
+         }});
+    // A debug autopilot until the benchmark flight (G9.2): measurement runs
+    // pass it with --exec, for example "autofly 300" for a fast flight.
+    context.commands.registerCommand(
+        {.name = "autofly",
+         .usage = "autofly <blocks per second>",
+         .description = "Flies the camera forward by itself. 0 stops.",
+         .handler = [this](std::span<const std::string> arguments) {
+             vxe::config::CommandOutput output;
+             if (arguments.size() != 1) {
+                 output.lines.push_back(std::format("Flying at {:.0f} blocks per second", m_autoFlySpeed));
+                 return output;
+             }
+             vxe::f64 speed = 0.0;
+             const std::string& text = arguments[0];
+             const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), speed);
+             if (error != std::errc{} || end != text.data() + text.size() || speed < 0.0) {
+                 output.lines.emplace_back("Expected a speed of 0 or more blocks per second");
+                 output.success = false;
+                 return output;
+             }
+             m_autoFlySpeed = speed;
+             output.lines.push_back(std::format("Flying at {:.0f} blocks per second", m_autoFlySpeed));
+             return output;
          }});
 }
 
@@ -129,15 +155,11 @@ void VoxelRethinkedApp::advanceStartup(vxe::EngineContext& context) {
         m_states.request(GameState::LoadingWorld);
         break;
     case GameState::LoadingWorld:
-        // The demo world stands in for the real one until G3 and E9.7.
-        if (m_demo) {
-            m_demo->advance();
-            if (!m_demo->isLoaded()) {
-                break;
-            }
-            m_camera.position = m_demo->spawnPosition();
-            m_camera.yaw = 0.0F;
-            m_camera.pitch = glm::radians(-25.0F);
+        // The demo world stands in for the real one until G0.2 and G3; it
+        // streams in from updateWorld() and is entered once the area around
+        // the spawn is ready.
+        if (m_demo && !m_demo->isLoaded()) {
+            break;
         }
         m_states.request(GameState::InGame);
         break;
@@ -181,6 +203,15 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
             }
             m_flight->update(m_camera, time.deltaSeconds);
             setMouseCaptured(context, m_flight->isLooking());
+            if (m_autoFlySpeed > 0.0) {
+                // Level flight in the view direction, so looking down does
+                // not fly into the ground.
+                const vxe::Vec3 forward = m_camera.forward();
+                const vxe::DVec3 level(forward.x, 0.0, forward.z);
+                if (glm::length(level) > 1.0e-6) {
+                    m_camera.position += glm::normalize(level) * (m_autoFlySpeed * time.deltaSeconds);
+                }
+            }
         }
     } else if (m_states.current() == GameState::Paused && m_input->isPressed(m_actions->menuBack)) {
         m_states.request(GameState::InGame);
@@ -195,8 +226,7 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
     vxe::render::Renderer& renderer = *context.renderer;
     renderer.beginFrame(m_camera, time);
     if (m_demo) {
-        m_demo->advance();
-        m_demo->upload();
+        m_demo->update(m_camera);
         return;
     }
     // Without a world, a grid shows where the ground would be.
@@ -211,8 +241,10 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
     }
     auto demo =
         DemoWorld::create({.jobs = &context.jobs,
+                           .settings = &context.settings,
                            .catalog = &*m_blocks,
-                           .blocks = m_blockRegistry->current(),
+                           .blocks = m_blockRegistry.get(),
+                           .stats = &context.stats,
                            .device = context.device,
                            .chunks = context.renderer != nullptr ? &context.renderer->chunks() : nullptr});
     if (!demo) {
@@ -220,12 +252,18 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
         return;
     }
     m_demo = std::move(demo).value();
+    // Streaming centers on the camera, so it waits at the spawn while the
+    // world loads around it.
+    m_camera.position = m_demo->spawnPosition();
+    m_camera.yaw = 0.0F;
+    m_camera.pitch = glm::radians(-25.0F);
 }
 
 void VoxelRethinkedApp::onFrame(vxe::EngineContext& context, const vxe::FrameTime& time) {
     handleGlobalActions(context);
     advanceStartup(context);
-    if (isWorldState(m_states.current())) {
+    // The world streams in while loading (no loading screen before G5.3).
+    if (isWorldState(m_states.current()) || m_states.current() == GameState::LoadingWorld) {
         updateWorld(context, time);
     }
 }

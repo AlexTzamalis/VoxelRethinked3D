@@ -243,6 +243,13 @@ private:
     // A growable ring buffer of jobs behind a mutex. The owner pushes and pops
     // at the back, thieves take from the front. It doubles when full and never
     // shrinks, so after warm up no operation allocates.
+    //
+    // Pops first read a copy of the size without the lock and give up on an
+    // empty queue. Idle workers sweep every queue of every priority, so
+    // without that check they kept the mutexes so busy that a thread pushing
+    // a job (the main thread scheduling chunk work) sometimes waited over a
+    // millisecond for one. A stale copy only delays finding a job to the next
+    // sweep; workers do not sleep while the queued job counter is above 0.
     class JobQueue {
     public:
         void pushBack(Job&& job);
@@ -255,6 +262,7 @@ private:
         std::vector<Job> m_ring;
         usize m_head = 0; // Index of the oldest job.
         usize m_size = 0;
+        std::atomic<usize> m_approxSize{0}; // m_size, written under the lock, read without it.
     };
 
     // Per thread counters. Each one is written only by its own thread, so a

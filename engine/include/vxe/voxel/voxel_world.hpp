@@ -11,6 +11,8 @@
 
 #include <array>
 #include <optional>
+#include <span>
+#include <vector>
 
 namespace vxe::voxel {
 
@@ -77,6 +79,16 @@ public:
     // has changes nothing, not even the version.
     bool setBlock(const BlockPos& position, BlockStateId state);
 
+    // Chunks that were loaded and current (kDirtyMesh clear) and then
+    // changed: their own blocks, a border block of a neighbor, or a neighbor
+    // loaded or unloaded. Chunks loaded or replaced by insertChunk() are not
+    // listed for that load; their loader knows. The streaming manager remeshes
+    // the listed chunks and clears the list each frame. Each chunk appears
+    // once until its kDirtyMesh flag is cleared again, so the list stays
+    // small even if nobody reads it.
+    [[nodiscard]] std::span<const ChunkPos> changedChunks() const noexcept { return m_changedChunks; }
+    void clearChangedChunks() noexcept { m_changedChunks.clear(); }
+
     [[nodiscard]] const ColumnSummary* findColumn(ColumnPos position) const noexcept;
     [[nodiscard]] usize columnCount() const noexcept { return m_columns.size(); }
     // Records the generator's surface height for a column. Ignored if no
@@ -108,8 +120,9 @@ private:
     void account(const ChunkStorage& blocks, bool add) noexcept;
     [[nodiscard]] static std::optional<ChunkPos> neighborPosition(ChunkPos position, i32 dx, i32 dy,
                                                                   i32 dz) noexcept;
-    void neighborChanged(ChunkPos position, i32 dx, i32 dy, i32 dz, u64 stamp) noexcept;
-    void neighborsChanged(ChunkPos position, u64 stamp) noexcept;
+    void markChanged(Chunk& chunk, u64 stamp);
+    void neighborChanged(ChunkPos position, i32 dx, i32 dy, i32 dz, u64 stamp);
+    void neighborsChanged(ChunkPos position, u64 stamp);
     static void raiseHeights(ColumnSummary& column, const Chunk& chunk);
     void addToColumn(const Chunk& chunk);
     void removeFromColumn(ChunkPos position);
@@ -123,6 +136,7 @@ private:
     HashMap<ColumnPos, ColumnSummary*> m_columns;
     StorageCounts m_counts;
     u64 m_changeCounter = 0; // Source of chunk version stamps.
+    std::vector<ChunkPos> m_changedChunks;
 
     stats::StatRegistry* m_stats;
     struct StatIds {

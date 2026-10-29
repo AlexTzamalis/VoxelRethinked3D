@@ -134,7 +134,7 @@ TEST_CASE("Every overlay page draws with valid commands only") {
             rig.frame();
         }
     }
-    CHECK(rig.overlay->pageCount() == 8);
+    CHECK(rig.overlay->pageCount() == 9);
     const rhi::DeviceStats stats = rig.device->stats();
     CHECK(stats.invalidCommands == 0);
     CHECK(stats.drawCalls > 0);

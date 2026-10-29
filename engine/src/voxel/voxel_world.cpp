@@ -197,15 +197,23 @@ std::optional<ChunkPos> VoxelWorld::neighborPosition(ChunkPos position, i32 dx, 
     return position.offset(dx, dy, dz);
 }
 
-void VoxelWorld::neighborChanged(ChunkPos position, i32 dx, i32 dy, i32 dz, u64 stamp) noexcept {
+void VoxelWorld::markChanged(Chunk& chunk, u64 stamp) {
+    const bool wasCurrent = !chunk.isDirty(kDirtyMesh);
+    chunk.changed(stamp);
+    if (wasCurrent) {
+        m_changedChunks.push_back(chunk.position());
+    }
+}
+
+void VoxelWorld::neighborChanged(ChunkPos position, i32 dx, i32 dy, i32 dz, u64 stamp) {
     if (const auto at = neighborPosition(position, dx, dy, dz)) {
         if (Chunk* found = findChunk(*at); found != nullptr) {
-            found->changed(stamp);
+            markChanged(*found, stamp);
         }
     }
 }
 
-void VoxelWorld::neighborsChanged(ChunkPos position, u64 stamp) noexcept {
+void VoxelWorld::neighborsChanged(ChunkPos position, u64 stamp) {
     for (i32 dy = -1; dy <= 1; ++dy) {
         for (i32 dz = -1; dz <= 1; ++dz) {
             for (i32 dx = -1; dx <= 1; ++dx) {
@@ -225,7 +233,7 @@ Chunk& VoxelWorld::insertChunk(ChunkPos position, ChunkStorage blocks) {
         account(existing->m_blocks, false);
         existing->m_blocks = std::move(blocks);
         account(existing->m_blocks, true);
-        existing->changed(stamp);
+        markChanged(*existing, stamp);
         neighborsChanged(position, stamp);
         ColumnSummary& column = *m_columns.find(columnOf(position))->second;
         const i64 top = chunkBase(position.y) + kChunkMask;
@@ -278,6 +286,7 @@ void VoxelWorld::clear() {
         m_columnPool.destroy(entry.second);
     }
     m_columns.clear();
+    m_changedChunks.clear();
 }
 
 void VoxelWorld::addToColumn(const Chunk& chunk) {
@@ -410,7 +419,7 @@ bool VoxelWorld::setBlock(const BlockPos& position, BlockStateId state) {
     account(chunk->m_blocks, false);
     chunk->m_blocks.set(local, state);
     account(chunk->m_blocks, true);
-    chunk->changed(stamp);
+    markChanged(*chunk, stamp);
     chunk->m_dirty = static_cast<u8>(chunk->m_dirty | kDirtySave);
 
     // A block on the chunk's border is in the snapshot borders of up to 7

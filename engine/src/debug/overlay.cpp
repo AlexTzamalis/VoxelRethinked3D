@@ -223,6 +223,7 @@ DebugOverlay::DebugOverlay(const OverlayDesc& desc)
     m_pages.push_back({.name = "Overview", .draw = [] {}});
     m_pages.push_back({.name = "Frame", .draw = [this] { drawFramePage(); }});
     m_pages.push_back({.name = "GPU", .draw = [this] { drawGpuPage(); }});
+    m_pages.push_back({.name = "Streaming and Jobs", .draw = [this] { drawStreamingPage(); }});
     m_pages.push_back({.name = "Memory", .draw = [this] { drawMemoryPage(); }});
     m_pages.push_back({.name = "Input", .draw = [this] { drawInputPage(); }});
     m_pages.push_back({.name = "Settings diff", .draw = [this] { drawSettingsPage(); }});
@@ -520,6 +521,124 @@ void DebugOverlay::drawPassTimings() {
         text(std::format("{:.3f}", total));
         ImGui::EndTable();
     }
+}
+
+void DebugOverlay::setJobSystem(jobs::JobSystem* jobs) {
+    m_jobs = jobs;
+    m_jobSnapshot = {};
+    m_workerBusy.clear();
+}
+
+// Streaming (Section 18.2 page 4) reads the Voxel.Streaming stats by name,
+// since debug sits below voxel in the module layers; the job system is
+// queried directly, at most Debug.Overlay.UpdateRate times per second and
+// only while this page shows.
+void DebugOverlay::drawStreamingPage() {
+    beginPageWindow("Streaming and Jobs");
+    const auto statValue = [this](std::string_view name) {
+        const stats::StatId id = m_stats.find(name);
+        return id.isValid() ? m_stats.value(id) : 0.0;
+    };
+    const stats::StatId loaded = m_stats.find("Voxel.Streaming.Loaded");
+    if (!loaded.isValid()) {
+        text("Nothing is streaming.");
+    } else {
+        text(std::format("Chunks: {:.0f} loaded, {:.0f} with a mesh{}", m_stats.value(loaded),
+                         statValue("Voxel.Streaming.Meshed"),
+                         statValue("Voxel.Streaming.Burst") > 0.0 ? "   (burst mode)" : ""));
+        constexpr std::array<std::pair<std::string_view, std::string_view>, 6> kStages = {{
+            {"Pending", "Voxel.Streaming.Pending"},
+            {"Loading", "Voxel.Streaming.Loading"},
+            {"Ready", "Voxel.Streaming.Ready"},
+            {"Mesh queued", "Voxel.Streaming.MeshQueued"},
+            {"Meshing", "Voxel.Streaming.Meshing"},
+            {"Uploading", "Voxel.Streaming.Uploading"},
+        }};
+        constexpr std::array<std::pair<std::string_view, std::string_view>, 6> kRates = {{
+            {"Loaded", "Voxel.Streaming.ChunksLoaded"},
+            {"Meshed", "Voxel.Streaming.ChunksMeshed"},
+            {"Uploaded", "Voxel.Streaming.ChunksUploaded"},
+            {"Unloaded", "Voxel.Streaming.ChunksUnloaded"},
+            {"Cancelled", "Voxel.Streaming.Cancelled"},
+            {"Stale meshes", "Voxel.Streaming.StaleMeshes"},
+        }};
+        if (ImGui::BeginTable("Pipeline", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+            for (const char* header : {"Stage", "Chunks", "Done", "Per second"}) {
+                ImGui::TableSetupColumn(header);
+            }
+            ImGui::TableHeadersRow();
+            for (usize row = 0; row < kStages.size(); ++row) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                text(std::string(kStages.at(row).first));
+                ImGui::TableNextColumn();
+                text(std::format("{:.0f}", statValue(kStages.at(row).second)));
+                ImGui::TableNextColumn();
+                text(std::string(kRates.at(row).first));
+                ImGui::TableNextColumn();
+                const stats::StatId rate = m_stats.find(kRates.at(row).second);
+                text(std::format("{:.0f}", rate.isValid() ? m_stats.perSecond(rate) : 0.0));
+            }
+            ImGui::EndTable();
+        }
+        if (const stats::StatId time = m_stats.find("Voxel.Streaming.UpdateTime"); time.isValid()) {
+            text(std::format("Main thread: {:.3f} ms average, {:.3f} ms max (240 frames)",
+                             m_stats.average(time, 60), m_stats.maximum(time, 240)));
+        }
+        if (const stats::StatId latency = m_stats.find("Voxel.Streaming.Latency"); latency.isValid()) {
+            const stats::HistogramSnapshot histogram = m_stats.histogram(latency);
+            if (histogram.samples > 0) {
+                text(std::format("Request to GPU: {:.0f} ms median, 90% {:.0f} ms, 99% {:.0f} ms",
+                                 histogram.percentile(0.5), histogram.percentile(0.9),
+                                 histogram.percentile(0.99)));
+            }
+        }
+        const stats::StatId upload = m_stats.find("Render.Chunks.UploadBytes");
+        const Result<config::SettingValue> budget = m_settings.value("World.Streaming.MaxUploadKBPerFrame");
+        if (upload.isValid() && budget && std::holds_alternative<i32>(budget.value())) {
+            text(std::format("Uploads: {:.0f} KB now, {:.0f} KB average, budget {} KB per frame",
+                             m_stats.value(upload) / 1024.0, m_stats.average(upload, 60) / 1024.0,
+                             std::get<i32>(budget.value())));
+        }
+    }
+
+    ImGui::Separator();
+    if (m_jobs == nullptr) {
+        text("No job system.");
+        ImGui::End();
+        return;
+    }
+    const f64 refreshSeconds = 1.0 / static_cast<f64>(std::max(m_updateRate.get(), 1));
+    const f64 elapsedSeconds = m_jobClock.elapsedMilliseconds() / 1000.0;
+    if (m_workerBusy.empty() || elapsedSeconds >= refreshSeconds) {
+        m_jobClock.restart();
+        jobs::JobSystemStats current = m_jobs->stats();
+        m_workerBusy.assign(current.workers.size(), 0.0F);
+        if (m_jobSnapshot.workers.size() == current.workers.size() && elapsedSeconds > 0.0) {
+            for (usize i = 0; i < current.workers.size(); ++i) {
+                const f64 busy =
+                    toMilliseconds(current.workers[i].busy - m_jobSnapshot.workers[i].busy) / 1000.0;
+                m_workerBusy[i] = static_cast<f32>(std::clamp(busy / elapsedSeconds, 0.0, 1.0));
+            }
+        }
+        m_jobSnapshot = std::move(current);
+    }
+    const jobs::JobSystemStats& jobStats = m_jobSnapshot;
+    u64 queued = 0;
+    for (const u64 count : jobStats.queued) {
+        queued += count;
+    }
+    text(std::format("Jobs: {} workers, {} IO threads, {:.0f} per second, {} cancelled",
+                     jobStats.workers.size(), jobStats.ioThreads.size(), jobStats.jobsPerSecond,
+                     jobStats.jobsCancelled));
+    text(std::format("Queued {}: critical {}, high {}, normal {}, low {}, background {}; {} waiting", queued,
+                     jobStats.queued[0], jobStats.queued[1], jobStats.queued[2], jobStats.queued[3],
+                     jobStats.queued[4], jobStats.waitingForDependencies));
+    for (usize i = 0; i < m_workerBusy.size(); ++i) {
+        const std::string label = std::format("Worker {}: {:.0f}% busy", i, m_workerBusy[i] * 100.0F);
+        ImGui::ProgressBar(m_workerBusy[i], ImVec2(-1.0F, 0.0F), label.c_str());
+    }
+    ImGui::End();
 }
 
 void DebugOverlay::drawMemoryPage() {

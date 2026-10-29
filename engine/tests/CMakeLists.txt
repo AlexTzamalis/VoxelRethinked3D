@@ -50,6 +50,7 @@ add_executable(vxe_tests
     voxel/block_registry_tests.cpp
     voxel/chunk_storage_tests.cpp
     voxel/mesher_tests.cpp
+    voxel/streaming_tests.cpp
     voxel/voxel_world_tests.cpp
 )
 # SDL is linked directly only so platform tests can push synthetic OS events.

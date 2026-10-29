@@ -3,8 +3,10 @@
 #include <vxe/config/settings.hpp>
 #include <vxe/core/result.hpp>
 #include <vxe/core/stats.hpp>
+#include <vxe/core/time.hpp>
 #include <vxe/core/types.hpp>
 #include <vxe/input/input.hpp>
+#include <vxe/jobs/job_system.hpp>
 #include <vxe/platform/events.hpp>
 #include <vxe/rhi/device.hpp>
 
@@ -123,6 +125,10 @@ public:
     void addPage(std::string name, std::function<void()> draw);
     // Adds a line to the Overview, for example "Chunk: 12 3 -4" from the game.
     void addOverviewLine(std::function<std::string()> line);
+    // The job system the "Streaming and Jobs" page shows. Optional; the main
+    // loop creates it after the overlay. Must outlive the overlay or be
+    // reset to nullptr first.
+    void setJobSystem(jobs::JobSystem* jobs);
 
     // Remembers raw events for the Input page.
     void processEvents(std::span<const platform::PlatformEvent> events);
@@ -158,6 +164,7 @@ private:
     void drawOverview();
     void drawFramePage();
     void drawGpuPage();
+    void drawStreamingPage();
     void drawPassTimings();
     void drawMemoryPage();
     void drawInputPage();
@@ -197,6 +204,11 @@ private:
     stats::StatId m_gpuBufferBytes;
     stats::StatId m_gpuTextureBytes;
     rhi::DeviceStats m_previousDevice{};
+
+    jobs::JobSystem* m_jobs = nullptr;
+    jobs::JobSystemStats m_jobSnapshot;
+    std::vector<f32> m_workerBusy; // Busy fraction per worker since the previous refresh.
+    Stopwatch m_jobClock;
 
     std::vector<Page> m_pages;
     std::vector<std::function<std::string()>> m_overviewLines;

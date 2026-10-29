@@ -436,6 +436,10 @@ void ChunkRenderer::setTextures(rhi::TextureHandle textures, rhi::SamplerHandle 
     m_sampler = sampler;
 }
 
+void ChunkRenderer::setUploadBudgetScale(f32 scale) noexcept {
+    m_uploadBudgetScale = std::max(static_cast<f64>(scale), 0.0);
+}
+
 void ChunkRenderer::setViewSize(u32 width, u32 height) noexcept {
     m_viewWidth = std::max(width, 1U);
     m_viewHeight = std::max(height, 1U);
@@ -514,8 +518,8 @@ ChunkRenderer::UploadResult ChunkRenderer::upload(const ChunkGeometry& geometry)
     }
     // The budget may be passed by one chunk when nothing was uploaded yet
     // this frame; otherwise a chunk bigger than the budget would never fit.
-    const usize budget =
-        std::min(static_cast<usize>(std::max(m_uploadBudgetKb.get(), 1)) * 1024, m_stagingMemory.size());
+    const auto scaled = static_cast<f64>(std::max(m_uploadBudgetKb.get(), 1)) * 1024.0 * m_uploadBudgetScale;
+    const usize budget = std::min(static_cast<usize>(scaled), m_stagingMemory.size());
     if (m_stagingUsed + bytes > budget && (m_stagingUsed > 0 || bytes > m_stagingMemory.size())) {
         if (m_stats != nullptr && m_statIds.overBudget.isValid()) {
             m_stats->add(m_statIds.overBudget);

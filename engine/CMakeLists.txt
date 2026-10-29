@@ -239,6 +239,7 @@ vxe_add_module(debug
     DEPENDS
         core
         math
+        jobs
         io
         platform
         config
@@ -258,10 +259,14 @@ vxe_add_module(voxel
         src/voxel/chunk_storage.cpp
         src/voxel/voxel_world.cpp
         src/voxel/mesher.cpp
+        src/voxel/streaming.cpp
+        src/voxel/chunk_render_sink.cpp
     DEPENDS
         core
         math
+        jobs
         config
+        render
 )
 
 # App: Application, EngineContext and the main loop (E4.5). The top layer,

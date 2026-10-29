@@ -344,6 +344,9 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
     services.jobs = std::make_unique<jobs::JobSystem>(config.jobs);
     VXE_LOG_INFO(log::core, "Job system: {} workers, {} IO threads", services.jobs->workerCount(),
                  services.jobs->ioThreadCount());
+    if (services.overlay) {
+        services.overlay->setJobSystem(services.jobs.get());
+    }
 
     // Engine owned settings, registered before the application's own.
     const config::Setting<bool> bindByKeyName = input::registerInputSettings(*services.settings);
@@ -444,6 +447,9 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
     application->onShutdown(context);
     if (exitCode == 0) {
         files.save();
+    }
+    if (services.overlay) {
+        services.overlay->setJobSystem(nullptr);
     }
     services.jobs.reset();
     application.reset();

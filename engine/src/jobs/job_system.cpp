@@ -84,19 +84,27 @@ void JobSystem::JobQueue::pushBack(Job&& job) {
     }
     m_ring[(m_head + m_size) & (m_ring.size() - 1)] = std::move(job);
     ++m_size;
+    m_approxSize.store(m_size, std::memory_order_relaxed);
 }
 
 bool JobSystem::JobQueue::popBack(Job& out) {
+    if (m_approxSize.load(std::memory_order_relaxed) == 0) {
+        return false;
+    }
     const std::scoped_lock lock(m_mutex);
     if (m_size == 0) {
         return false;
     }
     --m_size;
+    m_approxSize.store(m_size, std::memory_order_relaxed);
     out = std::move(m_ring[(m_head + m_size) & (m_ring.size() - 1)]);
     return true;
 }
 
 bool JobSystem::JobQueue::popFront(Job& out) {
+    if (m_approxSize.load(std::memory_order_relaxed) == 0) {
+        return false;
+    }
     const std::scoped_lock lock(m_mutex);
     if (m_size == 0) {
         return false;
@@ -104,6 +112,7 @@ bool JobSystem::JobQueue::popFront(Job& out) {
     out = std::move(m_ring[m_head]);
     m_head = (m_head + 1) & (m_ring.size() - 1);
     --m_size;
+    m_approxSize.store(m_size, std::memory_order_relaxed);
     return true;
 }
 

@@ -49,42 +49,46 @@ vxe::u32 placeholderColor(std::string_view key) noexcept {
     return rgba(255, 0, 255);
 }
 
-// What each worker thread keeps between jobs, so meshing does not allocate
-// per chunk (Section 23.3).
-struct WorkerScratch {
-    std::array<BlockStateId, vxe::kChunkVolume> states{};
-    vxe::voxel::Mesher mesher;
-    std::unique_ptr<vxe::voxel::ChunkSnapshot> snapshot = std::make_unique<vxe::voxel::ChunkSnapshot>();
-};
-
-WorkerScratch& scratch() {
-    thread_local WorkerScratch worker;
-    return worker;
-}
-
 } // namespace
 
+void DemoChunkSource::produce(const vxe::voxel::ChunkRequest& request, vxe::voxel::ChunkProduct& out) {
+    // Generation writes every block, so a reused array per worker thread
+    // needs no clearing and the job allocates nothing but the result.
+    thread_local std::array<BlockStateId, vxe::kChunkVolume> states{};
+    const vxe::ChunkPos position = request.position();
+    m_terrain.generate(position, states);
+    out.blocks.assign(states);
+    out.surfaceEstimate = static_cast<vxe::i32>(m_terrain.surfaceHeight(
+        (vxe::i64{position.x} * vxe::kChunkSize) + 8, (vxe::i64{position.z} * vxe::kChunkSize) + 8));
+}
+
 DemoWorld::DemoWorld(const DemoWorldDesc& desc, const DemoBlocks& blocks)
-    : m_jobs(*desc.jobs)
-    , m_device(desc.device)
+    : m_device(desc.device)
     , m_chunks(desc.chunks)
     , m_catalog(*desc.catalog)
-    , m_blocks(desc.blocks)
-    , m_terrain(blocks, desc.seed) {
-    for (vxe::i32 z = -desc.radiusChunks; z < desc.radiusChunks; ++z) {
-        for (vxe::i32 x = -desc.radiusChunks; x < desc.radiusChunks; ++x) {
-            for (vxe::i32 y = 0; y < desc.heightChunks; ++y) {
-                m_positions.push_back({.x = x, .y = y, .z = z});
-            }
-        }
+    , m_terrain(blocks, desc.seed)
+    , m_world({}, desc.stats)
+    , m_source(m_terrain) {
+    if (m_chunks != nullptr) {
+        m_sink.emplace(*m_chunks);
     }
-    m_generated.resize(m_positions.size());
-    m_meshes.resize(m_positions.size());
+    m_streaming = std::make_unique<vxe::voxel::StreamingManager>(
+        vxe::voxel::StreamingDesc{.world = &m_world,
+                                  .source = &m_source,
+                                  .jobs = desc.jobs,
+                                  .settings = desc.settings,
+                                  .sink = m_sink ? &*m_sink : nullptr,
+                                  .blocks = desc.blocks,
+                                  .stats = desc.stats,
+                                  .minChunkY = kMinChunkY,
+                                  .maxChunkY = kMaxChunkY});
+    m_streaming->startBurst();
 }
 
 vxe::Result<std::unique_ptr<DemoWorld>> DemoWorld::create(const DemoWorldDesc& desc) {
-    VXE_ASSERT(desc.jobs != nullptr && desc.catalog != nullptr && desc.blocks != nullptr,
-               "DemoWorld needs jobs and blocks");
+    VXE_ASSERT(desc.jobs != nullptr && desc.settings != nullptr && desc.catalog != nullptr &&
+                   desc.blocks != nullptr,
+               "DemoWorld needs jobs, settings and blocks");
     auto blocks = DemoBlocks::fromCatalog(*desc.catalog);
     if (!blocks) {
         return std::move(blocks).error();
@@ -93,15 +97,11 @@ vxe::Result<std::unique_ptr<DemoWorld>> DemoWorld::create(const DemoWorldDesc& d
     if (world->m_device != nullptr && world->m_chunks != nullptr) {
         VXE_TRY(world->createTextures());
     }
-    // One job per chunk; each writes only its own slot of m_generated.
-    for (usize index = 0; index < world->m_positions.size(); ++index) {
-        world->m_jobs.schedule(world->m_counter, [self = world.get(), index] { self->generateChunk(index); });
-    }
     return world;
 }
 
 DemoWorld::~DemoWorld() {
-    shutdown();
+    release();
 }
 
 vxe::Result<void> DemoWorld::createTextures() {
@@ -119,7 +119,27 @@ vxe::Result<void> DemoWorld::createTextures() {
 }
 
 void DemoWorld::shutdown() {
-    m_jobs.wait(m_counter);
+    if (m_shutDown) {
+        return;
+    }
+    const vxe::voxel::StreamingManager::UpdateTimes& times = m_streaming->updateTimes();
+    if (times.updates > 0) {
+        VXE_LOG_INFO(
+            vxe::log::core,
+            "Streaming main thread time outside burst mode: {} updates, {:.3f} ms average, {:.3f} ms "
+            "max, {} over 1 ms",
+            times.updates, times.totalMilliseconds / static_cast<vxe::f64>(times.updates),
+            times.maxMilliseconds, times.overOneMillisecond);
+    }
+    release();
+}
+
+void DemoWorld::release() noexcept {
+    if (m_shutDown) {
+        return;
+    }
+    m_shutDown = true;
+    m_streaming->unloadAll();
     if (m_device != nullptr) {
         if (m_chunks != nullptr) {
             m_chunks->setTextures({}, {});
@@ -134,110 +154,31 @@ void DemoWorld::shutdown() {
     }
 }
 
-void DemoWorld::generateChunk(usize index) {
-    WorkerScratch& worker = scratch();
-    m_terrain.generate(m_positions[index], worker.states);
-    m_generated[index].assign(worker.states);
-}
-
-void DemoWorld::meshChunk(usize index) {
-    // The world does not change while meshing runs, so reading it from many
-    // workers at once is safe.
-    WorkerScratch& worker = scratch();
-    if (m_world.createSnapshot(m_positions[index], *worker.snapshot)) {
-        worker.mesher.mesh(*worker.snapshot, *m_blocks, {}, m_meshes[index]);
-    }
-}
-
-void DemoWorld::startMeshing() {
-    for (usize index = 0; index < m_positions.size(); ++index) {
-        m_world.insertChunk(m_positions[index], std::move(m_generated[index]));
-    }
-    m_generated.clear();
-    m_generated.shrink_to_fit();
-    // Chunks of only air next to only air have nothing to draw; checking the
-    // chunk alone is a cheap first filter, the mesher finds the rest.
-    for (usize index = 0; index < m_positions.size(); ++index) {
-        const vxe::voxel::ChunkStorage& blocks = m_world.findChunk(m_positions[index])->blocks();
-        if (!blocks.isUniform() || blocks.uniformState() != vxe::voxel::kAirState) {
-            m_meshOrder.push_back(index);
-        }
-    }
-    // Nearest to the spawn first, so the view fills in from the middle.
-    const vxe::ChunkPos center{.x = 0, .y = 4, .z = 0};
-    std::ranges::sort(m_meshOrder, [&](usize a, usize b) {
-        return vxe::chebyshevDistance(m_positions[a], center) <
-               vxe::chebyshevDistance(m_positions[b], center);
-    });
-    for (const usize index : m_meshOrder) {
-        m_jobs.schedule(m_counter, [this, index] { meshChunk(index); });
-    }
-}
-
-void DemoWorld::advance() {
-    if (!m_counter.isDone()) {
+void DemoWorld::update(const vxe::render::Camera& camera) {
+    if (m_shutDown) {
         return;
     }
-    switch (m_phase) {
-    case Phase::Generating:
-        m_generateMs = m_stopwatch.elapsedMilliseconds();
-        m_stopwatch.restart();
-        startMeshing();
-        m_phase = Phase::Meshing;
-        break;
-    case Phase::Meshing:
-        m_meshMs = m_stopwatch.elapsedMilliseconds();
-        m_phase = Phase::Uploading;
-        VXE_LOG_INFO(vxe::log::core, "Demo world: {} chunks generated in {:.0f} ms, {} meshed in {:.0f} ms",
-                     m_positions.size(), m_generateMs, m_meshOrder.size(), m_meshMs);
-        break;
-    case Phase::Uploading:
-    case Phase::Ready:
-        break;
-    }
-}
-
-void DemoWorld::upload() {
-    if (m_phase != Phase::Uploading) {
+    m_streaming->update({.position = camera.position, .forward = camera.forward()});
+    m_world.publishStats();
+    if (m_loaded) {
         return;
     }
-    if (m_chunks == nullptr) {
-        m_phase = Phase::Ready;
-        return;
+    const vxe::i32 radius = std::min(kSpawnRadius, m_streaming->renderDistance());
+    if (m_streaming->isAreaReady(radius)) {
+        m_loaded = true;
+        VXE_LOG_INFO(vxe::log::core, "Demo world playable after {:.0f} ms: {} chunks loaded, {} meshed",
+                     m_loadClock.elapsedMilliseconds(), m_streaming->counts().loaded,
+                     m_streaming->counts().meshed);
+    } else if (m_loadClock.elapsedMilliseconds() > kLoadTimeoutMs) {
+        m_loaded = true;
+        VXE_LOG_WARN(vxe::log::core,
+                     "Demo world: the spawn area was not ready after {:.0f} ms, entering anyway",
+                     kLoadTimeoutMs);
     }
-    while (m_uploaded < m_meshOrder.size()) {
-        // Empty meshes go too: a chunk of solid stone draws nothing but
-        // hides what is behind it from cave culling.
-        const vxe::voxel::ChunkMesh& mesh = m_meshes[m_meshOrder[m_uploaded]];
-        const vxe::render::ChunkGeometry geometry{.position = mesh.position,
-                                                  .quads = std::as_bytes(std::span(mesh.quads)),
-                                                  .groupBegin = mesh.groupBegin,
-                                                  .connectivity = mesh.connectivity,
-                                                  .bounds = {.min = mesh.boundsMin, .max = mesh.boundsMax}};
-        if (m_chunks->upload(geometry) != vxe::render::ChunkRenderer::UploadResult::Uploaded) {
-            return; // Budget used up; the rest goes in the next frames.
-        }
-        ++m_uploaded;
-    }
-    m_meshes.clear();
-    m_meshes.shrink_to_fit();
-    m_phase = Phase::Ready;
-    VXE_LOG_INFO(vxe::log::core, "Demo world on the GPU: {} chunks, {} quads", m_chunks->residentChunks(),
-                 m_chunks->residentQuads());
 }
 
 std::string DemoWorld::progressText() const {
-    switch (m_phase) {
-    case Phase::Generating:
-        return std::format("Generating {} chunks", m_positions.size());
-    case Phase::Meshing:
-        return std::format("Meshing {} chunks", m_meshOrder.size());
-    case Phase::Uploading:
-        return std::format("Uploading {} / {}", m_uploaded, m_meshOrder.size());
-    case Phase::Ready:
-        break;
-    }
-    return std::format("{} chunks resident", m_chunks != nullptr ? m_chunks->residentChunks() : 0);
+    return m_streaming->summary();
 }
 
 vxe::DVec3 DemoWorld::spawnPosition() const {

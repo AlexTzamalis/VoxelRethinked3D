@@ -12,8 +12,9 @@ inline constexpr u8 kDirtyMesh = 1U << 0; // Its mesh no longer matches its snap
 inline constexpr u8 kDirtySave = 1U << 1; // Its own blocks changed since the last save.
 
 // One 16x16x16 chunk of a VoxelWorld (Section 9.5): its blocks, a version
-// counter and dirty flags. Light storage (E10) and the pipeline state
-// (Section 11.2, E9.7) join it in their steps.
+// counter and dirty flags. Light storage (E10) joins it in its step. The
+// pipeline state of Section 11.2 is kept by the StreamingManager, which also
+// tracks chunks that are not loaded yet.
 //
 // The version counts every change to anything a snapshot of this chunk
 // reads: its own blocks, the border blocks of its 26 neighbors, and

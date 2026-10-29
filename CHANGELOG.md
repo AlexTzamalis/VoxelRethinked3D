@@ -2,6 +2,27 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#064] 2026-10-29, E9.7 Streaming manager
+### Added
+- voxel::StreamingManager (Section 11): decides which chunks exist around the camera and drives each through the pipeline: request, load or generate on workers, insert into the VoxelWorld, mesh on workers once all 26 neighbors are there, upload within the sink's budget, unload. Chunks load within render distance + 1 (so every meshed chunk has its border), are meshed within the render distance, and stay for World.Streaming.UnloadHysteresisChunks more before they go, so a meshed chunk never sees a neighbor arrive and is meshed once. Remeshing follows edits (the world's changed chunk list), mesh setting changes (Graphics.Terrain) and new block registry views.
+- Priorities (Section 11.3): offsets sorted by distance with vertical distance counting double, scanned from the nearest when the camera enters another chunk; a heap of the nearest unrequested chunks ordered by World.Streaming.LoadOrder (Spiral, Distance, ViewFirst: chunks ahead of the view and the movement first). Mesh jobs run at a higher job priority than loads.
+- Cancellation (Section 11.4): job slots with cancel flags; results of chunks that left the range and meshes of outdated snapshots are thrown away.
+- Budgets: World.Streaming.MaxLoadJobsInFlight, MaxMeshJobsInFlight, MaxChunks, MainThreadBudgetMs (every main thread loop stops when the time is up and continues next frame) and burst mode (World.Streaming.BurstSeconds, Section 11.6) that multiplies the job, time and upload budgets by 4 at world entry until everything in range is ready.
+- voxel::ChunkSource (the game's generator or save reader, run on workers) and voxel::ChunkMeshSink with voxel::ChunkRenderSink for the chunk renderer; ChunkRenderer::setUploadBudgetScale for burst mode.
+- VoxelWorld::changedChunks: chunks that changed after they were meshed, each listed once until meshed again.
+- Stats Voxel.Streaming.*: chunks per stage, loaded, meshed, uploaded, unloaded, cancelled and stale meshes per frame, main thread time, and the latency from request to first mesh on the GPU as a histogram. A new overlay page "Streaming and Jobs" (Section 18.2 page 4) shows them with per second rates, plus how busy each job worker is and the queues per priority.
+- The game's demo world is now endless on X and Z: the demo terrain streamed around the camera, 8 chunk layers tall. The game enters it once every chunk within 8 chunks of the spawn is meshed. Console command `autofly <blocks per second>` flies the camera by itself for measurement runs.
+- Tests: ranges and meshing once, the top and bottom of the world, moving with hysteresis, edits on chunk borders, outdated snapshots, cancellation, upload budgets, job limits and burst mode, remeshing after a setting change, render distance changes, streaming without a sink, unloading everything, stats, and a fast flight timing test.
+### Changed
+- Job queues skip empty queues without taking their mutex. Idle workers swept every queue mutex of every priority, so a thread scheduling a job sometimes waited over a millisecond.
+- The game streams the world while in LoadingWorld (the renderer runs in that state now).
+### Performance
+- Demo world, render distance 16, 14 workers: playable (8 chunk radius meshed) 255 ms after entering LoadingWorld, everything in range (about 10,100 chunks) 461 to 521 ms.
+- Flight at 300 blocks per second, 20,000 frames: streaming main thread time 0.062 to 0.079 ms average, at most 0.74 to 0.78 ms, no frame over 1 ms (before the job queue change: at most 1.11 to 4.65 ms). About 5,000 chunks loaded and 4,700 meshed per second; 64 ms median from request to mesh on the GPU.
+### Docs
+- docs/perf/streaming.md: E9.7 measurements, including the renderer costs while chunks stream in (draw list rebuild and cave search per chunk change) that the next commit addresses.
+- README: the streamed demo world, autofly and the new overlay page.
+
 ## [#063] 2026-10-29, E9.6 GPU culling
 ### Added
 - Chunk culling (Section 8.3) in a new Visibility compute pass. Every non empty face group of every resident chunk is a candidate draw and goes through four tests: frustum (Graphics.Culling.Frustum, with Graphics.Culling.FrustumPadding), face direction (Graphics.Terrain.FaceDirectionCulling, not for translucent), caves (Graphics.Culling.CaveCulling) and Hi-Z occlusion (Graphics.Culling.Occlusion).

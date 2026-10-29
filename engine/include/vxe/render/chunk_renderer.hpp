@@ -144,6 +144,10 @@ public:
     // The block texture array (Section 15.3) the quads' texture layers index,
     // and its sampler. Not owned; must outlive the renderer's draws.
     void setTextures(rhi::TextureHandle textures, rhi::SamplerHandle sampler) noexcept;
+    // Multiplies World.Streaming.MaxUploadKBPerFrame, still capped by the
+    // staging memory per frame. Streaming raises it in burst mode while the
+    // loading screen shows (Section 11.6).
+    void setUploadBudgetScale(f32 scale) noexcept;
     // The size of the target the chunks are drawn into, for the culling
     // frustum and the depth pyramid. 1920 x 1080 until set.
     void setViewSize(u32 width, u32 height) noexcept;
@@ -265,6 +269,7 @@ private:
     CpuWriteRing m_staging;
     std::span<std::byte> m_stagingMemory;
     usize m_stagingUsed = 0;
+    f64 m_uploadBudgetScale = 1.0;
     std::vector<PendingCopy> m_pendingCopies;
 
     OffsetAllocator m_allocator;
