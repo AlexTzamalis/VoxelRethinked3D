@@ -3,6 +3,7 @@
 #include <vxe/config/settings_file.hpp>
 #include <vxe/core/log.hpp>
 #include <vxe/core/profile.hpp>
+#include <vxe/core/time.hpp>
 #include <vxe/core/version.hpp>
 #include <vxe/debug/debug_ui.hpp>
 #include <vxe/debug/developer_console.hpp>
@@ -278,17 +279,51 @@ private:
 
 // EngineConfig::startupCommands, through the console when there is one (so
 // they show in its history) and straight to the command registry otherwise.
-void runStartupCommands(EngineServices& services, std::span<const std::string> commands) {
+// Returns the commands that failed: they may name settings or presets of
+// systems that only start later (a world), so the main loop tries them again.
+std::vector<std::string> runStartupCommands(EngineServices& services, std::span<const std::string> commands) {
+    std::vector<std::string> failed;
     for (const std::string& command : commands) {
         if (services.console) {
-            static_cast<void>(services.console->execute(command));
+            if (!services.console->execute(command)) {
+                failed.push_back(command);
+            }
             continue;
         }
         const config::CommandOutput output = services.commands->execute(command);
         for (const std::string& line : output.lines) {
             VXE_LOG_INFO(log::core, "> {}: {}", command, line);
         }
+        if (!output.success) {
+            failed.push_back(command);
+        }
     }
+    return failed;
+}
+
+// Tries failed startup commands again, quietly, until they work or
+// kStartupRetrySeconds have passed (then the failure is logged).
+constexpr f64 kStartupRetrySeconds = 10.0;
+
+void retryStartupCommands(EngineServices& services, std::vector<std::string>& pending,
+                          const Stopwatch& clock) {
+    if (pending.empty()) {
+        return;
+    }
+    const bool giveUp = clock.elapsedMilliseconds() > kStartupRetrySeconds * 1000.0;
+    std::erase_if(pending, [&](const std::string& command) {
+        const config::CommandOutput output = services.commands->execute(command);
+        if (output.success) {
+            VXE_LOG_INFO(log::core, "> {} (applied after {:.0f} ms, once its system started)", command,
+                         clock.elapsedMilliseconds());
+            return true;
+        }
+        if (giveUp) {
+            VXE_LOG_WARN(log::core, "> {} still fails after {:.0f} s: {}", command, kStartupRetrySeconds,
+                         output.lines.empty() ? std::string("no output") : output.lines.front());
+        }
+        return giveUp;
+    });
 }
 
 } // namespace
@@ -346,6 +381,9 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
                  services.jobs->ioThreadCount());
     if (services.overlay) {
         services.overlay->setJobSystem(services.jobs.get());
+        if (services.renderer) {
+            services.overlay->setLodCoverageTexture(services.renderer->lod().coverageTexture());
+        }
     }
     if (services.renderer) {
         services.renderer->chunks().setJobSystem(services.jobs.get());
@@ -382,9 +420,11 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
     }
 
     UserFiles files(services, bindByKeyName);
+    std::vector<std::string> pendingCommands;
+    const Stopwatch startupClock;
     if (exitCode == 0) {
         files.load();
-        runStartupCommands(services, config.startupCommands);
+        pendingCommands = runStartupCommands(services, config.startupCommands);
     }
 
     FrameTimer frameTimer;
@@ -413,6 +453,7 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
         static_cast<void>(services.settings->dispatchChanges());
         services.events->dispatch();
         application->onFrame(context, time);
+        retryStartupCommands(services, pendingCommands, startupClock);
         endDebugFrame(services);
 
         if (services.renderer) {
@@ -453,6 +494,7 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
     }
     if (services.overlay) {
         services.overlay->setJobSystem(nullptr);
+        services.overlay->setLodCoverageTexture({});
     }
     if (services.renderer) {
         services.renderer->chunks().setJobSystem(nullptr);

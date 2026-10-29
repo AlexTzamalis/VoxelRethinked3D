@@ -74,7 +74,13 @@ LodRenderer::LodRenderer(const LodRendererDesc& desc)
             .displayName = "Show far terrain coverage",
             .description = "Far terrain over columns real chunks draw shows magenta instead of hiding.",
             .visibility = config::Visibility::Developer},
-           false})) {
+           false}))
+    , m_tileBorders(
+          desc.settings->registerBool({{.id = "Debug.LOD.TileBorders",
+                                        .displayName = "Far terrain tile borders",
+                                        .description = "Outlines every far terrain tile, colored by level.",
+                                        .visibility = config::Visibility::Developer},
+                                       false})) {
     m_freeSlots.reserve(desc.maxTiles);
     for (u32 slot = desc.maxTiles; slot > 0; --slot) {
         m_freeSlots.push_back(slot - 1);
@@ -207,6 +213,9 @@ void LodRenderer::registerStats() {
                            .unit = StatUnit::Bytes}),
         .drawnTiles = add({.name = "Render.Lod.DrawnTiles",
                            .description = "LOD tiles drawn this frame (in view, not under real chunks).",
+                           .type = StatType::Gauge}),
+        .drawnQuads = add({.name = "Render.Lod.DrawnQuads",
+                           .description = "Quads of the LOD tiles drawn this frame (two triangles each).",
                            .type = StatType::Gauge}),
         .coveredTiles = add({.name = "Render.Lod.CoveredTiles",
                              .description = "LOD tiles skipped because real chunks cover all of them.",
@@ -417,6 +426,24 @@ void LodRenderer::clear() {
     clearCoverage();
 }
 
+void LodRenderer::drawDebug(DebugDraw& draw) const {
+    if (!m_tileBorders.get()) {
+        return;
+    }
+    // Level 1 red through level 6 violet, as Debug.LOD.ColorLevels.
+    constexpr std::array<u32, 6> kColors = {debugColor(255, 77, 77),  debugColor(255, 178, 51),
+                                            debugColor(230, 255, 77), debugColor(77, 255, 102),
+                                            debugColor(77, 178, 255), debugColor(178, 102, 255)};
+    for (const auto& [id, tile] : m_tiles) {
+        const auto size = static_cast<f64>(tile.cellSize) * 64.0;
+        const auto x = static_cast<f64>(tile.originX);
+        const auto z = static_cast<f64>(tile.originZ);
+        const u32 color = kColors.at(std::clamp<u32>(tile.level, 1, 6) - 1);
+        draw.box(DVec3(x, static_cast<f64>(tile.minY), z),
+                 DVec3(x + size, static_cast<f64>(tile.maxY), z + size), color);
+    }
+}
+
 void LodRenderer::release(const Tile& tile) {
     m_quads -= m_allocator.sizeOf(tile.range);
     m_deferred.push_back({.frame = m_frame, .range = tile.range, .slot = tile.slot});
@@ -442,6 +469,7 @@ void LodRenderer::recordUploads(rhi::CommandList& commands) {
         set(m_statIds.arenaBytes, static_cast<f64>(m_quads * kLodQuadBytes));
         set(m_statIds.drawnTiles, static_cast<f64>(m_drawnTiles));
         set(m_statIds.coveredTiles, static_cast<f64>(m_coveredTiles));
+        set(m_statIds.drawnQuads, static_cast<f64>(m_drawnQuads));
         if (m_statIds.uploadBytes.isValid() && m_uploadedBytes > 0) {
             m_stats->add(m_statIds.uploadBytes, static_cast<i64>(m_uploadedBytes));
         }
@@ -457,6 +485,7 @@ void LodRenderer::buildDraws() {
     m_drawCount = 0;
     m_drawnTiles = 0;
     m_coveredTiles = 0;
+    m_drawnQuads = 0;
     if (m_tiles.empty()) {
         return;
     }
@@ -493,6 +522,7 @@ void LodRenderer::buildDraws() {
         std::memcpy(infoMemory.data() + (usize{tile.slot} * sizeof(TileInfo)), &info, sizeof(info));
         ++m_drawnTiles;
         const u32 quads = m_allocator.sizeOf(tile.range);
+        m_drawnQuads += quads;
         for (u32 first = 0; first < quads && m_drawCount < maxDraws; first += kMaxQuadsPerDraw) {
             const u32 count = std::min(quads - first, kMaxQuadsPerDraw);
             const IndirectDraw draw{.indexCount = count * kIndicesPerQuad,

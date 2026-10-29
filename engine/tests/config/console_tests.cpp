@@ -166,7 +166,23 @@ TEST_CASE("find and list search the settings") {
     CHECK(console.commands.execute("list").lines.size() == 6);
     CHECK(console.commands.execute("list Graphics").lines.size() == 2);
     CHECK(console.commands.execute("list Graph").lines.empty()); // Whole category names only.
-    CHECK(console.commands.execute("help").lines.size() == 6);
+    CHECK(console.commands.execute("help").lines.size() == 7);
+}
+
+TEST_CASE("preset lists and applies quality presets") {
+    Console console;
+    console.settings.definePreset("Graphics.LOD", "Low",
+                                  {{"Graphics.LOD.Levels", vxe::config::SettingValue{2}}});
+    console.settings.definePreset("Graphics.LOD", "High",
+                                  {{"Graphics.LOD.Levels", vxe::config::SettingValue{6}}});
+    const CommandOutput list = console.commands.execute("preset Graphics.LOD");
+    REQUIRE(list.success);
+    CHECK(list.lines == std::vector<std::string>{"Graphics.LOD: Low, High (now High)"});
+    CHECK(console.commands.execute("preset Graphics.LOD Low").success);
+    CHECK(console.lodLevels.get() == 2);
+    CHECK_FALSE(console.commands.execute("preset Graphics.LOD Huge").success);
+    CHECK_FALSE(console.commands.execute("preset Nothing").success);
+    CHECK_FALSE(console.commands.execute("preset").success);
 }
 
 TEST_CASE("Autocomplete offers commands, setting ids and values") {

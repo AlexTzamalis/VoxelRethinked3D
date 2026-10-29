@@ -10,6 +10,7 @@
 #include <vxe/math/vector.hpp>
 #include <vxe/render/camera.hpp>
 #include <vxe/render/cpu_write_ring.hpp>
+#include <vxe/render/debug_draw.hpp>
 #include <vxe/rhi/command_list.hpp>
 #include <vxe/rhi/device.hpp>
 #include <vxe/rhi/shader_source.hpp>
@@ -80,8 +81,9 @@ struct LodRendererDesc {
 // the finest level, under the real chunks), which saves their vertex work.
 //
 // Settings: Graphics.LOD.CoverageDiscard (developer), Debug.LOD.ColorLevels,
-// Debug.LOD.ShowCoverage (covered columns in magenta instead of hidden).
-// Stats: Render.Lod.Tiles, .Quads, .ArenaBytes, .DrawnTiles, .CoveredTiles, .UploadBytes,
+// Debug.LOD.ShowCoverage (covered columns in magenta instead of hidden),
+// Debug.LOD.TileBorders (each tile's box, colored by level).
+// Stats: Render.Lod.Tiles, .Quads, .ArenaBytes, .DrawnTiles, .DrawnQuads, .CoveredTiles, .UploadBytes,
 // .UploadsOverBudget and .UploadsOutOfMemory.
 //
 // Thread safety: main thread only, like the device.
@@ -117,6 +119,11 @@ public:
     void setCovered(i32 chunkX, i32 chunkZ, bool covered) noexcept;
     void clearCoverage() noexcept;
     [[nodiscard]] bool isCovered(i32 chunkX, i32 chunkZ) const noexcept;
+    // The coverage map (R8, one texel per chunk column, wrapping), for the
+    // overlay's LOD page.
+    [[nodiscard]] rhi::TextureHandle coverageTexture() const noexcept { return m_coverage; }
+    // Tile borders (Debug.LOD.TileBorders). Call after the debug draw's beginFrame.
+    void drawDebug(DebugDraw& draw) const;
     // Sky light strength (as ChunkRenderer::setDaylight) and the darkest
     // brightness (Graphics.Lighting.Brightness), so far and near terrain
     // are lit alike.
@@ -187,6 +194,7 @@ private:
     config::Setting<bool> m_coverageDiscard;
     config::Setting<bool> m_colorLevels;
     config::Setting<bool> m_showCoverage;
+    config::Setting<bool> m_tileBorders;
 
     HashMap<u64, Tile> m_tiles;
     std::vector<u32> m_freeSlots;
@@ -209,6 +217,7 @@ private:
     u32 m_drawCount = 0;
     u32 m_drawnTiles = 0;
     u32 m_coveredTiles = 0;
+    usize m_drawnQuads = 0;
     bool m_drawsBuilt = false;
 
     struct StatIds {
@@ -216,6 +225,7 @@ private:
         stats::StatId quads;
         stats::StatId arenaBytes;
         stats::StatId drawnTiles;
+        stats::StatId drawnQuads;
         stats::StatId coveredTiles;
         stats::StatId uploadBytes;
         stats::StatId overBudget;

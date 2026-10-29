@@ -364,6 +364,33 @@ CommandOutput runHelp(const CommandRegistry& commands, std::span<const std::stri
     return output;
 }
 
+// "preset <group>" lists a group's presets and the current one; "preset
+// <group> <name>" applies one (Section 16.2).
+CommandOutput runPreset(SettingsRegistry& settings, std::span<const std::string> arguments) {
+    if (arguments.empty() || arguments.size() > 2) {
+        return failure("Usage: preset <group> [name]");
+    }
+    const std::vector<std::string> names = settings.presetNames(arguments[0]);
+    if (names.empty()) {
+        return failure(std::format("No presets in group '{}'", arguments[0]));
+    }
+    CommandOutput output;
+    if (arguments.size() == 1) {
+        std::string list;
+        for (const std::string& name : names) {
+            list += (list.empty() ? "" : ", ") + name;
+        }
+        output.lines.push_back(
+            std::format("{}: {} (now {})", arguments[0], list, settings.currentPreset(arguments[0])));
+        return output;
+    }
+    if (Result<void> applied = settings.applyPreset(arguments[0], arguments[1]); !applied) {
+        return failure(applied.error().message());
+    }
+    output.lines.push_back(std::format("{} set to {}", arguments[0], arguments[1]));
+    return output;
+}
+
 } // namespace
 
 void registerSettingsCommands(CommandRegistry& commands, SettingsRegistry& settings) {
@@ -413,6 +440,15 @@ void registerSettingsCommands(CommandRegistry& commands, SettingsRegistry& setti
             [&settings](std::span<const std::string> /*arguments*/, usize index) {
                 return index == 0 ? settings.categories() : std::vector<std::string>{};
             },
+    });
+    commands.registerCommand(CommandDesc{
+        .name = "preset",
+        .usage = "preset <group> [name]",
+        .description =
+            "Lists a group's quality presets, or applies one (for example preset Graphics.LOD Ultra).",
+        .handler =
+            [&settings](std::span<const std::string> arguments) { return runPreset(settings, arguments); },
+        .completer = nullptr,
     });
     commands.registerCommand(CommandDesc{
         .name = "help",

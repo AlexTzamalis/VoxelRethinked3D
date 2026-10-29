@@ -287,16 +287,17 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
     if (!m_blocks || !m_blockRegistry) {
         return;
     }
-    auto demo =
-        DemoWorld::create({.jobs = &context.jobs,
-                           .settings = &context.settings,
-                           .catalog = &*m_blocks,
-                           .blocks = m_blockRegistry.get(),
-                           .stats = &context.stats,
-                           .device = context.device,
-                           .chunks = context.renderer != nullptr ? &context.renderer->chunks() : nullptr,
-                           .lod = context.renderer != nullptr ? &context.renderer->lod() : nullptr,
-                           .lodCacheFolder = demoLodFolder(context)});
+    auto demo = DemoWorld::create(
+        {.jobs = &context.jobs,
+         .settings = &context.settings,
+         .catalog = &*m_blocks,
+         .blocks = m_blockRegistry.get(),
+         .stats = &context.stats,
+         .device = context.device,
+         .chunks = context.renderer != nullptr ? &context.renderer->chunks() : nullptr,
+         .lod = context.renderer != nullptr ? &context.renderer->lod() : nullptr,
+         .debugDraw = context.renderer != nullptr ? &context.renderer->debugDraw() : nullptr,
+         .lodCacheFolder = demoLodFolder(context)});
     if (!demo) {
         VXE_LOG_ERROR(gameLog, "The demo world could not start: {}", demo.error().describe());
         return;

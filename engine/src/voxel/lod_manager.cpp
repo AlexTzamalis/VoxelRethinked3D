@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
+#include <string>
 
 namespace vxe::voxel {
 namespace {
@@ -81,6 +83,32 @@ void LodManager::registerSettings(config::SettingsRegistry& settings) {
     m_maxJobs = integer("Graphics.LOD.MaxJobsInFlight", "Far terrain jobs",
                         "Tiles loaded or sampled at the same time. They run below chunk work.", 4, 1,
                         kMaxSlots, 1, config::Visibility::Developer);
+    m_freeze =
+        settings.registerBool({{.id = "Debug.LOD.Freeze",
+                                .displayName = "Freeze far terrain",
+                                .description = "Keeps the far terrain where it is while the camera moves.",
+                                .visibility = config::Visibility::Developer},
+                               false});
+    m_showQueue =
+        settings.registerBool({{.id = "Debug.LOD.ShowQueue",
+                                .displayName = "Show far terrain queue",
+                                .description = "Outlines far terrain tiles waiting (white) and in work "
+                                               "(yellow).",
+                                .visibility = config::Visibility::Developer},
+                               false});
+    // Quality presets (Section 16.2). Reach: the coarsest level ends (half
+    // extent - 1) to (half extent) of its tiles from the camera, a tile of
+    // level L being 64 * 2^L blocks.
+    const auto preset = [&settings](std::string_view name, i32 levels, i32 half, i32 spans) {
+        settings.definePreset("Graphics.LOD", name,
+                              {{"Graphics.LOD.Levels", config::SettingValue{levels}},
+                               {"Graphics.LOD.HalfExtentTiles", config::SettingValue{half}},
+                               {"Graphics.LOD.MaxSpansPerCell", config::SettingValue{spans}}});
+    };
+    preset("Low", 4, 4, 2);    // 3,072 to 4,096 blocks.
+    preset("Medium", 5, 4, 3); // 6,144 to 8,192 blocks.
+    preset("High", 6, 4, 4);   // 12,288 to 16,384 blocks (the defaults).
+    preset("Ultra", 8, 4, 4);  // 49,152 to 65,536 blocks.
 }
 
 void LodManager::registerStats() {
@@ -111,6 +139,14 @@ void LodManager::registerStats() {
                                 .unit = stats::StatUnit::Milliseconds});
     m_statIds.edits =
         add({.name = "Voxel.Lod.Edits", .description = "Chunk column edits put into far terrain."});
+    m_statIds.reach =
+        gauge("Voxel.Lod.ReachBlocks", "The least distance far terrain reaches in every direction.");
+    for (u32 level = kLodMinLevel; level <= kLodMaxLevel; ++level) {
+        m_statIds.levelWanted.at(level) =
+            gauge(std::format("Voxel.Lod.Level{}.Wanted", level), "LOD tiles of this level in the clipmap.");
+        m_statIds.levelReady.at(level) =
+            gauge(std::format("Voxel.Lod.Level{}.Ready", level), "LOD tiles of this level ready.");
+    }
     m_statIds.editTime =
         add({.name = "Voxel.Lod.EditTime",
              .description = "Time to put one column edit into every LOD level, on an IO thread.",
@@ -160,8 +196,8 @@ void LodManager::update(const DVec3& cameraPosition) {
         m_appliedDesc = desc;
         m_clipmap.setDesc(desc);
     }
-    if (m_clipmap.update(static_cast<i64>(std::floor(cameraPosition.x)),
-                         static_cast<i64>(std::floor(cameraPosition.z)))) {
+    if (!m_freeze.get() && m_clipmap.update(static_cast<i64>(std::floor(cameraPosition.x)),
+                                            static_cast<i64>(std::floor(cameraPosition.z)))) {
         applyClipmapChanges();
     }
     retire();
@@ -592,6 +628,24 @@ void LodManager::runEdit(Edit& edit) {
     edit.done.store(true, std::memory_order_release);
 }
 
+void LodManager::drawDebug(render::DebugDraw& draw) const {
+    if (!m_showQueue.get()) {
+        return;
+    }
+    constexpr u32 kQueued = render::debugColor(255, 255, 255, 200);
+    constexpr u32 kRunning = render::debugColor(255, 220, 40, 255);
+    const f64 y = m_camera.y - 24.0;
+    for (const auto& [key, wanted] : m_wanted) {
+        if (wanted.ready) {
+            continue;
+        }
+        const auto x0 = static_cast<f64>(key.originX());
+        const auto z0 = static_cast<f64>(key.originZ());
+        const f64 size = static_cast<f64>(key.tileSize()) - 1.0; // Neighbors' outlines stay apart.
+        draw.box(DVec3(x0, y, z0), DVec3(x0 + size, y, z0 + size), wanted.running ? kRunning : kQueued);
+    }
+}
+
 std::shared_ptr<const LodTile> LodManager::tile(const LodTileKey& key) const {
     const auto it = m_ready.find(key);
     return it == m_ready.end() ? nullptr : it->second.tile;
@@ -638,6 +692,20 @@ void LodManager::publishStats() {
     set(m_statIds.running, now.running);
     set(m_statIds.retiring, now.retiring);
     set(m_statIds.memory, memory);
+    const LodClipmapDesc& desc = m_appliedDesc;
+    const auto coarsest = static_cast<u8>(desc.firstLevel + desc.levels - 1);
+    set(m_statIds.reach,
+        static_cast<usize>((desc.halfExtentTiles - 1) * LodTileKey{.level = coarsest}.tileSize()));
+    std::array<usize, kLodMaxLevel + 1> wantedPerLevel{};
+    for (const auto& [key, wanted] : m_wanted) {
+        ++wantedPerLevel.at(key.level);
+    }
+    for (u32 level = kLodMinLevel; level <= kLodMaxLevel; ++level) {
+        if (wantedPerLevel.at(level) > 0 || now.readyPerLevel.at(level) > 0 || level <= coarsest) {
+            set(m_statIds.levelWanted.at(level), wantedPerLevel.at(level));
+            set(m_statIds.levelReady.at(level), now.readyPerLevel.at(level));
+        }
+    }
 }
 
 } // namespace vxe::voxel

@@ -246,6 +246,7 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
     m_lod->beginFrame(camera);
     m_debugDraw->handleInput();
     m_debugDraw->beginFrame(camera);
+    m_lod->drawDebug(*m_debugDraw);
     if (const std::optional<Camera> frozen = m_chunks->frozenCullingCamera()) {
         drawFrustum(*m_debugDraw, *frozen, m_chunks->viewAspect(), 96.0);
     }

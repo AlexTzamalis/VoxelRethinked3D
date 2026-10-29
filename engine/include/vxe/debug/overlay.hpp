@@ -129,6 +129,9 @@ public:
     // loop creates it after the overlay. Must outlive the overlay or be
     // reset to nullptr first.
     void setJobSystem(jobs::JobSystem* jobs);
+    // The far terrain coverage map (render::LodRenderer::coverageTexture),
+    // previewed on the LOD page. Optional; an invalid handle hides it.
+    void setLodCoverageTexture(rhi::TextureHandle texture) noexcept { m_lodCoverage = texture; }
 
     // Remembers raw events for the Input page.
     void processEvents(std::span<const platform::PlatformEvent> events);
@@ -165,6 +168,7 @@ private:
     void drawFramePage();
     void drawGpuPage();
     void drawStreamingPage();
+    void drawLodPage();
     void drawPassTimings();
     void drawMemoryPage();
     void drawInputPage();
@@ -206,6 +210,7 @@ private:
     rhi::DeviceStats m_previousDevice{};
 
     jobs::JobSystem* m_jobs = nullptr;
+    rhi::TextureHandle m_lodCoverage{};
     jobs::JobSystemStats m_jobSnapshot;
     std::vector<f32> m_workerBusy; // Busy fraction per worker since the previous refresh.
     Stopwatch m_jobClock;

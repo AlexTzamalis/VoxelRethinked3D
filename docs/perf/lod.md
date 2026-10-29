@@ -83,7 +83,7 @@ is shown, so the first frame in the world has the whole horizon.
 
 Meshing tiles for the renderer runs at Normal priority: at Low, the chunk
 burst held it back and far terrain was ready only after 750 to 860 ms even
-with every tile cached (more LOD job slots or upload budget did not help).
+with every tile cached (a larger upload budget did not help; the "more LOD job slots" run did not count, see E11.6).
 
 ## E11.5 Edit downsampling (2026-10-29)
 
@@ -116,3 +116,32 @@ the real water (translucent) was drawn after the fog pass and stayed clear,
 about (62, 87, 151) against (83, 115, 166) for the fogged far water next to
 it; and the far terrain used each block's base color while the chunks show
 textures about 13% darker in linear light, without trees.
+
+## E11.6 LOD debug views and phase E11 acceptance (2026-10-29)
+
+Correction: command line `--exec` commands ran before the world existed, so
+`set` and `preset` on settings of world systems (streaming, the LOD manager)
+failed without notice. The E11.4 run with more LOD job slots therefore ran
+with the default. Failed startup commands now run again every frame for up
+to 10 seconds and log when they apply; the runs below show "applied after
+14 to 17 ms".
+
+Phase E11 acceptance, demo world, release, 1280 x 720, RTX 4060 laptop,
+camera on the ground looking across the land, render distance 32:
+
+| Preset | Reach | Tiles | FPS average | 1% low | GPU | Far terrain ready |
+|--------|-------|-------|-------------|--------|-----|-------------------|
+| High (6 levels) | 12,288 to 16,384 blocks | 304 | 1506 | 1084 | 0.17 ms | 371 ms |
+| Ultra (8 levels) | 49,152 to 65,536 blocks | 400 | 1331 | 671 | 0.52 ms | 579 ms |
+
+- 32,000 block reach at Ultra within the FPS target (Section 2: >= 400 with
+  render distance 32): met, 49,152 blocks at 1331 FPS.
+- No holes between LOD and real chunks: coverage map, retiring tiles kept
+  until replaced (tested over 300 camera moves), checked in captures.
+- Premapped worlds show the horizon on the first frame: the world enters
+  once every far terrain tile is shown (E11.4).
+- Not met: the 1% low at Ultra is 50% of the average (target 60%); High
+  reaches 72%. Hitch hunting is G9.3.
+
+The overlay's LOD page (page 5) shows reach, tiles per level, sampling,
+cache and premap numbers, drawn triangles, memory and the coverage map.

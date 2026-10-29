@@ -6,6 +6,7 @@
 #include <vxe/core/types.hpp>
 #include <vxe/jobs/job_system.hpp>
 #include <vxe/math/vector.hpp>
+#include <vxe/render/debug_draw.hpp>
 #include <vxe/voxel/block_registry.hpp>
 #include <vxe/voxel/column_summary.hpp>
 #include <vxe/voxel/lod_cache.hpp>
@@ -101,6 +102,11 @@ struct LodManagerDesc {
 // Settings (Graphics.LOD): Enabled, Levels, HalfExtentTiles, MaxSpansPerCell,
 // CavesInLod and MaxJobsInFlight, all live. Changing the spans or caves makes
 // every tile stale (they are part of the cache hash) and samples them again.
+// Quality presets in group "Graphics.LOD" (Low, Medium, High, Ultra) set the
+// levels, level size and spans; Ultra reaches past 32,000 blocks (Section 2).
+// Debug.LOD.Freeze keeps the clipmap where it is while the camera moves on;
+// Debug.LOD.ShowQueue outlines tiles waiting for a job (white) and in work
+// (yellow) with drawDebug().
 //
 // Edits (Section 13.6): columnEdited() takes a chunk column whose blocks
 // changed (saved edits) and, on a job, downsamples its loaded chunks into
@@ -112,7 +118,8 @@ struct LodManagerDesc {
 // a cache only shown tiles change, and the edit is lost when they are
 // sampled again.
 //
-// Stats: Voxel.Lod.Tiles (ready), .Queued, .Running, .Retiring (gauges),
+// Stats: Voxel.Lod.Tiles (ready), .Queued, .Running, .Retiring, .ReachBlocks,
+// .Level<N>.Wanted and .Level<N>.Ready (gauges),
 // .MemoryBytes (gauge), .Sampled, .FromCache, .Edits (counters), .SampleTime
 // (timer, per tile, on workers) and .EditTime (timer, per column).
 //
@@ -156,6 +163,10 @@ public:
     // the column's loaded chunks now; the work happens on a job.
     void columnEdited(const VoxelWorld& world, ColumnPos column,
                       std::shared_ptr<const BlockRegistryView> blocks);
+    // Outlines of queued and running tiles (Debug.LOD.ShowQueue), a little
+    // under the camera. Call after the debug draw's beginFrame.
+    void drawDebug(render::DebugDraw& draw) const;
+
     // Edits waiting or running.
     [[nodiscard]] usize pendingEdits() const noexcept { return m_edits.size(); }
 
@@ -219,6 +230,8 @@ private:
     config::Setting<i32> m_maxSpans;
     config::Setting<bool> m_caves;
     config::Setting<i32> m_maxJobs;
+    config::Setting<bool> m_freeze;
+    config::Setting<bool> m_showQueue;
 
     LodClipmap m_clipmap;
     LodClipmapDesc m_appliedDesc;
@@ -275,6 +288,9 @@ private:
         stats::StatId sampleTime;
         stats::StatId edits;
         stats::StatId editTime;
+        stats::StatId reach;
+        std::array<stats::StatId, kLodMaxLevel + 1> levelWanted{};
+        std::array<stats::StatId, kLodMaxLevel + 1> levelReady{};
     } m_statIds;
 };
 

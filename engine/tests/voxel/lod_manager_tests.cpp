@@ -285,3 +285,38 @@ TEST_CASE("Tiles that leave the clipmap cancel their jobs") {
     CHECK(rig.sampler.sawCancel.load() > 0);
     rig.checkShowsClipmap();
 }
+
+TEST_CASE("LOD quality presets set the reach; Ultra passes 32,000 blocks") {
+    Rig rig;
+    REQUIRE(rig.settings.applyPreset("Graphics.LOD", "Ultra").hasValue());
+    CHECK(rig.settings.currentPreset("Graphics.LOD") == "Ultra");
+    rig.settle();
+    CHECK(rig.manager->counts().wanted == 64 + (7 * 48));
+    rig.stats.endFrame(1.0 / 60.0);
+    CHECK(rig.stats.value(rig.stats.find("Voxel.Lod.ReachBlocks")) >= 32000.0);
+    CHECK(rig.stats.value(rig.stats.find("Voxel.Lod.Level8.Wanted")) == doctest::Approx(48.0));
+    CHECK(rig.stats.value(rig.stats.find("Voxel.Lod.Level8.Ready")) == doctest::Approx(48.0));
+    rig.checkShowsClipmap();
+
+    REQUIRE(rig.settings.applyPreset("Graphics.LOD", "Low").hasValue());
+    rig.settle();
+    CHECK(rig.manager->counts().wanted == 64 + (3 * 48));
+    rig.checkShowsClipmap();
+}
+
+TEST_CASE("Freezing far terrain keeps its tiles while the camera moves") {
+    Rig rig;
+    rig.settle();
+    const u32 adds = rig.sink.adds;
+    rig.set("Debug.LOD.Freeze", true);
+    rig.camera.x += 50000.0;
+    for (int i = 0; i < 20; ++i) {
+        rig.manager->update(rig.camera);
+    }
+    CHECK(rig.manager->isSettled());
+    CHECK(rig.sink.adds == adds);
+    rig.set("Debug.LOD.Freeze", false);
+    rig.settle();
+    CHECK(rig.sink.adds > adds);
+    rig.checkShowsClipmap();
+}

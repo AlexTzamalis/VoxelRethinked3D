@@ -2,6 +2,7 @@
 
 #include <vxe/config/console.hpp>
 #include <vxe/core/memory.hpp>
+#include <vxe/debug/imgui_renderer.hpp>
 #include <vxe/platform/platform.hpp>
 
 #include <imgui.h>
@@ -224,6 +225,7 @@ DebugOverlay::DebugOverlay(const OverlayDesc& desc)
     m_pages.push_back({.name = "Frame", .draw = [this] { drawFramePage(); }});
     m_pages.push_back({.name = "GPU", .draw = [this] { drawGpuPage(); }});
     m_pages.push_back({.name = "Streaming and Jobs", .draw = [this] { drawStreamingPage(); }});
+    m_pages.push_back({.name = "LOD", .draw = [this] { drawLodPage(); }});
     m_pages.push_back({.name = "Memory", .draw = [this] { drawMemoryPage(); }});
     m_pages.push_back({.name = "Input", .draw = [this] { drawInputPage(); }});
     m_pages.push_back({.name = "Settings diff", .draw = [this] { drawSettingsPage(); }});
@@ -533,6 +535,80 @@ void DebugOverlay::setJobSystem(jobs::JobSystem* jobs) {
 // since debug sits below voxel in the module layers; the job system is
 // queried directly, at most Debug.Overlay.UpdateRate times per second and
 // only while this page shows.
+// Far terrain (Section 18.2 page 6), all from stats: Voxel.Lod.* from the
+// LOD manager, Render.Lod.* from the LOD renderer; the coverage map preview
+// when the main loop handed over its texture.
+void DebugOverlay::drawLodPage() {
+    beginPageWindow("LOD");
+    const auto statValue = [this](std::string_view name) {
+        const stats::StatId id = m_stats.find(name);
+        return id.isValid() ? m_stats.value(id) : 0.0;
+    };
+    if (!m_stats.find("Voxel.Lod.Tiles").isValid()) {
+        text("No far terrain.");
+        ImGui::End();
+        return;
+    }
+    text(std::format(
+        "Reach {:.0f} blocks   tiles {:.0f} ready, {:.0f} queued, {:.0f} in work, {:.0f} retiring",
+        statValue("Voxel.Lod.ReachBlocks"), statValue("Voxel.Lod.Tiles"), statValue("Voxel.Lod.Queued"),
+        statValue("Voxel.Lod.Running"), statValue("Voxel.Lod.Retiring")));
+    if (ImGui::BeginTable("Levels", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+        for (const char* header : {"Level", "Cell (blocks)", "Wanted", "Ready"}) {
+            ImGui::TableSetupColumn(header);
+        }
+        ImGui::TableHeadersRow();
+        for (u32 level = 1; level <= 16; ++level) {
+            const f64 wanted = statValue(std::format("Voxel.Lod.Level{}.Wanted", level));
+            const f64 ready = statValue(std::format("Voxel.Lod.Level{}.Ready", level));
+            if (wanted == 0.0 && ready == 0.0) {
+                continue;
+            }
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            text(std::format("{}", level));
+            ImGui::TableNextColumn();
+            text(std::format("{}", u64{1} << level));
+            ImGui::TableNextColumn();
+            text(std::format("{:.0f}", wanted));
+            ImGui::TableNextColumn();
+            text(std::format("{:.0f}", ready));
+        }
+        ImGui::EndTable();
+    }
+    const auto perSecond = [this](std::string_view name) {
+        const stats::StatId id = m_stats.find(name);
+        return id.isValid() ? m_stats.perSecond(id) : 0.0;
+    };
+    text(std::format("Sampled {:.0f}/s ({:.2f} ms each)   from cache {:.0f}/s   edits {:.0f}/s",
+                     perSecond("Voxel.Lod.Sampled"),
+                     m_stats.find("Voxel.Lod.SampleTime").isValid()
+                         ? m_stats.average(m_stats.find("Voxel.Lod.SampleTime"), 240)
+                         : 0.0,
+                     perSecond("Voxel.Lod.FromCache"), perSecond("Voxel.Lod.Edits")));
+    text(std::format("Cache: {:.0f} hits, {:.0f} misses, {:.0f} stale, {:.0f} damaged (per second)",
+                     perSecond("Voxel.Lod.Cache.Hits"), perSecond("Voxel.Lod.Cache.Misses"),
+                     perSecond("Voxel.Lod.Cache.Stale"), perSecond("Voxel.Lod.Cache.Damaged")));
+    if (const f64 total = statValue("Voxel.Lod.Premap.Total"); total > 0.0) {
+        text(std::format("Premap: {:.0f} of {:.0f} tiles ({:.0f} already cached)",
+                         statValue("Voxel.Lod.Premap.Done"), total, statValue("Voxel.Lod.Premap.Skipped")));
+    }
+    ImGui::Separator();
+    const f64 drawnQuads = statValue("Render.Lod.DrawnQuads");
+    text(std::format("GPU: {:.0f} tiles, {:.0f} drawn, {:.0f} under real chunks",
+                     statValue("Render.Lod.Tiles"), statValue("Render.Lod.DrawnTiles"),
+                     statValue("Render.Lod.CoveredTiles")));
+    text(std::format("Triangles drawn {:.0f} of {:.0f}   memory {:.1f} MB tiles, {:.1f} MB GPU",
+                     drawnQuads * 2.0, statValue("Render.Lod.Quads") * 2.0,
+                     statValue("Voxel.Lod.MemoryBytes") / (1024.0 * 1024.0),
+                     statValue("Render.Lod.ArenaBytes") / (1024.0 * 1024.0)));
+    if (m_lodCoverage.isValid()) {
+        text("Coverage map (red: chunk columns real chunks draw; wraps every 128 columns):");
+        ImGui::Image(ImGuiRenderer::textureId(m_lodCoverage), ImVec2(256.0F, 256.0F));
+    }
+    ImGui::End();
+}
+
 void DebugOverlay::drawStreamingPage() {
     beginPageWindow("Streaming and Jobs");
     const auto statValue = [this](std::string_view name) {

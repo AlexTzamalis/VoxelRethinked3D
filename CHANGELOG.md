@@ -2,6 +2,21 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#077] 2026-10-29, E11.6 LOD debug views and overlay page
+### Added
+- Overlay page "LOD" (Section 18.2 page 6): reach, tiles per level, queued and running tiles, sampling and cache rates, premap progress, drawn triangles, tile and GPU memory, and a preview of the coverage map.
+- Debug views: Debug.LOD.TileBorders (every tile's box colored by level), Debug.LOD.ShowQueue (tiles waiting and in work), Debug.LOD.Freeze (far terrain stays put while the camera moves); Debug.LOD.ColorLevels and ShowCoverage from E11.3.
+- LOD quality presets in group Graphics.LOD: Low, Medium, High and Ultra (Ultra: 8 levels, 49,152 to 65,536 blocks).
+- Console command preset <group> [name].
+- Stats Voxel.Lod.ReachBlocks, Voxel.Lod.Level<N>.Wanted and .Ready, Render.Lod.DrawnQuads; LodRenderer::coverageTexture and DebugOverlay::setLodCoverageTexture.
+- Tests: presets set the reach and Ultra passes 32,000 blocks; freezing keeps the tiles; the preset command lists and applies presets.
+### Fixed
+- Command line startup commands (--exec) that name settings or presets of systems starting later (a world) failed without notice; they now run again each frame for up to 10 seconds and log when they apply or finally fail.
+### Performance
+- Phase E11 acceptance at render distance 32: High 1506 FPS (1% low 1084), Ultra 49,152 block reach at 1331 FPS (1% low 671).
+### Docs
+- docs/perf/lod.md: E11.6 and the phase acceptance, and a correction of an E11.4 measurement that ran with a setting that never applied.
+
 ## [#076] 2026-10-29, E11.5b LOD visual parity
 ### Added
 - Far terrain in the demo carries the same trees as the chunks: DemoTerrain::treeSpot and treeGrows are shared with DemoLodSampler, which places every crown block by block in levels 1 and 2 (crown spans floating over or joined to the ground) and, in coarser levels, tints grass towards leaves by the share of the cell under crowns (in eighths), raising dense forest to the crowns' height.

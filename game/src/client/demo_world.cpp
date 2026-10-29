@@ -70,6 +70,7 @@ DemoWorld::DemoWorld(const DemoWorldDesc& desc, const DemoBlocks& blocks)
     , m_world({}, desc.stats)
     , m_source(m_terrain)
     , m_lodRenderer(desc.lod)
+    , m_debugDraw(desc.debugDraw)
     , m_view(desc.blocks->current())
     , m_lodSampler(m_terrain, blocks, *m_view, static_cast<vxe::u16>(desc.catalog->textureKeys().size()),
                    desc.seed) {
@@ -216,6 +217,9 @@ void DemoWorld::update(const vxe::render::Camera& camera) {
     }
     if (!m_premap) {
         m_lod->update(camera.position);
+    }
+    if (m_debugDraw != nullptr) {
+        m_lod->drawDebug(*m_debugDraw);
     }
     if (m_lodSink) {
         m_lodSink->update();
