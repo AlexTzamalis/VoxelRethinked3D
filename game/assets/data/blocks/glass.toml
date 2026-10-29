@@ -1,0 +1,10 @@
+# Clear glass: blended, lets all light through, and two panes next to each
+# other show no face between them. Format: see stone.toml.
+name = "glass"
+display_name = "Glass"
+layer = "translucent"
+light_opacity = 0
+culls_same_type = true
+
+[textures]
+all = "glass"

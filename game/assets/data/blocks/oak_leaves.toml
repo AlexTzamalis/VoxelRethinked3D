@@ -1,0 +1,13 @@
+# Tree leaves: alpha tested so the sky shows through gaps, and every face
+# stays, even between two leaf blocks, so trees look full. Tinted by the
+# biome. With Graphics.Terrain.FancyLeaves off they draw as solid blocks.
+# Format: see stone.toml.
+name = "oak_leaves"
+display_name = "Oak Leaves"
+layer = "cutout"
+light_opacity = 1
+culls_same_type = false
+tint = 2
+
+[textures]
+all = "oak_leaves"

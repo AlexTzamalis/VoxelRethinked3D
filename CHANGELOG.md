@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#059] 2026-10-29, G1.1 Block data files
+### Added
+- game/assets/data/blocks/: one TOML file per block (Section 9.3, ADR-009): stone, dirt, grass block, sand, gravel, water, oak log (three axis states), oak leaves, glass, lumen block (a light source), snow block, coal, iron and gold ore, and foundation stone (the world floor). Each gives the stable name, display name, render layer, light values, same type culling, biome tint and texture keys per face; stone.toml documents the format.
+
 ## [#058] 2026-10-29, G0.1 Game application shell
 ### Added
 - render::Renderer: the engine's standard frame in one frame graph (chunk uploads, opaque and cutout chunks, sky and fog, translucent chunks, debug lines, post processing, a window overlay hook), with GPU frame timing. Applications set the camera with beginFrame; the main loop records, submits and presents.

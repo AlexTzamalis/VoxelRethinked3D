@@ -1,0 +1,9 @@
+# A crystal block that glows at full strength: the light source for caves
+# and buildings (block light, E10.2). Format: see stone.toml.
+name = "lumen_block"
+display_name = "Lumen Block"
+layer = "opaque"
+emitted_light = 15
+
+[textures]
+all = "lumen_block"

@@ -1,0 +1,25 @@
+# Block definition (G1.1). Every block of the game is one file like this; the
+# loader (game/src/common/block_catalog.cpp) reads them all at startup.
+#
+#   name             Stable id, saved in worlds. Lowercase letters, digits, underscores.
+#   display_name     Shown to players.
+#   layer            opaque, cutout (alpha tested, like leaves), translucent (blended,
+#                    like water and glass) or invisible (never drawn).
+#   emitted_light    0 to 15. Light the block gives off. Default 0.
+#   light_opacity    0 to 15. Light lost passing through. Default 15 for opaque
+#                    blocks, 0 for the others.
+#   culls_same_type  Hide the face between two blocks of the same state (glass next
+#                    to glass). Default true.
+#   tint             0 for none, otherwise a biome tint table index. Default 0.
+#   [textures]       Texture keys from the texture pack (G2): all, side, top, bottom,
+#                    or one face: east (+X), west (-X), up, down, south (+Z),
+#                    north (-Z). The most specific one wins.
+#   [[variants]]     Optional. Each variant is one block state with its own
+#                    properties and texture overrides (see oak_log.toml).
+
+name = "stone"
+display_name = "Stone"
+layer = "opaque"
+
+[textures]
+all = "stone"

@@ -1,0 +1,7 @@
+# The layer under grass. Format: see stone.toml.
+name = "dirt"
+display_name = "Dirt"
+layer = "opaque"
+
+[textures]
+all = "dirt"

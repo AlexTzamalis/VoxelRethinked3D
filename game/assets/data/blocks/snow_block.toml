@@ -1,0 +1,7 @@
+# Packed snow on cold peaks. Format: see stone.toml.
+name = "snow_block"
+display_name = "Snow Block"
+layer = "opaque"
+
+[textures]
+all = "snow"

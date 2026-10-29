@@ -1,0 +1,11 @@
+# Grass on top of dirt: green top, dirt below, a grassy edge on the sides.
+# The top is tinted by the biome. Format: see stone.toml.
+name = "grass_block"
+display_name = "Grass Block"
+layer = "opaque"
+tint = 1
+
+[textures]
+top = "grass_top"
+bottom = "dirt"
+side = "grass_side"

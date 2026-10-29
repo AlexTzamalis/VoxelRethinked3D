@@ -1,0 +1,9 @@
+# The floor of the world: the bottom layers of every world are made of it,
+# so nothing falls out below the configured minimum height (Section 9.2).
+# Breaking it will be refused by the server (G6.3). Format: see stone.toml.
+name = "foundation_stone"
+display_name = "Foundation Stone"
+layer = "opaque"
+
+[textures]
+all = "foundation_stone"

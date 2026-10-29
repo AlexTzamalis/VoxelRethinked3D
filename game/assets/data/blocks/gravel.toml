@@ -1,0 +1,7 @@
+# Loose stones in riverbeds and pockets underground. Format: see stone.toml.
+name = "gravel"
+display_name = "Gravel"
+layer = "opaque"
+
+[textures]
+all = "gravel"
