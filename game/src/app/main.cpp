@@ -3,8 +3,10 @@
 // (Section 6.5 of the plan).
 //
 // Command line:
-//   --frames N   Quit after N frames (smoke tests and scripted runs).
-//   --headless   Run without a window.
+//   --frames N        Quit after N frames (smoke tests and scripted runs).
+//   --headless        Run without a window.
+//   --exec COMMAND    Run a console command at startup, for example
+//                     --exec "set Video.FpsLimit 144". May repeat.
 #include "voxel_rethinked_app.hpp"
 
 #include <vxe/app/application.hpp>
@@ -26,6 +28,8 @@ vxe::EngineConfig configFromArguments(std::span<char*> arguments) {
         const std::string_view argument = arguments[i];
         if (argument == "--headless") {
             config.window = false;
+        } else if (argument == "--exec" && i + 1 < arguments.size()) {
+            config.startupCommands.emplace_back(arguments[++i]);
         } else if (argument == "--frames" && i + 1 < arguments.size()) {
             const std::string_view value = arguments[++i];
             vxe::u64 frames = 0;

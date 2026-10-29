@@ -163,6 +163,26 @@ void InputSystem::applyEvent(const platform::PlatformEvent& event) {
                event);
 }
 
+// Whether an active binding's input went down during this frame (a wheel
+// notch only exists in the frame it happened). For chords the second key
+// is the one that counts: F3+G triggers when G goes down while F3 is held.
+bool InputSystem::wentDownThisFrame(const Binding& binding) const noexcept {
+    switch (binding.kind) {
+    case BindingKind::Key:
+        return inRange(binding.code) && m_keysPressedThisFrame[binding.code];
+    case BindingKind::MouseButton:
+        return binding.code < m_mouseButtons.size() && m_mouseButtonsPressedThisFrame[binding.code];
+    case BindingKind::None:
+        return false;
+    case BindingKind::WheelUp:
+    case BindingKind::WheelDown:
+    case BindingKind::WheelLeft:
+    case BindingKind::WheelRight:
+        break;
+    }
+    return true;
+}
+
 bool InputSystem::isBindingActive(const Binding& binding) const noexcept {
     if (!platform::hasAll(heldModifiers(), binding.modifiers)) {
         return false;
@@ -226,6 +246,7 @@ void InputSystem::update(std::span<const platform::PlatformEvent> events) {
     for (ActionState& state : m_states) {
         state.wasHeld = state.held;
         state.held = false;
+        state.pressed = false;
         state.axisValue = 0.0F;
     }
 
@@ -263,6 +284,7 @@ void InputSystem::update(std::span<const platform::PlatformEvent> events) {
                     continue;
                 }
                 state.held = true;
+                state.pressed = state.pressed || wentDownThisFrame(binding);
                 state.axisValue += bindingAxisValue(binding);
                 m_claimed.push_back(binding);
             }
@@ -274,7 +296,7 @@ void InputSystem::update(std::span<const platform::PlatformEvent> events) {
 
     for (usize i = 0; i < m_states.size(); ++i) {
         ActionState& state = m_states[i];
-        if (m_actions[i].type == ActionType::Toggle && state.held && !state.wasHeld) {
+        if (m_actions[i].type == ActionType::Toggle && state.pressed) {
             state.toggledOn = !state.toggledOn;
         }
     }
@@ -441,8 +463,7 @@ void InputSystem::processCapture(std::span<const platform::PlatformEvent> events
 }
 
 bool InputSystem::isPressed(ActionId action) const noexcept {
-    const ActionState& state = m_states[action.index];
-    return state.held && !state.wasHeld;
+    return m_states[action.index].pressed;
 }
 
 bool InputSystem::isHeld(ActionId action) const noexcept {

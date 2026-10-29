@@ -45,11 +45,11 @@ using CommandCompleter =
     std::function<std::vector<std::string>(std::span<const std::string> arguments, usize argumentIndex)>;
 
 struct CommandDesc {
-    std::string name;        // One word, for example "set".
-    std::string usage;       // For example "set <setting> <value>".
-    std::string description; // One line for help.
-    CommandHandler handler;
-    CommandCompleter completer; // Optional.
+    std::string name{};        // One word, for example "set".
+    std::string usage{};       // For example "set <setting> <value>".
+    std::string description{}; // One line for help.
+    CommandHandler handler{};
+    CommandCompleter completer{}; // Optional.
 };
 
 // The table of console commands. Main thread only.

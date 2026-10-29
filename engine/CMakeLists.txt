@@ -205,6 +205,7 @@ vxe_add_module(render
         src/render/frame_graph.cpp
         src/render/frame_pacer.cpp
         src/render/post_process.cpp
+        src/render/renderer.cpp
         src/render/sky.cpp
     DEPENDS
         core
@@ -268,11 +269,16 @@ vxe_add_module(app
         src/app/application.cpp
     DEPENDS
         core
+        math
         jobs
         io
         platform
         config
         input
+        rhi
+        rhi_gl
+        render
+        debug
 )
 
 # One target that links every engine module, for the game and tools.

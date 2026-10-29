@@ -257,12 +257,18 @@ private:
     struct ActionState {
         bool held = false;
         bool wasHeld = false;
+        // One of its inputs went down this frame. Not simply "held and not
+        // held last frame": an action whose context comes back while its
+        // key is still down (Escape closing a menu over the game) must not
+        // see that key as a new press.
+        bool pressed = false;
         bool toggledOn = false;
         f32 axisValue = 0.0F;
     };
 
     void applyEvent(const platform::PlatformEvent& event);
     [[nodiscard]] bool isBindingActive(const Binding& binding) const noexcept;
+    [[nodiscard]] bool wentDownThisFrame(const Binding& binding) const noexcept;
     [[nodiscard]] f32 bindingAxisValue(const Binding& binding) const noexcept;
 
     std::vector<Context> m_contexts;

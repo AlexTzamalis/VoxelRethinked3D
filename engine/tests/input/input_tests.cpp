@@ -149,6 +149,22 @@ TEST_CASE("A context above claims the inputs it uses") {
     CHECK(f.input.isPressed(f.pause));
 }
 
+TEST_CASE("A key still held when its context comes back is not a new press") {
+    // Escape closes the pause menu; the key is still down on the next frame
+    // when Gameplay is on top again, and must not pause right away (G0.1).
+    Fixture f;
+    f.input.pushContext(f.menu);
+    f.frame({keyDown(sc::kEscape)});
+    CHECK(f.input.isPressed(f.back));
+    f.input.popContext(f.menu);
+    f.frame();
+    CHECK(f.input.isHeld(f.pause));
+    CHECK_FALSE(f.input.isPressed(f.pause));
+    f.frame({keyUp(sc::kEscape)});
+    f.frame({keyDown(sc::kEscape)});
+    CHECK(f.input.isPressed(f.pause)); // A real new press still counts.
+}
+
 TEST_CASE("A blocking context hides lower contexts, except always active ones") {
     Fixture f;
     f.input.pushContext(f.console);
@@ -160,7 +176,10 @@ TEST_CASE("A blocking context hides lower contexts, except always active ones") 
 
     f.input.popContext(f.console);
     f.frame();
-    CHECK(f.input.isPressed(f.forward)); // Still held, now visible to gameplay.
+    // Still held, now visible to gameplay: walking goes on (held), but it is
+    // not a new press (G0.1: closing a menu with Escape must not pause).
+    CHECK(f.input.isHeld(f.forward));
+    CHECK_FALSE(f.input.isPressed(f.forward));
 }
 
 TEST_CASE("Actions of contexts that are not on the stack never fire") {
@@ -177,8 +196,13 @@ TEST_CASE("Modifiers and chords narrow when a binding fires") {
     f.frame({keyDown(sc::kS)});
     CHECK_FALSE(f.input.isHeld(f.save)); // S alone is not Ctrl+S.
     f.frame({keyDown(sc::kLeftCtrl)});
-    CHECK(f.input.isPressed(f.save)); // Ctrl now held with S.
+    CHECK(f.input.isHeld(f.save));          // Ctrl now held with S...
+    CHECK_FALSE(f.input.isPressed(f.save)); // ...but a shortcut fires when its key goes down.
     CHECK(vxe::platform::hasAll(f.input.heldModifiers(), Modifiers::Ctrl));
+    f.frame({keyUp(sc::kS)});
+    f.frame({keyDown(sc::kS)});
+    CHECK(f.input.isPressed(f.save)); // Ctrl held, then S.
+    f.frame({keyUp(sc::kS), keyUp(sc::kLeftCtrl)});
 
     f.frame({keyDown(sc::kG)});
     CHECK_FALSE(f.input.isHeld(f.chunkBorders)); // G alone.

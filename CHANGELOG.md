@@ -2,6 +2,21 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#058] 2026-10-29, G0.1 Game application shell
+### Added
+- render::Renderer: the engine's standard frame in one frame graph (chunk uploads, opaque and cutout chunks, sky and fog, translucent chunks, debug lines, post processing, a window overlay hook), with GPU frame timing. Applications set the camera with beginFrame; the main loop records, submits and presents.
+- runApplication now creates the graphics device, renderer, frame pacer, stat registry, console command registry and the debug tools (debug UI, F3 overlay, developer console) for windowed programs, and exposes them in EngineContext (device, renderer, stats, commands, overlay, console, inMenu). EngineConfig gains renderer, debugTools, shaderFolder and startupCommands. Frame pacing (Video.FpsLimit and friends) replaces the idle frame cap when rendering.
+- The game build copies the engine shaders to shaders/ next to voxel_rethinked.
+- Game: vr::GameStateMachine with the states and transitions of Section 20.1 (plus backing out of a failed world start and, until the menus exist, a quick start from LoadingCoreAssets to the world).
+- Game: settings Gameplay.FieldOfView and ViewBobbing, Controls.MouseSensitivity, InvertY, ToggleSprint and ToggleCrouch, Interface.UiScale, HudOpacity and ShowHud, Accessibility.ScreenShake and FovEffects, Server.TickRate, AutosaveIntervalMinutes and SimulationDistance.
+- Game: input contexts Global, Gameplay and Menu with the default actions of Section 17.5 (movement, interaction, hotbar 1 to 9 and wheel, inventory, pause, HUD, free camera, screenshot, fullscreen, menu back).
+- voxel_rethinked now renders: it starts straight into a free flight over a debug grid under the sky, with the F3 overlay (state and position on the Overview), the console (new command "state"), Escape to pause and resume, F11 for borderless fullscreen and a SavingAndStopping pass on window close. --exec runs console commands at startup.
+- Game code moved into the vr_game library; game unit tests in vr_tests (state machine, settings, actions without conflicts).
+### Changed
+- Input: an action counts as pressed only when one of its inputs went down this frame. Before, an action whose context came back while its key was still held (Escape closing the pause menu) saw a new press and paused again at once; a shortcut also no longer fires when its modifier goes down after its key.
+### Docs
+- README: running the game and the demo.
+
 ## [#057] 2026-10-29, E9.5 Chunk renderer
 ### Added
 - vxe::OffsetAllocator in core: O(1) range allocation for the GPU vertex arena, after Sebastian Aaltonen's OffsetAllocator design (256 small float size bins, two level bit masks, neighbor merging). Written in house because vcpkg has no port; when the fast path fails it also checks the bin below, so a request for exactly the free space left succeeds.

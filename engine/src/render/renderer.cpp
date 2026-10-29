@@ -1,0 +1,192 @@
+#include "vxe/render/renderer.hpp"
+
+#include <vxe/core/profile.hpp>
+
+#include <algorithm>
+#include <utility>
+
+namespace vxe::render {
+namespace {
+
+// The scene is lit in linear HDR; the post pass tonemaps it for the window.
+constexpr rhi::Format kSceneFormat = rhi::Format::RGBA16Float;
+constexpr rhi::Format kDepthFormat = rhi::Format::D32Float;
+
+} // namespace
+
+Result<std::unique_ptr<Renderer>> Renderer::create(const RendererDesc& desc) {
+    VXE_ASSERT(desc.device != nullptr && desc.settings != nullptr, "Renderer needs a device and settings");
+    std::unique_ptr<Renderer> renderer(new Renderer(*desc.device));
+    rhi::Device& device = *desc.device;
+    const auto fail = [](const Error& error) { return error.withContext("Renderer: "); };
+
+    if (Result<void> created = renderer->m_constants.create(device); !created) {
+        return fail(created.error());
+    }
+    auto chunks = ChunkRenderer::create({.device = &device,
+                                         .settings = desc.settings,
+                                         .stats = desc.stats,
+                                         .shaders = desc.shaders,
+                                         .colorFormat = kSceneFormat,
+                                         .depthFormat = kDepthFormat,
+                                         .arenaBytes = desc.chunkArenaBytes,
+                                         .maxChunks = desc.maxChunks});
+    if (!chunks) {
+        return fail(chunks.error());
+    }
+    renderer->m_chunks = std::move(chunks.value());
+    auto sky = SkyRenderer::create({.device = &device,
+                                    .settings = desc.settings,
+                                    .stats = desc.stats,
+                                    .shaders = desc.shaders,
+                                    .colorFormat = kSceneFormat});
+    if (!sky) {
+        return fail(sky.error());
+    }
+    renderer->m_sky = std::move(sky.value());
+    auto post = PostProcess::create({.device = &device, .settings = desc.settings, .shaders = desc.shaders});
+    if (!post) {
+        return fail(post.error());
+    }
+    renderer->m_post = std::move(post.value());
+    auto lines = DebugDraw::create({.device = &device,
+                                    .settings = desc.settings,
+                                    .stats = desc.stats,
+                                    .input = desc.input,
+                                    .toggleContext = desc.debugContext,
+                                    .shaders = desc.shaders,
+                                    .colorFormat = kSceneFormat,
+                                    .depthFormat = kDepthFormat});
+    if (!lines) {
+        return fail(lines.error());
+    }
+    renderer->m_debugDraw = std::move(lines.value());
+    if (device.capabilities().timestampQueries) {
+        renderer->m_timerCreated = renderer->m_timer.create(device).hasValue();
+    }
+    renderer->m_graph = std::make_unique<FrameGraph>(
+        FrameGraphDesc{.device = &device, .settings = desc.settings, .stats = desc.stats});
+    if (Result<void> built = renderer->buildGraph(); !built) {
+        return fail(built.error());
+    }
+    return renderer;
+}
+
+Renderer::~Renderer() {
+    // The graph's transient targets and the pieces' buffers go first; the
+    // device itself belongs to the owner.
+    m_graph.reset();
+    m_debugDraw.reset();
+    m_post.reset();
+    m_sky.reset();
+    m_chunks.reset();
+    m_constants.destroy(m_device);
+    if (m_timerCreated) {
+        m_timer.destroy(m_device);
+    }
+}
+
+Result<void> Renderer::buildGraph() {
+    FrameGraph& graph = *m_graph;
+    static_cast<void>(graph.addPass(
+        {.name = "ChunkUpload", .type = PassType::Transfer, .record = [this](PassContext& context) {
+             m_chunks->recordUploads(context.commands);
+         }}));
+
+    auto chunks = graph.addPass({.name = "Chunks", .record = [this](PassContext& context) {
+                                     m_constants.bind(context.commands);
+                                     m_chunks->record(context.commands, ChunkPass::Opaque);
+                                     m_chunks->record(context.commands, ChunkPass::Cutout);
+                                 }});
+    const TextureRef color = chunks.createTexture("SceneColor", {.format = kSceneFormat});
+    const TextureRef depth = chunks.createTexture("SceneDepth", {.format = kDepthFormat});
+    // Reversed Z: depth 0 is infinitely far (ADR-010).
+    chunks.colorAttachment(color, rhi::LoadOp::Clear, {0.0F, 0.0F, 0.0F, 1.0F});
+    chunks.depthAttachment(depth, rhi::LoadOp::Clear, 0.0F);
+
+    auto sky = graph.addPass({.name = "Sky", .record = [this, depth](PassContext& context) {
+                                  m_constants.bind(context.commands);
+                                  m_sky->record(context.commands, context.texture(depth));
+                              }});
+    sky.colorAttachment(color, rhi::LoadOp::Load);
+    sky.sampleTexture(depth);
+
+    auto translucent = graph.addPass({.name = "ChunksTranslucent", .record = [this](PassContext& context) {
+                                          m_constants.bind(context.commands);
+                                          m_chunks->record(context.commands, ChunkPass::Translucent);
+                                      }});
+    translucent.colorAttachment(color, rhi::LoadOp::Load);
+    translucent.depthAttachment(depth, rhi::LoadOp::Load);
+
+    auto lines = graph.addPass({.name = "DebugDraw", .record = [this](PassContext& context) {
+                                    m_constants.bind(context.commands);
+                                    m_debugDraw->record(context.commands);
+                                }});
+    lines.colorAttachment(color, rhi::LoadOp::Load);
+    lines.depthAttachment(depth, rhi::LoadOp::Load, 0.0F, rhi::StoreOp::DontCare);
+
+    auto post = graph.addPass({.name = "Post", .record = [this, color](PassContext& context) {
+                                   m_post->record(context.commands, context.texture(color));
+                               }});
+    post.sampleTexture(color);
+    post.windowAttachment(rhi::LoadOp::DontCare);
+
+    // Not switchable: the debug UI is how passes are switched back on.
+    graph
+        .addPass({.name = "WindowOverlay",
+                  .canDisable = false,
+                  .record =
+                      [this](PassContext& context) {
+                          if (m_windowOverlay) {
+                              m_windowOverlay(context.commands);
+                          }
+                      }})
+        .windowAttachment(rhi::LoadOp::Load);
+    return graph.compile();
+}
+
+void Renderer::setWindowOverlay(std::function<void(rhi::CommandList&)> record) {
+    m_windowOverlay = std::move(record);
+}
+
+void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
+    VXE_PROFILE_FUNCTION();
+    m_camera = camera;
+    const u32 width = std::max(m_device.backBufferWidth(), 1U);
+    const u32 height = std::max(m_device.backBufferHeight(), 1U);
+    m_graph->setOutputSize(width, height);
+    m_sky->update(time.deltaSeconds);
+    m_post->update(width, height);
+    m_constants.update(m_device, makeFrameConstants(camera, {.width = width,
+                                                             .height = height,
+                                                             .seconds = time.elapsedSeconds,
+                                                             .deltaSeconds = time.deltaSeconds,
+                                                             .frameIndex = m_frameIndex}));
+    m_chunks->beginFrame(camera);
+    m_debugDraw->handleInput();
+    m_debugDraw->beginFrame(camera);
+    m_frameBegun = true;
+}
+
+Result<void> Renderer::endFrame(const FrameTime& time) {
+    VXE_PROFILE_FUNCTION();
+    if (!m_frameBegun) {
+        beginFrame(m_camera, time);
+    }
+    m_frameBegun = false;
+    ++m_frameIndex;
+    m_commands.reset();
+    if (m_timerCreated) {
+        m_timer.beginFrame(m_device, m_commands);
+    }
+    const Result<void> executed = m_graph->execute(m_commands);
+    if (m_timerCreated) {
+        m_timer.endFrame(m_commands);
+    }
+    m_device.beginFrame();
+    m_device.submit(m_commands);
+    m_device.present();
+    return executed;
+}
+
+} // namespace vxe::render
