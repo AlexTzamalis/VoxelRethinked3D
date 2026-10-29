@@ -1,0 +1,136 @@
+# Recipes of the default texture pack (G2.1). vxe_texture_gen paints one
+# blocks/<key>.png per [[texture]] into textures/default/:
+#
+#   vxe_texture_gen tools/texture_gen/default_pack.toml textures/default
+#
+# Existing PNGs are kept (hand edits survive); --force repaints them, --only
+# key,key limits the run. Each texture has:
+#
+#   key       the texture key blocks refer to (blocks/<key>.png)
+#   pattern   speckle, stone, grass_top, overhang, gravel, water, bark,
+#             rings, leaves, glass, glow or ore
+#   palette   colors from dark to light ("#rrggbb" or "#rrggbbaa")
+#   accent    a second palette (grass over dirt, ore over stone, bark rims)
+#   base      another key painted first (ores on stone, grass sides on dirt)
+#   density   how much of a pattern's extras (speckles, cracks, holes, ore)
+#   scale     feature size, 1 is the pattern's normal size
+#   alpha     opacity for translucent textures (water, glass)
+#   seed      changes the random layout of this texture only
+#
+# To add a material: copy the closest recipe, change key and palette, run
+# the generator; new looks are new patterns in tools/texture_gen/painter.cpp.
+
+[pack]
+name = "Voxel Rethinked Default"
+author = "Alex Tzamalis"
+version = "1.0.0"
+description = "The original default pack, generated, then refined by hand."
+resolution = 16
+seed = 1
+icon = ["grass_side", "stone", "oak_log_top", "oak_leaves"]
+
+[[texture]]
+key = "stone"
+pattern = "stone"
+palette = ["#505055", "#6a6a6f", "#76767b", "#818186", "#8c8c91", "#98989d"]
+density = 0.5
+
+[[texture]]
+key = "dirt"
+pattern = "speckle"
+palette = ["#4b3322", "#5c3f2d", "#6a4935", "#77543e", "#845e46"]
+density = 0.6
+
+[[texture]]
+key = "grass_top"
+pattern = "grass_top"
+palette = ["#3c7524", "#47862b", "#529531", "#5da237", "#6cb442"]
+density = 0.5
+
+[[texture]]
+key = "grass_side"
+pattern = "overhang"
+base = "dirt"
+accent = ["#3c7524", "#47862b", "#529531", "#5da237"]
+density = 0.5
+
+[[texture]]
+key = "sand"
+pattern = "speckle"
+palette = ["#c4ae76", "#cfbb84", "#d9c791", "#e1d19e", "#e9dcaf"]
+density = 0.4
+scale = 0.5
+
+[[texture]]
+key = "gravel"
+pattern = "gravel"
+palette = ["#47423f", "#69635f", "#78716e", "#86807c", "#958e8a", "#a49d99"]
+density = 0.5
+
+[[texture]]
+key = "water_still"
+pattern = "water"
+palette = ["#1c3d89", "#234797", "#2950a5", "#325db2", "#3b6abf"]
+alpha = 200
+
+[[texture]]
+key = "oak_log_side"
+pattern = "bark"
+palette = ["#3b2b19", "#574026", "#634d2e", "#6f5735", "#7a613b"]
+
+[[texture]]
+key = "oak_log_top"
+pattern = "rings"
+palette = ["#8b6a3d", "#9d7948", "#ad8753", "#bc9760"]
+accent = ["#48351f", "#574026", "#634d2e"]
+
+[[texture]]
+key = "oak_leaves"
+pattern = "leaves"
+palette = ["#28571b", "#31661e", "#3b7723", "#46862a", "#539533"]
+density = 0.4
+
+[[texture]]
+key = "glass"
+pattern = "glass"
+palette = ["#c6dfe9", "#d9ebf2", "#f0f8fb"]
+alpha = 60
+
+[[texture]]
+key = "lumen_block"
+pattern = "glow"
+palette = ["#6a491d", "#dda648", "#eabd60", "#f3cf7a", "#f9e09b", "#fff2c2"]
+
+[[texture]]
+key = "snow"
+pattern = "speckle"
+palette = ["#d6dfe8", "#e0e8ee", "#e9eef3", "#f0f4f8", "#f9fbfd"]
+density = 0.2
+scale = 1.5
+
+[[texture]]
+key = "coal_ore"
+pattern = "ore"
+base = "stone"
+accent = ["#1a1a1c", "#242426", "#313134", "#46464a"]
+density = 0.5
+
+[[texture]]
+key = "iron_ore"
+pattern = "ore"
+base = "stone"
+accent = ["#876750", "#9d7a60", "#b58f77", "#d1af97"]
+density = 0.5
+
+[[texture]]
+key = "gold_ore"
+pattern = "ore"
+base = "stone"
+accent = ["#977718", "#bf9d28", "#ddbd3e", "#f8e06d"]
+density = 0.4
+
+[[texture]]
+key = "foundation_stone"
+pattern = "stone"
+palette = ["#1c1c20", "#2a2a2f", "#333338", "#3d3d43", "#46464c"]
+density = 0.9

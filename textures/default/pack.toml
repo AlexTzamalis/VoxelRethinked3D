@@ -1,0 +1,10 @@
+# Every pack needs this file in its root folder (Section 15.2).
+name        = "Voxel Rethinked Default"
+author      = "Alex Tzamalis"
+version     = "1.0.0"
+description = "The original default pack, generated, then refined by hand."
+format      = 1          # Pack format version.
+resolution  = 16         # Pixel size of block textures.
+
+[options]
+mipmap_alpha_preserve = true   # Keeps leaves from disappearing at distance.

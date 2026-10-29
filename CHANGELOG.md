@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#078] 2026-10-29, G2.1 Default texture pack, generated
+### Added
+- tools/texture_gen (vxe_texture_gen): paints a texture pack from recipes. Each recipe names a pattern (speckle, stone, grass_top, overhang, gravel, water, bark, rings, leaves, glass, glow, ore), a dark to light palette, an accent palette and an optional base texture painted first. Textures are deterministic and tile seamlessly. Existing PNGs are kept unless --force (hand edits survive), --only limits a run to some keys, --preview writes an enlarged sheet of every texture, --template copies the pack as it is into a new folder named "My Pack" with a list of its keys.
+- tools/texture_gen/default_pack.toml: recipes for the 17 base textures at 16 x 16 (stone, dirt, grass top and side, sand, gravel, water, log side and top, leaves, glass, lumen block, snow, coal, iron and gold ore, foundation stone).
+- textures/default: the generated default pack (one PNG per texture, pack.toml, pack.png icon), original art meant to be refined by hand in Aseprite.
+- vcpkg dependency stb (PNG writing now, image loading for the pack loader in G2.2).
+- Tests: every pattern paints at 16 and 32 pixels the same way each time and differently per key; leaves are cutout, glass see through with a solid frame; bad recipes report the problem; textures tile across the edge.
+### Docs
+- CLAUDE.md: the agreed order after E11 (G2 texture packs, then E12) and the 16 x 16 default resolution.
+
 ## [#077] 2026-10-29, E11.6 LOD debug views and overlay page
 ### Added
 - Overlay page "LOD" (Section 18.2 page 6): reach, tiles per level, queued and running tiles, sampling and cache rates, premap progress, drawn triangles, tile and GPU memory, and a preview of the coverage map.

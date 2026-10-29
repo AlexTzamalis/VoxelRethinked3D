@@ -25,6 +25,7 @@
       "name": "spdlog",
       "default-features": false
     },
+    "stb",
     "unordered-dense",
     "xxhash",
     "lz4",
