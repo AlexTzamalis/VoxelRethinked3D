@@ -199,6 +199,10 @@ void StreamingManager::registerSettings(config::SettingsRegistry& settings, u32 
                                            .description = "Light from torches, lava and glowing blocks. Off "
                                                           "leaves only sky light."},
                                           true});
+    m_skyRelightDepth = integer("Graphics.Lighting.SkyRelightDepth", "Sky relight depth",
+                                "How many chunks below a change sky light is computed again. Deeper "
+                                "is more exact under tall overhangs and costs more per edit.",
+                                4, 0, 32, config::Visibility::Advanced);
     m_maxChunks = integer("World.Streaming.MaxChunks", "Most chunks",
                           "The most chunks loaded or waiting to load, a memory cap. Normally the render "
                           "distance decides.",
@@ -658,6 +662,12 @@ void StreamingManager::insertLoaded(ChunkPos position, Entry& entry, LoadSlot& s
     entry.neighbors = neighbors;
     entry.litNeighbors = litNeighbors;
     considerWork(position, entry);
+    // Blocks arriving above lit chunks can shade them (moving upwards
+    // streams in terrain above what is already lit). All air shades nothing.
+    const ChunkStorage& blocks = m_world.findChunk(position)->blocks();
+    if (!blocks.isUniform() || blocks.uniformState() != kAirState) {
+        relightBelow(position, -2);
+    }
     if (m_stats != nullptr && m_statIds.loadedPerFrame.isValid()) {
         m_stats->add(m_statIds.loadedPerFrame);
     }
@@ -710,12 +720,84 @@ void StreamingManager::markLit(ChunkPos position, Entry& entry) {
     considerWork(position, entry);
 }
 
+// Which block columns of the chunk's neighborhood see open sky above the
+// neighborhood's top (two chunks above the chunk). From the column summaries:
+// a column is open if no loaded block stands above the top, unless the
+// loaded chunks of that chunk column do not reach up to the generator's
+// surface estimate and the estimate is above the top (deep underground with
+// the surface not loaded: dark).
+SkyOpenings StreamingManager::skyOpenings(ChunkPos position, bool middleOnly) const {
+    SkyOpenings open;
+    const i64 top = (i64{position.y} + 2) * kChunkSize;
+    const i32 reach = middleOnly ? 0 : 1;
+    for (i32 dz = -reach; dz <= reach; ++dz) {
+        for (i32 dx = -reach; dx <= reach; ++dx) {
+            const ColumnSummary* column = m_world.findColumn({.x = position.x + dx, .z = position.z + dz});
+            if (column == nullptr) {
+                continue;
+            }
+            const i32 estimate = column->surfaceEstimate();
+            const std::span<const i32> loaded = column->loadedChunkYs();
+            const i64 loadedTop =
+                loaded.empty() ? i64{std::numeric_limits<i32>::min()} : (i64{loaded.back()} + 1) * kChunkSize;
+            const bool buried =
+                estimate != ColumnSummary::kNoBlock && estimate >= top && loadedTop <= estimate;
+            if (buried) {
+                continue;
+            }
+            for (u32 bz = 0; bz < 16; ++bz) {
+                for (u32 bx = 0; bx < 16; ++bx) {
+                    const i32 highest = column->highestBlock(bx, bz);
+                    if (highest == ColumnSummary::kNoBlock || highest < top) {
+                        const auto x = static_cast<usize>((dx + 1) * 16) + bx;
+                        const auto z = static_cast<usize>((dz + 1) * 16) + bz;
+                        open.set((z * 48) + x);
+                    }
+                }
+            }
+        }
+    }
+    return open;
+}
+
+// The light of a chunk that is lit the same everywhere, worked out without a
+// job: a chunk of one fully opaque block has no light in it (only its own
+// glow); a chunk of clear air under open sky everywhere, with no light
+// source in reach, has full sky light and no block light. Nothing otherwise.
+std::optional<u8> StreamingManager::uniformLight(ChunkPos position, const ChunkNeighborhood& around) const {
+    if (!m_view) {
+        return std::nullopt;
+    }
+    const ChunkStorage& blocks = *around[13];
+    if (!blocks.isUniform()) {
+        return std::nullopt;
+    }
+    const BlockRenderInfo& info = m_view->info(blocks.uniformState());
+    if (info.lightOpacity >= kMaxLightLevel) {
+        return packLight(0, m_blockLightOn ? info.emittedLight : u8{0});
+    }
+    if (info.lightOpacity != 0 || info.emittedLight != 0) {
+        return std::nullopt;
+    }
+    const SkyOpenings sky = skyOpenings(position, true);
+    for (usize z = 16; z < 32; ++z) {
+        for (usize x = 16; x < 32; ++x) {
+            if (!sky.test((z * 48) + x)) {
+                return std::nullopt;
+            }
+        }
+    }
+    if (m_blockLightOn && neighborhoodEmitsLight(around, *m_view)) {
+        return std::nullopt;
+    }
+    return kOpenSkyLight;
+}
+
 // Takes lit chunks off the light queue: chunks with no light source in
 // reach right here (block light 0 everywhere, no job), the others into job
 // slots with copies of their neighborhood.
 void StreamingManager::scheduleLights() {
     VXE_PROFILE_FUNCTION();
-    static constexpr std::array<u8, kChunkVolume> kNoBlockLight{};
     usize handled = 0;
     while (!m_lightQueue.empty()) {
         if (handled > 0 && overBudget()) {
@@ -743,9 +825,11 @@ void StreamingManager::scheduleLights() {
             around.at(k) = chunks.at(k) != nullptr ? &chunks.at(k)->blocks() : nullptr;
         }
         Chunk* chunk = m_world.findChunk(candidate.position);
-        const bool needsJob = m_view && m_blockLightOn && neighborhoodEmitsLight(around, *m_view);
-        if (!needsJob) {
-            static_cast<void>(m_world.replaceBlockLight(candidate.position, kNoBlockLight));
+        const std::optional<u8> uniform = uniformLight(candidate.position, around);
+        if (uniform || !m_view) {
+            if (uniform) {
+                static_cast<void>(m_world.replaceLight(candidate.position, ChunkLight(*uniform)));
+            }
             chunk->clearDirty(kDirtyLight);
             entry.lightDirty = false;
             setStage(entry, ChunkStage::Ready);
@@ -774,6 +858,8 @@ void StreamingManager::scheduleLights() {
             }
         }
         slot.blocks = m_view;
+        slot.sky = skyOpenings(candidate.position, false);
+        slot.blockLight = m_blockLightOn;
         chunk->clearDirty(kDirtyLight);
         entry.lightDirty = false;
         entry.lightRunning = true;
@@ -792,12 +878,12 @@ void StreamingManager::runLight(u16 index) {
     LightSlot& slot = *m_lightSlots[index];
     if (!slot.cancelled.load(std::memory_order_relaxed)) {
         const Stopwatch stopwatch;
-        thread_local BlockLighter lighter;
+        thread_local ChunkLighter lighter;
         ChunkNeighborhood around{};
         for (usize k = 0; k < 27; ++k) {
             around.at(k) = slot.present.at(k) ? &slot.chunks.at(k) : nullptr;
         }
-        lighter.compute(around, *slot.blocks, slot.result);
+        lighter.compute(around, *slot.blocks, slot.sky, slot.blockLight, slot.result);
         if (m_stats != nullptr && m_statIds.lightTime.isValid()) {
             m_stats->addTime(m_statIds.lightTime, stopwatch.elapsed());
         }
@@ -845,7 +931,9 @@ void StreamingManager::collectLights() {
             considerWork(slot.position, entry);
             continue;
         }
-        static_cast<void>(m_world.replaceBlockLight(slot.position, slot.result));
+        ChunkLight light;
+        light.assign(slot.result);
+        static_cast<void>(m_world.replaceLight(slot.position, std::move(light)));
         if (m_stats != nullptr && m_statIds.lightJobs.isValid()) {
             m_stats->add(m_statIds.lightJobs);
         }
@@ -853,27 +941,41 @@ void StreamingManager::collectLights() {
     }
 }
 
-// Block edits change the light up to 15 blocks around them: the edited
-// chunk and its 26 neighbors are lit again.
+// Block edits change the light up to 15 blocks around them, and the sky
+// light of the columns below: the edited chunk and its 26 neighbors are lit
+// again, and the chunks below them down to Graphics.Lighting.SkyRelightDepth
+// chunks (Section 14.1: bounded relight).
 void StreamingManager::processEditedChunks() {
     for (const ChunkPos position : m_world.editedChunks()) {
         if (Chunk* chunk = m_world.findChunk(position); chunk != nullptr) {
             chunk->clearDirty(kDirtyLight);
         }
-        for (i32 k = 0; k < 27; ++k) {
-            const auto at = offsetPosition(position, (k % 3) - 1, (k / 9) - 1, ((k / 3) % 3) - 1);
-            if (!at) {
-                continue;
-            }
-            const auto it = m_entries.find(*at);
-            if (it == m_entries.end() || !inWorld(it->second.stage)) {
-                continue;
-            }
-            it->second.lightDirty = true;
-            considerWork(*at, it->second);
-        }
+        relightBelow(position, 1);
     }
     m_world.clearEditedChunks();
+}
+
+// Marks the lit chunks of the 3 x 3 chunk columns around `position` for new
+// light, from `above` chunks above it down to the sky relight depth below
+// the neighborhoods it is part of.
+void StreamingManager::relightBelow(ChunkPos position, i32 above) {
+    const i32 depth = std::max(m_skyRelightDepth.get(), 0);
+    for (i32 dy = above; dy >= -1 - depth; --dy) {
+        for (i32 dz = -1; dz <= 1; ++dz) {
+            for (i32 dx = -1; dx <= 1; ++dx) {
+                const auto at = offsetPosition(position, dx, dy, dz);
+                if (!at) {
+                    continue;
+                }
+                const auto it = m_entries.find(*at);
+                if (it == m_entries.end() || !inWorld(it->second.stage)) {
+                    continue;
+                }
+                it->second.lightDirty = true;
+                considerWork(*at, it->second);
+            }
+        }
+    }
 }
 
 void StreamingManager::considerMesh(ChunkPos position, Entry& entry) {

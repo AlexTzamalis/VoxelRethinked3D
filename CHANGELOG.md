@@ -2,6 +2,21 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#069] 2026-10-29, E10.3 Sky light
+### Added
+- Sky light (Section 14.1 stage C, ADR-019): ChunkLighter (was BlockLighter) computes a chunk's sky and block light together from its 48^3 neighborhood. Full sky light enters every open column at the neighborhood's top, falls straight down through clear blocks without loss, is dimmed by blocks with light opacity, and spreads sideways and downward into overhangs and caves losing at least one level per block.
+- Open sky from the column summaries: a column is open if no loaded block stands above the neighborhood, unless the loaded chunks of that chunk column do not reach the generator's surface estimate and the estimate is above the neighborhood (deep underground: dark).
+- Streaming: chunks of one opaque block are lit dark and chunks of open air with no light source in reach fully sky lit without a job; all others run a light job. Bounded relight: an edit relights the 27 chunks around it and the chunks below down to Graphics.Lighting.SkyRelightDepth (default 4 chunks), as does a loaded chunk with blocks above lit chunks.
+- ADR-019: light is computed per chunk from its neighborhood.
+- Tests: sky and block light against brute force floods with random open sky; the streamed world against floods over the whole loaded world (sky and block); a roof shading the ground and the sky coming back when it is removed; a torch in a closed room. A light benchmark (benchmarks/light_bench.cpp).
+### Changed
+- Light jobs fill their 48^3 box row by row through a byte per state (opacity and glow), 485 to 228 us per chunk.
+- Streaming tests wait for relighting before meshing where an edit is involved.
+### Performance
+- Demo world flight at 300 blocks per second: playable after 446 to 485 ms, streaming main thread time 0.14 to 0.18 ms per frame, 1% low 520 to 633 FPS; about 58% of chunks need a light job (surface, water, caves).
+### Docs
+- docs/perf/light.md: E10.3 measurements.
+
 ## [#068] 2026-10-29, E10.2 Block light
 ### Added
 - voxel::BlockLighter (Section 14.1 stage B): the block light of a chunk from its 48 x 48 x 48 neighborhood (the chunk and its 26 neighbors; a light source reaches at most 15 blocks, so nothing farther matters). A flood fill from every source at once, level by level from 15 down, losing at least one level per block and more through blocks with a higher light opacity; fully opaque blocks stop light but still glow when they emit. Computing a chunk from scratch makes placing and removing a source the same operation and leaves no stale light behind.

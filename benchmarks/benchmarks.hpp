@@ -15,4 +15,7 @@ void runMeshingBenchmarks();
 // Chunk payloads and region files (region_bench.cpp, E9.8).
 void runRegionBenchmarks();
 
+// Sky and block light of a chunk (light_bench.cpp, E10.3).
+void runLightBenchmarks();
+
 } // namespace vxe::bench

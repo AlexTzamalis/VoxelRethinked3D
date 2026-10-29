@@ -13,6 +13,7 @@ int main() {
         vxe::bench::runWorldBenchmarks();
         vxe::bench::runMeshingBenchmarks();
         vxe::bench::runRegionBenchmarks();
+        vxe::bench::runLightBenchmarks();
         return 0;
     } catch (const std::exception& error) {
         std::fputs("vxe_benchmarks: ", stderr);

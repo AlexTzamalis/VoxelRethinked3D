@@ -6,6 +6,7 @@
 find_package(nanobench CONFIG REQUIRED)
 
 add_executable(vxe_benchmarks
+    light_bench.cpp
     main.cpp
     meshing_bench.cpp
     region_bench.cpp

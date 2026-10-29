@@ -8,8 +8,8 @@
 #include <vxe/jobs/job_system.hpp>
 #include <vxe/math/coords.hpp>
 #include <vxe/math/vector.hpp>
-#include <vxe/voxel/block_light.hpp>
 #include <vxe/voxel/block_registry.hpp>
+#include <vxe/voxel/chunk_lighter.hpp>
 #include <vxe/voxel/chunk_snapshot.hpp>
 #include <vxe/voxel/chunk_source.hpp>
 #include <vxe/voxel/mesher.hpp>
@@ -138,10 +138,14 @@ struct StreamingCounts {
 // changed (VoxelWorld::changedChunks, edits and their light) or the mesh
 // settings or block registry changed.
 //
-// Lighting (E10): block light (BlockLighter) runs as a job only for chunks
-// with a light source among their 27; all others get block light 0 right
-// away. Block edits (VoxelWorld::editedChunks) light the edited chunk and
-// its 26 neighbors again; a light result from blocks that changed since its
+// Lighting (E10): sky and block light (ChunkLighter) of a chunk come from
+// its neighborhood and the open sky above it (column summaries). Chunks of
+// one opaque block, and chunks of air under open sky with no light source in
+// reach, are lit right away; the others (the surface, caves, near light
+// sources) run a light job. Block edits (VoxelWorld::editedChunks) light the
+// edited chunk, its 26 neighbors and the chunks below them down to
+// Graphics.Lighting.SkyRelightDepth again, as do loaded chunks that bring
+// blocks above lit ones; a light result from blocks that changed since its
 // job copied them is thrown away and computed again.
 //
 // Priority (Section 11.3): candidates come from a list of offsets sorted by
@@ -281,7 +285,9 @@ private:
         std::array<bool, 27> present{};
         std::array<u64, 27> versions{};
         std::shared_ptr<const BlockRegistryView> blocks;
-        std::array<u8, kChunkVolume> result{};
+        SkyOpenings sky;
+        bool blockLight = true;
+        std::array<u8, kChunkVolume> result{}; // Packed light (packLight).
     };
     struct Candidate {
         f32 score = 0.0F; // Lower goes first.
@@ -310,6 +316,10 @@ private:
     void considerWork(ChunkPos position, Entry& entry);
     void markLit(ChunkPos position, Entry& entry);
     void relightAll();
+    void relightBelow(ChunkPos position, i32 above);
+    // With `middleOnly`, only the chunk's own 16 x 16 columns are worked out.
+    [[nodiscard]] SkyOpenings skyOpenings(ChunkPos position, bool middleOnly) const;
+    [[nodiscard]] std::optional<u8> uniformLight(ChunkPos position, const ChunkNeighborhood& around) const;
     [[nodiscard]] bool wantsLight(ChunkPos position, const Entry& entry) const noexcept;
     [[nodiscard]] u32 lightLimit() const noexcept;
     void processChangedChunks();
@@ -411,6 +421,7 @@ private:
     config::Setting<i32> m_maxMeshJobs;
     config::Setting<i32> m_maxLightJobs;
     config::Setting<bool> m_blockLight;
+    config::Setting<i32> m_skyRelightDepth;
     config::Setting<i32> m_maxChunks;
     config::Setting<i32> m_unloadHysteresis;
     config::Setting<LoadOrder> m_loadOrder;

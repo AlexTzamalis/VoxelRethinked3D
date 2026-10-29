@@ -201,9 +201,11 @@ TEST_CASE("Streaming loads the range and meshes each chunk once its neighbors ar
     CHECK(rig.source.produced.load() == 9U * 9U * 5U);
     REQUIRE(rig.world.findColumn({.x = 0, .z = 0}) != nullptr);
     CHECK(rig.world.findColumn({.x = 0, .z = 0})->surfaceEstimate() == 7);
-    // A source's light goes into the world; without one chunks start as open sky.
-    CHECK(rig.world.findChunk({.x = 0, .y = -1, .z = 0})->light() == voxel::ChunkLight(voxel::kDarkLight));
-    CHECK(rig.world.findChunk({.x = 0, .y = 0, .z = 0})->light() == voxel::ChunkLight());
+    // A source's light goes into the world, without one chunks start as open
+    // sky, until they are lit: the outer ring (render distance + 2) is not.
+    CHECK_FALSE(rig.manager->isLit({.x = 4, .y = 0, .z = 0}));
+    CHECK(rig.world.findChunk({.x = 4, .y = -1, .z = 0})->light() == voxel::ChunkLight(voxel::kDarkLight));
+    CHECK(rig.world.findChunk({.x = 4, .y = 0, .z = 0})->light() == voxel::ChunkLight());
 }
 
 TEST_CASE("Chunks at the top and bottom of the world are meshed without neighbors beyond it") {
@@ -260,7 +262,10 @@ TEST_CASE("A mesh made from an outdated snapshot is thrown away") {
     Rig rig;
     rig.settle();
     REQUIRE(rig.world.setBlock({.x = 8, .y = 10, .z = 8}, kStone));
-    rig.step(); // Snapshots the chunk and starts its mesh job.
+    // The edit lights the chunk again first, then snapshots it for a mesh job.
+    for (i32 i = 0; i < 10000 && rig.manager->stageOf({}) != ChunkStage::Meshing; ++i) {
+        rig.step();
+    }
     REQUIRE(rig.manager->stageOf({}) == ChunkStage::Meshing);
     REQUIRE(rig.world.setBlock({.x = 8, .y = 11, .z = 8}, kStone));
     rig.settle();
