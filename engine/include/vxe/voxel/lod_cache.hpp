@@ -36,10 +36,15 @@ public:
     explicit LodTileCache(const LodTileCacheDesc& desc);
 
     // The cached tile, or nullopt on a miss. Blocks on disk IO.
-    [[nodiscard]] std::optional<LodTile> load(const LodTileKey& key);
+    [[nodiscard]] std::optional<LodTile> load(const LodTileKey& key) { return load(key, m_worldHash); }
     // Writes the tile (write to a temporary file, then rename: a crash keeps
     // the old file or the new one). Blocks on disk IO.
-    [[nodiscard]] Result<void> save(const LodTile& tile);
+    [[nodiscard]] Result<void> save(const LodTile& tile) { return save(tile, m_worldHash); }
+    // The same with another hash than the cache's: the LOD manager mixes its
+    // sampling options (spans per cell, caves) into the world hash, so tiles
+    // sampled with other options are stale too.
+    [[nodiscard]] std::optional<LodTile> load(const LodTileKey& key, u64 worldHash);
+    [[nodiscard]] Result<void> save(const LodTile& tile, u64 worldHash);
 
     [[nodiscard]] const std::filesystem::path& folder() const noexcept { return m_folder; }
     [[nodiscard]] u64 worldHash() const noexcept { return m_worldHash; }

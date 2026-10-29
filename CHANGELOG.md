@@ -2,6 +2,20 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#072] 2026-10-29, E11.2 LOD sampler interface and manager
+### Added
+- LodTileSampler: the interface the game's column sampler implements (sampleTile on workers with spans per cell, caves and a cancel flag; worldHash for the cache).
+- LodTileSink: receives tiles to draw (the LOD renderer, E11.3).
+- LodManager: follows the clipmap, loads each wanted tile from the cache on an IO thread, samples it on a worker at low priority when the cache misses, saves sampled tiles back, and hands ready tiles to the sink. Nearest rings first, finer levels first within a ring. Tiles that leave the clipmap stay shown until the tiles taking over their ground are ready, so moving never opens holes.
+- Settings Graphics.LOD.Enabled, Levels, HalfExtentTiles, MaxSpansPerCell, CavesInLod and MaxJobsInFlight, all live; spans and caves are part of the cache hash, so changing them resamples every tile while the old ones stay shown.
+- Stats Voxel.Lod.Tiles, Queued, Running, Retiring, MemoryBytes, Sampled, FromCache and SampleTime.
+- LodTileCache load and save with a given world hash; LodClipmapDesc equality.
+- Tests: every clipmap tile sampled once and shown; the cache serves a second run and goes stale on option or generator changes; 300 camera moves never uncover shown ground; enabling, disabling, more levels and other sizes; cancelled jobs when tiles leave.
+### Performance
+- LodManager::update costs 29 ns per frame when settled; all 304 default tiles are ready 9.3 ms after the first update with a trivial sampler.
+### Docs
+- docs/perf/lod.md: E11.2.
+
 ## [#071] 2026-10-29, E11.1 LOD data structures
 ### Added
 - LOD tiles (Section 13.2): LodTileKey (level, tile position, cell and tile size, quadtree parent and children), LodSpan (bottom and top Y, top and side material, sky light), LodTile with flat span storage and 16 bit cell offsets, LodTileBuilder for filling a tile cell by cell, setCell for edits, validLodSpans.

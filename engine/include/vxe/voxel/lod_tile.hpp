@@ -182,6 +182,8 @@ struct LodClipmapDesc {
     // camera. Even, at least 2; 4 or more keeps at least one tile of every
     // level between its finer and coarser neighbors on every side.
     i32 halfExtentTiles = 4;
+
+    friend constexpr bool operator==(const LodClipmapDesc&, const LodClipmapDesc&) = default;
 };
 
 // The quadtree clipmap of LOD tiles around the camera (Section 13.1): every

@@ -3,13 +3,21 @@
 
 #include "benchmarks.hpp"
 
+#include <vxe/config/settings.hpp>
+#include <vxe/core/time.hpp>
+#include <vxe/jobs/job_system.hpp>
 #include <vxe/voxel/lod_cache.hpp>
+#include <vxe/voxel/lod_manager.hpp>
 #include <vxe/voxel/lod_tile.hpp>
 
 #include <nanobench.h>
 
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
+#include <format>
+#include <string>
+#include <thread>
 #include <vector>
 
 namespace vxe::bench {
@@ -38,9 +46,46 @@ voxel::LodTile hillsTile(LodTileKey key) {
     return std::move(builder).build();
 }
 
+// Flat ground, one span per cell: the cheapest possible sampler, so the
+// manager's own costs show.
+class FlatSampler final : public voxel::LodTileSampler {
+public:
+    bool sampleTile(const LodTileKey& /*key*/, const voxel::LodSampleOptions& /*options*/,
+                    voxel::LodTileBuilder& builder, const std::atomic<bool>& /*cancelled*/) override {
+        const LodSpan ground{.bottomY = -64, .topY = 64, .topMaterial = 1, .sideMaterial = 2};
+        for (u32 i = 0; i < voxel::kLodCellCount; ++i) {
+            builder.addCell(std::span(&ground, 1));
+        }
+        return true;
+    }
+    [[nodiscard]] u64 worldHash() const override { return 1; }
+};
+
+// The manager on the main thread: one update when nothing changes (every
+// frame), and the time to get all 304 tiles of the default clipmap ready.
+void runManagerBenchmarks() {
+    config::SettingsRegistry settings;
+    FlatSampler sampler;
+    jobs::JobSystem jobs{jobs::JobSystemConfig{}};
+    voxel::LodManager manager({.jobs = &jobs, .settings = &settings, .sampler = &sampler});
+    const Stopwatch settle;
+    while (!manager.isSettled() || manager.counts().wanted == 0) {
+        manager.update(DVec3(0.0));
+        std::this_thread::yield();
+    }
+    const std::string line = std::format(
+        "LodManager: 304 tiles ready {:.1f} ms after the first update ({} workers, flat sampler)\n",
+        settle.elapsedMilliseconds(), jobs.workerCount());
+    std::fputs(line.c_str(), stdout);
+    ankerl::nanobench::Bench bench;
+    bench.title("LodManager::update").unit("update");
+    bench.run("settled, camera still", [&] { manager.update(DVec3(0.0)); });
+}
+
 } // namespace
 
 void runLodBenchmarks() {
+    runManagerBenchmarks();
     const LodTileKey key{.level = 3, .x = 5, .z = -2};
     const u64 world = voxel::lodWorldHash(1, 1, 0);
     const voxel::LodTile tile = hillsTile(key);

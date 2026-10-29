@@ -30,3 +30,14 @@ Reach with the defaults (levels 1 to 6, half extent 4): 12,288 to 16,384
 blocks. Section 13.3's "High" table reaches about 32,000 with 6 levels; the
 LOD settings in E11.2 choose levels and half extent per quality preset (7
 levels, or half extent 8, for 32,000 blocks at "Ultra").
+
+## E11.2 LOD manager (2026-10-29)
+
+| Case | Result |
+|------|--------|
+| LodManager::update, settled, camera still (every frame) | 29 ns |
+| All 304 tiles of the default clipmap ready, flat sampler, 14 workers | 9.3 ms after the first update |
+| Per tile path on a cache hit / miss | 0.29 ms load on an IO thread / sampler time plus a 1.8 ms save on an IO thread |
+
+Sampling cost depends on the game's column sampler (G3.6); it runs on
+workers at low priority and is reported as Voxel.Lod.SampleTime.

@@ -43,7 +43,7 @@ void LodTileCache::count(stats::StatId id, i64 amount) {
     }
 }
 
-std::optional<LodTile> LodTileCache::load(const LodTileKey& key) {
+std::optional<LodTile> LodTileCache::load(const LodTileKey& key, u64 worldHash) {
     VXE_PROFILE_FUNCTION();
     auto bytes = io::readFile(m_folder / fileName(key));
     if (!bytes) {
@@ -54,7 +54,7 @@ std::optional<LodTile> LodTileCache::load(const LodTileKey& key) {
         return std::nullopt;
     }
     count(m_statIds.bytesRead, static_cast<i64>(bytes.value().size()));
-    auto tile = decodeLodTile(bytes.value(), m_worldHash, key);
+    auto tile = decodeLodTile(bytes.value(), worldHash, key);
     if (tile) {
         count(m_statIds.hits);
         return std::move(tile.value());
@@ -72,10 +72,10 @@ std::optional<LodTile> LodTileCache::load(const LodTileKey& key) {
     return std::nullopt;
 }
 
-Result<void> LodTileCache::save(const LodTile& tile) {
+Result<void> LodTileCache::save(const LodTile& tile, u64 worldHash) {
     VXE_PROFILE_FUNCTION();
     std::vector<std::byte> bytes;
-    encodeLodTile(tile, m_worldHash, bytes);
+    encodeLodTile(tile, worldHash, bytes);
     VXE_TRY(io::writeFile(m_folder / fileName(tile.key()), bytes, io::WriteMode::Atomic));
     count(m_statIds.bytesWritten, static_cast<i64>(bytes.size()));
     return {};
