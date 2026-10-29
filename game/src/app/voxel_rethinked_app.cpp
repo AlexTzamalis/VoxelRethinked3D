@@ -82,15 +82,43 @@ void VoxelRethinkedApp::onTransition(vxe::EngineContext& context, GameState from
     }
 }
 
-void VoxelRethinkedApp::advanceStartup() {
-    // One state per frame, so each shows up in the log and the overlay.
-    // Nothing loads yet: core assets arrive with blocks and textures (G1,
-    // G2), the integrated server in G0.2 and the world after that.
+vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context) {
+    // Block definitions (G1.2) from assets:/data/blocks; texture packs (G2)
+    // come here next.
+    auto folder = context.vfs.resolve("assets:/data/blocks");
+    if (!folder) {
+        return std::move(folder).error();
+    }
+    auto catalog = BlockCatalog::loadFolder(folder.value());
+    if (!catalog) {
+        return std::move(catalog).error();
+    }
+    auto view = catalog.value().buildRegistry();
+    if (!view) {
+        return std::move(view).error();
+    }
+    m_blocks = std::move(catalog).value();
+    m_blockRegistry = std::make_unique<vxe::voxel::BlockRegistry>(&context.stats);
+    m_blockRegistry->publish(std::move(view).value());
+    VXE_LOG_INFO(gameLog, "Loaded {} blocks with {} states and {} texture keys", m_blocks->blockCount(),
+                 m_blocks->stateCount(), m_blocks->textureKeys().size());
+    return {};
+}
+
+void VoxelRethinkedApp::advanceStartup(vxe::EngineContext& context) {
+    // One state per frame, so each shows up in the log and the overlay. The
+    // integrated server arrives in G0.2 and the world after that.
     switch (m_states.current()) {
     case GameState::Boot:
         m_states.request(GameState::LoadingCoreAssets);
         break;
     case GameState::LoadingCoreAssets:
+        if (vxe::Result<void> loaded = loadCoreAssets(context); !loaded) {
+            // Without its blocks the game cannot show a world.
+            VXE_LOG_CRITICAL(gameLog, "Core assets failed to load: {}", loaded.error().describe());
+            context.requestQuit();
+            break;
+        }
         m_states.request(GameState::StartingIntegratedServer); // No main menu before G4.
         break;
     case GameState::StartingIntegratedServer:
@@ -159,7 +187,7 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
 
 void VoxelRethinkedApp::onFrame(vxe::EngineContext& context, const vxe::FrameTime& time) {
     handleGlobalActions(context);
-    advanceStartup();
+    advanceStartup(context);
     if (isWorldState(m_states.current())) {
         updateWorld(context, time);
     }

@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#060] 2026-10-29, G1.2 Block registry loader
+### Added
+- vr::BlockCatalog (game common module): loads the block definition files, gives every state an id (air 0, then file name order, so the same files give the same ids), names states ("oak_log[axis=y]") and maps names and ids both ways for save palettes (Section 9.3), resolves face textures (all, side, top, bottom, one face; the most specific wins; variants override), gives texture keys their array layers in first use order and builds the engine's BlockRegistryView.
+- Invalid files are reported all at once, each problem with its file and field: TOML syntax with line and column, unknown fields and faces, bad names, layers and light values, missing textures, duplicate blocks and states.
+- The game loads the catalog in its LoadingCoreAssets state from assets:/data/blocks and publishes it to a voxel::BlockRegistry; without valid blocks it stops with the report. The build copies game/assets next to voxel_rethinked.
+- Tests: every shipped file loads (15 blocks, 18 states with air, 17 texture keys) and matches the engine table, id order and name lookups, and the error report for broken files.
+
 ## [#059] 2026-10-29, G1.1 Block data files
 ### Added
 - game/assets/data/blocks/: one TOML file per block (Section 9.3, ADR-009): stone, dirt, grass block, sand, gravel, water, oak log (three axis states), oak leaves, glass, lumen block (a light source), snow block, coal, iron and gold ore, and foundation stone (the world floor). Each gives the stable name, display name, render layer, light values, same type culling, biome tint and texture keys per face; stone.toml documents the format.

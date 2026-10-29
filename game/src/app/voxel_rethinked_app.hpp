@@ -1,12 +1,15 @@
 #pragma once
 
+#include "common/block_catalog.hpp"
 #include "game_settings.hpp"
 #include "game_state.hpp"
 
 #include <vxe/app/application.hpp>
 #include <vxe/render/camera.hpp>
+#include <vxe/voxel/block_registry.hpp>
 
 #include <memory>
+#include <optional>
 
 namespace vr {
 
@@ -31,13 +34,16 @@ public:
 
 private:
     void onTransition(vxe::EngineContext& context, GameState from, GameState to);
-    void advanceStartup();
+    void advanceStartup(vxe::EngineContext& context);
+    [[nodiscard]] vxe::Result<void> loadCoreAssets(vxe::EngineContext& context);
     void handleGlobalActions(vxe::EngineContext& context);
     void updateWorld(vxe::EngineContext& context, const vxe::FrameTime& time);
     void setMouseCaptured(vxe::EngineContext& context, bool captured);
     void registerCommands(vxe::EngineContext& context);
 
     GameStateMachine m_states;
+    std::optional<BlockCatalog> m_blocks;
+    std::unique_ptr<vxe::voxel::BlockRegistry> m_blockRegistry;
     std::unique_ptr<GameSettings> m_settings;
     std::unique_ptr<GameActions> m_actions;
     vxe::render::Camera m_camera;
