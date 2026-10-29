@@ -48,6 +48,7 @@ add_executable(vxe_tests
     rhi/rhi_tests.cpp
     rhi/shader_source_tests.cpp
     voxel/block_registry_tests.cpp
+    voxel/chunk_light_tests.cpp
     voxel/chunk_storage_tests.cpp
     voxel/mesher_tests.cpp
     voxel/region_tests.cpp

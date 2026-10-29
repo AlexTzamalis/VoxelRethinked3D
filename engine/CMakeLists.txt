@@ -259,6 +259,7 @@ vxe_add_module(voxel
     SOURCES
         src/voxel/block_registry.cpp
         src/voxel/chunk_storage.cpp
+        src/voxel/chunk_light.cpp
         src/voxel/voxel_world.cpp
         src/voxel/mesher.cpp
         src/voxel/streaming.cpp

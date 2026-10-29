@@ -10,6 +10,7 @@
 
 #include <array>
 #include <memory>
+#include <utility>
 
 namespace vxe::bench {
 namespace {
@@ -62,6 +63,22 @@ void runWorldBenchmarks() {
     bench.run("terrain neighbors (mixed)", [&] {
         mixed.createSnapshot({}, *snapshot);
         ankerl::nanobench::doNotOptimizeAway(snapshot->states);
+    });
+
+    // The same with light that differs per block everywhere (E10.1): the
+    // light box is copied chunk by chunk instead of filled at once.
+    std::array<u8, kChunkVolume> values{};
+    for (usize i = 0; i < values.size(); ++i) {
+        values.at(i) = static_cast<u8>(i * 13U);
+    }
+    mixed.forEachChunk([&](voxel::Chunk& chunk) {
+        voxel::ChunkLight light;
+        light.assign(values);
+        static_cast<void>(mixed.replaceLight(chunk.position(), std::move(light)));
+    });
+    bench.run("terrain neighbors, full light everywhere", [&] {
+        mixed.createSnapshot({}, *snapshot);
+        ankerl::nanobench::doNotOptimizeAway(snapshot->light);
     });
 
     voxel::VoxelWorld alone;

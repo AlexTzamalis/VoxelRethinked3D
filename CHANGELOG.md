@@ -2,6 +2,19 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#067] 2026-10-29, E10.1 Light storage
+### Added
+- voxel::ChunkLight (Section 14.2): sky and block light of a chunk's 4096 blocks, 4 bits each in one byte (packLight, skyLightOf, blockLightOf). Uniform chunks (open sky above the ground, dark deep below) keep their one value in the object; any other chunk stores 4096 bytes under MemoryTag::Chunks. Writes switch to full storage by themselves, compact() and assign() switch back when every block is lit alike. Chunks start as open sky, matching the mesher's placeholder light until the light engine (E10.2, E10.3) computes real light.
+- Chunks carry light: Chunk::light, VoxelWorld::insertChunk with light, getLight, setLight (marks the chunk and the neighbors whose snapshot border holds the block, not for saving since light is derived) and replaceLight (marks only neighbors whose border light changed, so relighting a chunk does not remesh 26 others).
+- Snapshots copy light with the blocks (ChunkSnapshot::light, lightAt); missing neighbors get a given fill light. When the chunk and all its neighbors are lit alike the whole box is one fill.
+- Chunk payloads can carry light (flag bit 0 of the payload, as reserved in #066): one byte for uniform light, 4096 for full. Chunk sources can hand light to streaming (ChunkProduct::light), for chunks read from saves.
+- Stats Voxel.World.FullLightChunks and Voxel.World.LightBytes.
+- Tests: packing and mode switches with memory accounting, equality across modes, world reads and writes with exactly the right neighbors marked, snapshot light against the world block by block with missing and mixed neighbors, light stats, payloads with light and truncated light sections, light from a chunk source through streaming. A snapshot benchmark with full light everywhere.
+### Performance
+- Snapshots with uniform neighbors 2.61 to 3.02 us (target under 5 us), all air 1.11 to 1.65 us, mixed terrain unchanged at 5.83 us, full light everywhere 7.24 us.
+### Docs
+- docs/perf/world.md: E10.1 light memory and snapshot times.
+
 ## [#066] 2026-10-29, E9.8 Region file IO
 ### Added
 - io::RandomAccessFile: reads and writes at explicit offsets (Windows ReadFile and WriteFile with offsets, POSIX pread and pwrite), sync (FlushFileBuffers, fsync), so several threads can read while one writes elsewhere in the file.

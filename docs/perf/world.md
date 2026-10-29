@@ -41,3 +41,31 @@ gets.
 
 This includes the chunk lookup, storage accounting, the version stamp and
 the column summary update.
+
+## E10.1 Light storage (2026-10-29)
+
+Chunks now carry light (Section 14.2), and snapshots copy it with the
+blocks: 18 x 18 x 18 packed light bytes next to the states (17.1 KB per
+snapshot instead of 11.4 KB).
+
+### Memory
+
+| Chunk light | Bytes |
+|-------------|-------|
+| Uniform (open sky, or dark underground) | 16 (the object, no heap block) |
+| Full (any variation) | 16 + 4,096 |
+
+### Snapshots, same benchmark as E9.3
+
+| Neighbors | Before light | With light |
+|-----------|--------------|------------|
+| Uniform (all stone below, all air level and above) | 2.61 us | 3.02 us (target: under 5 us) |
+| Terrain chunks (mixed palettes) | 5.85 us | 5.83 us |
+| Terrain chunks, light differing per block everywhere | | 7.24 us |
+| No neighbors loaded | 2.51 us | 2.93 us |
+| All air center, uniform neighbors | 1.11 us | 1.65 us |
+
+When the chunk and all its neighbors are lit alike, which is nearly every
+chunk until light is computed and most chunks after (sky above ground,
+dark deep below), the light box is one fill. Copying light chunk by chunk
+first made the uniform case 4.16 us.

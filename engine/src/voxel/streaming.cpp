@@ -552,7 +552,8 @@ void StreamingManager::collectLoads() {
 }
 
 void StreamingManager::insertLoaded(ChunkPos position, Entry& entry, LoadSlot& slot) {
-    m_world.insertChunk(position, std::move(slot.product.blocks));
+    m_world.insertChunk(position, std::move(slot.product.blocks),
+                        slot.product.light ? std::move(*slot.product.light) : ChunkLight{});
     if (slot.product.surfaceEstimate) {
         m_world.setSurfaceEstimate(columnOf(position), *slot.product.surfaceEstimate);
     }
@@ -961,6 +962,7 @@ void StreamingManager::scheduleLoads() {
         slot.cancelled.store(false, std::memory_order_relaxed);
         slot.product.origin = ChunkOrigin::Generated;
         slot.product.surfaceEstimate.reset();
+        slot.product.light.reset();
         Entry& entry = it->second;
         entry.slot = index;
         entry.requested = Clock::now();

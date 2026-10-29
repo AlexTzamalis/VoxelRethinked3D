@@ -36,8 +36,8 @@ struct VoxelWorldConfig {
 //
 // Stats (optional, written by publishStats() and createSnapshot()):
 // Voxel.World.Chunks, .UniformChunks, .Palette1Chunks to .Palette8Chunks,
-// .RawChunks, .BlockBytes, .Columns, and per frame .Snapshots plus
-// .SnapshotTime.
+// .RawChunks, .BlockBytes, .FullLightChunks, .LightBytes, .Columns, and per
+// frame .Snapshots plus .SnapshotTime.
 //
 // Thread safety: owned by one thread, the server thread in the game. Jobs
 // get snapshots instead of touching the world (Section 6.4).
@@ -50,10 +50,10 @@ public:
     VoxelWorld(VoxelWorld&&) = delete;
     VoxelWorld& operator=(VoxelWorld&&) = delete;
 
-    // Loads a chunk with the given blocks, or replaces the blocks of the
-    // chunk already there (for example when generation finishes). Loading is
-    // not an edit, so the chunk is not marked for saving.
-    Chunk& insertChunk(ChunkPos position, ChunkStorage blocks = {});
+    // Loads a chunk with the given blocks and light, or replaces those of
+    // the chunk already there (for example when generation finishes).
+    // Loading is not an edit, so the chunk is not marked for saving.
+    Chunk& insertChunk(ChunkPos position, ChunkStorage blocks = {}, ChunkLight light = {});
     // Unloads a chunk. Returns false if it was not loaded.
     bool removeChunk(ChunkPos position);
     void clear();
@@ -89,6 +89,18 @@ public:
     [[nodiscard]] std::span<const ChunkPos> changedChunks() const noexcept { return m_changedChunks; }
     void clearChangedChunks() noexcept { m_changedChunks.clear(); }
 
+    // The packed light (packLight) at a world position, or `unloaded`.
+    [[nodiscard]] u8 getLight(const BlockPos& position, u8 unloaded = kOpenSkyLight) const noexcept;
+    // Changes the light of one block. Like setBlock it marks the chunk and
+    // the neighbors whose snapshot border holds the block, but not for
+    // saving: light is derived from blocks. Returns false if the chunk is
+    // not loaded.
+    bool setLight(const BlockPos& position, u8 packed);
+    // Replaces a whole chunk's light, as light jobs deliver it. Only
+    // neighbors whose border light actually changed are marked, so relighting
+    // a chunk does not remesh 26 others. Returns false if not loaded.
+    bool replaceLight(ChunkPos position, ChunkLight light);
+
     [[nodiscard]] const ColumnSummary* findColumn(ColumnPos position) const noexcept;
     [[nodiscard]] usize columnCount() const noexcept { return m_columns.size(); }
     // Records the generator's surface height for a column. Ignored if no
@@ -96,12 +108,14 @@ public:
     // chunks, so the generator gives the estimate with the first one.
     void setSurfaceEstimate(ColumnPos position, i32 blockY) noexcept;
 
-    // Fills `out` with the chunk and a one block border from its neighbors.
-    // Border blocks of neighbors that are not loaded get `unloaded`. Returns
-    // false, leaving `out` untouched, if the chunk itself is not loaded.
+    // Fills `out` with the chunk and a one block border from its neighbors,
+    // blocks and light. Border blocks of neighbors that are not loaded get
+    // `unloaded` and `unloadedLight`. Returns false, leaving `out` untouched,
+    // if the chunk itself is not loaded.
     // Fast for uniform neighbors (a fill per neighbor), so the common
     // underground and sky cases cost little more than the chunk itself.
-    bool createSnapshot(ChunkPos position, ChunkSnapshot& out, BlockStateId unloaded = kAirState) const;
+    bool createSnapshot(ChunkPos position, ChunkSnapshot& out, BlockStateId unloaded = kAirState,
+                        u8 unloadedLight = kOpenSkyLight) const;
 
     // Chunk counts per storage mode and the bytes of block data, updated
     // on every change.
@@ -110,6 +124,8 @@ public:
         std::array<usize, 4> palette{}; // 1, 2, 4 and 8 bit indices.
         usize raw = 0;
         usize blockBytes = 0; // ChunkStorage::memoryBytes() of every chunk.
+        usize fullLight = 0;  // Chunks whose light is not uniform.
+        usize lightBytes = 0; // ChunkLight::memoryBytes() of every chunk.
     };
     [[nodiscard]] const StorageCounts& storageCounts() const noexcept { return m_counts; }
 
@@ -118,6 +134,15 @@ public:
 
 private:
     void account(const ChunkStorage& blocks, bool add) noexcept;
+    void accountLight(const ChunkLight& light, bool add) noexcept;
+    // The block and light parts of createSnapshot; `around` holds the chunk
+    // (index 13) and its neighbors in neighborBit order, null if missing.
+    static void snapshotBlocks(const std::array<const Chunk*, 27>& around, ChunkSnapshot& out,
+                               BlockStateId unloaded) noexcept;
+    static void snapshotLight(const std::array<const Chunk*, 27>& around, ChunkSnapshot& out,
+                              u8 unloadedLight) noexcept;
+    // Marks the neighbors whose snapshot border holds the block at `local`.
+    void borderChanged(ChunkPos position, LocalPos local, u64 stamp);
     [[nodiscard]] static std::optional<ChunkPos> neighborPosition(ChunkPos position, i32 dx, i32 dy,
                                                                   i32 dz) noexcept;
     void markChanged(Chunk& chunk, u64 stamp);
@@ -145,6 +170,8 @@ private:
         std::array<stats::StatId, 4> palette;
         stats::StatId raw;
         stats::StatId blockBytes;
+        stats::StatId fullLight;
+        stats::StatId lightBytes;
         stats::StatId columns;
         stats::StatId snapshots;
         stats::StatId snapshotTime;

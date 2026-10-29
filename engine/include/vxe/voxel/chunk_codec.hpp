@@ -4,6 +4,7 @@
 #include <vxe/core/types.hpp>
 #include <vxe/io/binary.hpp>
 #include <vxe/voxel/block_registry.hpp>
+#include <vxe/voxel/chunk_light.hpp>
 #include <vxe/voxel/chunk_storage.hpp>
 
 #include <optional>
@@ -40,23 +41,30 @@ inline constexpr u8 kChunkPayloadVersion = 1;
 // Writes the payload of one chunk (Section 21) to `out`, uncompressed; the
 // region file compresses it. Layout, little endian:
 //   u8      payload version (kChunkPayloadVersion)
-//   u8      flags, 0 (bit 0 will say light follows, E10)
+//   u8      flags: bit 0 says light follows the indices
 //   varint  palette size P, 1 to 4096
 //   P x     state name (varint length, then the bytes)
 //   if P > 1:
 //     u8    bits per index B, the bits needed for P - 1 (1 to 12)
 //     u64   4096 indices into the palette in block order (y, z, x), packed
 //           64 / B per word from the low bits up, never across words
+//   if flag bit 0:
+//     u8    0: uniform light, then one packed light byte (packLight)
+//           1: 4096 packed light bytes in block order
 // The palette lists only the states the chunk uses, in order of first use, so
 // the same chunk always gives the same bytes. Each chunk carries its own
 // names; zstd shrinks the repeats across a region's chunks far more cheaply
 // than a shared region palette would, and a chunk stays readable on its own.
-void encodeChunk(const ChunkStorage& blocks, const BlockStateNames& names, io::BinaryWriter& out);
+// With `light`, the chunk's light is saved too, so loading needs no relight.
+void encodeChunk(const ChunkStorage& blocks, const BlockStateNames& names, io::BinaryWriter& out,
+                 const ChunkLight* light = nullptr);
 
 struct DecodedChunk {
     ChunkStorage blocks;
     // Palette names the game no longer knows; their blocks became `fallback`.
     u32 unknownStates = 0;
+    // The saved light, if the payload has it.
+    std::optional<ChunkLight> light;
 };
 
 // Reads a payload written by encodeChunk. Fails on anything malformed

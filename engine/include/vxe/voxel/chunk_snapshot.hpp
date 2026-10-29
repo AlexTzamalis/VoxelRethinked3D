@@ -4,6 +4,7 @@
 #include <vxe/core/types.hpp>
 #include <vxe/math/coords.hpp>
 #include <vxe/voxel/block_registry.hpp>
+#include <vxe/voxel/chunk_light.hpp>
 
 #include <array>
 
@@ -25,7 +26,8 @@ inline constexpr i32 kSnapshotVolume = kSnapshotSize * kSnapshotSize * kSnapshot
 inline constexpr u32 kAllNeighbors = ((1U << 27U) - 1U) & ~neighborBit(0, 0, 0);
 
 // A decompressed copy of one chunk plus a one block border from its 26
-// neighbors (Section 9.5): 18 x 18 x 18 states, 11.4 KB. Meshing and light
+// neighbors (Section 9.5): 18 x 18 x 18 states and their packed light
+// (packLight), 17.1 KB. Meshing and light
 // jobs read snapshots instead of locking the live world, which is what makes
 // them lock free; the world goes on changing while they run, and the version
 // tells afterwards whether their result is still current.
@@ -35,8 +37,8 @@ inline constexpr u32 kAllNeighbors = ((1U << 27U) - 1U) & ~neighborBit(0, 0, 0);
 // like chunk storage (y, then z, then x), so a horizontal slice of the box
 // is one contiguous run of 324 states.
 //
-// Border blocks of neighbors that are not loaded hold the fill state the
-// snapshot was taken with; `neighbors` says which neighbors were loaded, so
+// Border blocks of neighbors that are not loaded hold the fill state and
+// fill light the snapshot was taken with; `neighbors` says which neighbors were loaded, so
 // a mesher can tell real air from missing data.
 //
 // A plain value type with no heap memory. 11.4 KB is too big for many on
@@ -48,6 +50,7 @@ struct ChunkSnapshot {
     u64 version = 0;   // The chunk's version when the snapshot was taken.
     u32 neighbors = 0; // neighborBit() of every neighbor that was loaded.
     std::array<BlockStateId, kSnapshotVolume> states{};
+    std::array<u8, kSnapshotVolume> light{}; // packLight values, same order as states.
 
     // Index of a chunk local position (-1 to 16 on every axis) in `states`.
     [[nodiscard]] static constexpr usize index(i32 x, i32 y, i32 z) noexcept {
@@ -57,6 +60,7 @@ struct ChunkSnapshot {
     }
 
     [[nodiscard]] BlockStateId at(i32 x, i32 y, i32 z) const noexcept { return states[index(x, y, z)]; }
+    [[nodiscard]] u8 lightAt(i32 x, i32 y, i32 z) const noexcept { return light[index(x, y, z)]; }
 
     [[nodiscard]] bool hasNeighbor(i32 dx, i32 dy, i32 dz) const noexcept {
         return (neighbors & neighborBit(dx, dy, dz)) != 0;

@@ -128,6 +128,9 @@ void VoxelWorld::registerStats() {
     m_statIds.raw = gauge("Voxel.World.RawChunks", "Loaded chunks with more than 256 states.");
     m_statIds.blockBytes =
         gauge("Voxel.World.BlockBytes", "Block storage of all loaded chunks.", stats::StatUnit::Bytes);
+    m_statIds.fullLight = gauge("Voxel.World.FullLightChunks", "Loaded chunks whose light is not uniform.");
+    m_statIds.lightBytes =
+        gauge("Voxel.World.LightBytes", "Light storage of all loaded chunks.", stats::StatUnit::Bytes);
     m_statIds.columns = gauge("Voxel.World.Columns", "Chunk columns with a summary.");
     m_statIds.snapshots = add({.name = "Voxel.World.Snapshots",
                                .description = "Chunk snapshots created this frame.",
@@ -154,6 +157,8 @@ void VoxelWorld::publishStats() {
     }
     set(m_statIds.raw, m_counts.raw);
     set(m_statIds.blockBytes, m_counts.blockBytes);
+    set(m_statIds.fullLight, m_counts.fullLight);
+    set(m_statIds.lightBytes, m_counts.lightBytes);
     set(m_statIds.columns, m_columns.size());
 }
 
@@ -171,6 +176,17 @@ void VoxelWorld::account(const ChunkStorage& blocks, bool add) noexcept {
     } else {
         --*slot;
         m_counts.blockBytes -= blocks.memoryBytes();
+    }
+}
+
+void VoxelWorld::accountLight(const ChunkLight& light, bool add) noexcept {
+    const usize full = light.isUniform() ? 0 : 1;
+    if (add) {
+        m_counts.fullLight += full;
+        m_counts.lightBytes += light.memoryBytes();
+    } else {
+        m_counts.fullLight -= full;
+        m_counts.lightBytes -= light.memoryBytes();
     }
 }
 
@@ -225,14 +241,17 @@ void VoxelWorld::neighborsChanged(ChunkPos position, u64 stamp) {
     }
 }
 
-Chunk& VoxelWorld::insertChunk(ChunkPos position, ChunkStorage blocks) {
+Chunk& VoxelWorld::insertChunk(ChunkPos position, ChunkStorage blocks, ChunkLight light) {
     VXE_PROFILE_FUNCTION();
     const u64 stamp = ++m_changeCounter;
     if (Chunk* existing = findChunk(position); existing != nullptr) {
         // Replacing: heights in this chunk's range may go down as well as up.
         account(existing->m_blocks, false);
+        accountLight(existing->m_light, false);
         existing->m_blocks = std::move(blocks);
+        existing->m_light = std::move(light);
         account(existing->m_blocks, true);
+        accountLight(existing->m_light, true);
         markChanged(*existing, stamp);
         neighborsChanged(position, stamp);
         ColumnSummary& column = *m_columns.find(columnOf(position))->second;
@@ -251,9 +270,11 @@ Chunk& VoxelWorld::insertChunk(ChunkPos position, ChunkStorage blocks) {
     }
     Chunk* chunk = m_chunkPool.create(position);
     chunk->m_blocks = std::move(blocks);
+    chunk->m_light = std::move(light);
     chunk->changed(stamp);
     m_chunks.emplace(position, chunk);
     account(chunk->m_blocks, true);
+    accountLight(chunk->m_light, true);
     addToColumn(*chunk);
     neighborsChanged(position, stamp);
     return *chunk;
@@ -274,6 +295,7 @@ bool VoxelWorld::removeChunk(ChunkPos position) {
 
 void VoxelWorld::destroyChunk(Chunk* chunk) noexcept {
     account(chunk->m_blocks, false);
+    accountLight(chunk->m_light, false);
     m_chunkPool.destroy(chunk);
 }
 
@@ -421,10 +443,23 @@ bool VoxelWorld::setBlock(const BlockPos& position, BlockStateId state) {
     account(chunk->m_blocks, true);
     markChanged(*chunk, stamp);
     chunk->m_dirty = static_cast<u8>(chunk->m_dirty | kDirtySave);
+    borderChanged(chunkPosition, local, stamp);
 
-    // A block on the chunk's border is in the snapshot borders of up to 7
-    // neighbors: across each face it touches, and across the edges and
-    // corner between those faces.
+    ColumnSummary& column = *m_columns.find(columnOf(chunkPosition))->second;
+    const i32 y = clampHeight(position.y);
+    i32& highest = column.m_highest.at((usize{local.z} * 16) + local.x);
+    if (state != kAirState) {
+        highest = std::max(highest, y);
+    } else if (highest == y) {
+        rescanColumn(column, local.x, local.z, y);
+    }
+    return true;
+}
+
+// A block on the chunk's border is in the snapshot borders of up to 7
+// neighbors: across each face it touches, and across the edges and corner
+// between those faces.
+void VoxelWorld::borderChanged(ChunkPos chunkPosition, LocalPos local, u64 stamp) {
     const auto offsets = [](u8 value) {
         std::array<i32, 2> result{0, 0};
         if (value == 0) {
@@ -447,19 +482,66 @@ bool VoxelWorld::setBlock(const BlockPos& position, BlockStateId state) {
             }
         }
     }
+}
 
-    ColumnSummary& column = *m_columns.find(columnOf(chunkPosition))->second;
-    const i32 y = clampHeight(position.y);
-    i32& highest = column.m_highest.at((usize{local.z} * 16) + local.x);
-    if (state != kAirState) {
-        highest = std::max(highest, y);
-    } else if (highest == y) {
-        rescanColumn(column, local.x, local.z, y);
+u8 VoxelWorld::getLight(const BlockPos& position, u8 unloaded) const noexcept {
+    const Chunk* chunk = findChunk(toChunk(position));
+    return chunk == nullptr ? unloaded : chunk->light().get(toLocal(position));
+}
+
+bool VoxelWorld::setLight(const BlockPos& position, u8 packed) {
+    const ChunkPos chunkPosition = toChunk(position);
+    Chunk* chunk = findChunk(chunkPosition);
+    if (chunk == nullptr) {
+        return false;
     }
+    const LocalPos local = toLocal(position);
+    if (chunk->m_light.get(local) == packed) {
+        return true;
+    }
+    const u64 stamp = ++m_changeCounter;
+    accountLight(chunk->m_light, false);
+    chunk->m_light.set(local, packed);
+    accountLight(chunk->m_light, true);
+    markChanged(*chunk, stamp);
+    borderChanged(chunkPosition, local, stamp);
     return true;
 }
 
-bool VoxelWorld::createSnapshot(ChunkPos position, ChunkSnapshot& out, BlockStateId unloaded) const {
+bool VoxelWorld::replaceLight(ChunkPos position, ChunkLight light) {
+    Chunk* chunk = findChunk(position);
+    if (chunk == nullptr) {
+        return false;
+    }
+    if (chunk->m_light == light) {
+        return true;
+    }
+    const u64 stamp = ++m_changeCounter;
+    // Neighbor k (bit order of neighborBit) reads this chunk's cells listed
+    // for the opposite direction 26 - k in the border table.
+    for (i32 k = 0; k < 27; ++k) {
+        if (k == 13) {
+            continue;
+        }
+        const auto opposite = static_cast<usize>(26 - k);
+        bool differs = false;
+        for (usize cell = kBorder.begin.at(opposite); cell < kBorder.begin.at(opposite + 1) && !differs;
+             ++cell) {
+            differs = chunk->m_light.getIndex(kBorder.source[cell]) != light.getIndex(kBorder.source[cell]);
+        }
+        if (differs) {
+            neighborChanged(position, (k % 3) - 1, (k / 9) - 1, ((k / 3) % 3) - 1, stamp);
+        }
+    }
+    accountLight(chunk->m_light, false);
+    chunk->m_light = std::move(light);
+    accountLight(chunk->m_light, true);
+    markChanged(*chunk, stamp);
+    return true;
+}
+
+bool VoxelWorld::createSnapshot(ChunkPos position, ChunkSnapshot& out, BlockStateId unloaded,
+                                u8 unloadedLight) const {
     VXE_PROFILE_FUNCTION();
     const Stopwatch stopwatch;
     const Chunk* center = findChunk(position);
@@ -469,21 +551,38 @@ bool VoxelWorld::createSnapshot(ChunkPos position, ChunkSnapshot& out, BlockStat
     out.position = position;
     out.version = center->version();
     out.neighbors = 0;
-    BlockStateId* states = out.states.data();
-    center->blocks().decompressTo(std::span(out.states).subspan(ChunkSnapshot::index(0, 0, 0)), kSnapshotSize,
-                                  kSnapshotArea);
-
+    std::array<const Chunk*, 27> around{};
+    around[13] = center;
     for (i32 k = 0; k < 27; ++k) {
+        if (k != 13) {
+            const auto at = neighborPosition(position, (k % 3) - 1, (k / 9) - 1, ((k / 3) % 3) - 1);
+            around.at(static_cast<usize>(k)) = at ? findChunk(*at) : nullptr;
+            if (around.at(static_cast<usize>(k)) != nullptr) {
+                out.neighbors |= 1U << static_cast<u32>(k);
+            }
+        }
+    }
+    snapshotBlocks(around, out, unloaded);
+    snapshotLight(around, out, unloadedLight);
+    if (m_stats != nullptr && m_statIds.snapshots.isValid() && m_statIds.snapshotTime.isValid()) {
+        m_stats->add(m_statIds.snapshots);
+        m_stats->addTime(m_statIds.snapshotTime, stopwatch.elapsed());
+    }
+    return true;
+}
+
+void VoxelWorld::snapshotBlocks(const std::array<const Chunk*, 27>& around, ChunkSnapshot& out,
+                                BlockStateId unloaded) noexcept {
+    BlockStateId* states = out.states.data();
+    around[13]->blocks().decompressTo(std::span(out.states).subspan(ChunkSnapshot::index(0, 0, 0)),
+                                      kSnapshotSize, kSnapshotArea);
+    for (usize k = 0; k < 27; ++k) {
         if (k == 13) {
             continue;
         }
-        const i32 dx = (k % 3) - 1;
-        const i32 dy = (k / 9) - 1;
-        const i32 dz = ((k / 3) % 3) - 1;
-        const auto at = neighborPosition(position, dx, dy, dz);
-        const Chunk* found = at ? findChunk(*at) : nullptr;
-        const usize first = kBorder.begin.at(static_cast<usize>(k));
-        const usize last = kBorder.begin.at(static_cast<usize>(k) + 1);
+        const Chunk* found = around.at(k);
+        const usize first = kBorder.begin.at(k);
+        const usize last = kBorder.begin.at(k + 1);
         if (found == nullptr || found->blocks().isUniform()) {
             // One state for every cell: missing neighbors and the common all
             // air or all stone ones.
@@ -497,16 +596,47 @@ bool VoxelWorld::createSnapshot(ChunkPos position, ChunkSnapshot& out, BlockStat
                 states[kBorder.destination[cell]] = blocks.getIndex(kBorder.source[cell]);
             }
         }
-        if (found != nullptr) {
-            out.neighbors |= 1U << static_cast<u32>(k);
+    }
+}
+
+// Most snapshots are lit the same everywhere (open sky above the ground,
+// dark deep below), and then one fill of the whole box replaces 27 copies.
+void VoxelWorld::snapshotLight(const std::array<const Chunk*, 27>& around, ChunkSnapshot& out,
+                               u8 unloadedLight) noexcept {
+    const auto uniformLight = [unloadedLight](const Chunk* chunk) -> i32 {
+        if (chunk == nullptr) {
+            return unloadedLight;
+        }
+        return chunk->light().isUniform() ? chunk->light().uniformValue() : -1;
+    };
+    const i32 shared = uniformLight(around[13]);
+    if (shared >= 0 &&
+        std::ranges::all_of(around, [&](const Chunk* chunk) { return uniformLight(chunk) == shared; })) {
+        out.light.fill(static_cast<u8>(shared));
+        return;
+    }
+    u8* light = out.light.data();
+    around[13]->light().copyTo(std::span(out.light).subspan(ChunkSnapshot::index(0, 0, 0)), kSnapshotSize,
+                               kSnapshotArea);
+    for (usize k = 0; k < 27; ++k) {
+        if (k == 13) {
+            continue;
+        }
+        const Chunk* found = around.at(k);
+        const usize first = kBorder.begin.at(k);
+        const usize last = kBorder.begin.at(k + 1);
+        if (found == nullptr || found->light().isUniform()) {
+            const u8 fill = found == nullptr ? unloadedLight : found->light().uniformValue();
+            for (usize cell = first; cell < last; ++cell) {
+                light[kBorder.destination[cell]] = fill;
+            }
+        } else {
+            const ChunkLight& neighborLight = found->light();
+            for (usize cell = first; cell < last; ++cell) {
+                light[kBorder.destination[cell]] = neighborLight.getIndex(kBorder.source[cell]);
+            }
         }
     }
-
-    if (m_stats != nullptr && m_statIds.snapshots.isValid() && m_statIds.snapshotTime.isValid()) {
-        m_stats->add(m_statIds.snapshots);
-        m_stats->addTime(m_statIds.snapshotTime, stopwatch.elapsed());
-    }
-    return true;
 }
 
 } // namespace vxe::voxel

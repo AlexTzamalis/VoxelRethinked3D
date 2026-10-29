@@ -2,6 +2,7 @@
 
 #include <vxe/core/types.hpp>
 #include <vxe/math/coords.hpp>
+#include <vxe/voxel/chunk_light.hpp>
 #include <vxe/voxel/chunk_storage.hpp>
 
 #include <atomic>
@@ -42,6 +43,9 @@ struct ChunkProduct {
     // The generator's estimate of the surface height of the chunk's column,
     // in blocks (Section 9.5, ColumnSummary). Optional.
     std::optional<i32> surfaceEstimate;
+    // Light, if the source has it (a save does); otherwise the chunk starts
+    // with ChunkLight's default until the light engine lights it.
+    std::optional<ChunkLight> light;
 };
 
 // Produces the blocks of chunks for the streaming manager (Section 11): the

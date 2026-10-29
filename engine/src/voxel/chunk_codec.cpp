@@ -33,12 +33,61 @@ Scratch& scratch() {
     return instance;
 }
 
+constexpr u8 kFlagLight = 1U << 0U;
+constexpr u8 kLightUniform = 0;
+constexpr u8 kLightFull = 1;
+
+void writeLight(const ChunkLight& light, io::BinaryWriter& out) {
+    if (light.isUniform()) {
+        out.writeU8(kLightUniform);
+        out.writeU8(light.uniformValue());
+        return;
+    }
+    out.writeU8(kLightFull);
+    std::array<std::byte, kChunkVolume> bytes{};
+    for (u16 i = 0; i < kChunkVolume; ++i) {
+        bytes.at(i) = static_cast<std::byte>(light.getIndex(i));
+    }
+    out.writeBytes(bytes);
+}
+
+// Reads the light section; false if it is malformed.
+bool readLight(io::BinaryReader& reader, ChunkLight& light) {
+    const u8 mode = reader.readU8();
+    if (mode == kLightUniform) {
+        light.fill(reader.readU8());
+        return reader.ok();
+    }
+    const std::span<const std::byte> bytes = reader.readBytes(kChunkVolume);
+    if (mode != kLightFull || !reader.ok()) {
+        return false;
+    }
+    std::array<u8, kChunkVolume> values{};
+    for (usize i = 0; i < kChunkVolume; ++i) {
+        values.at(i) = static_cast<u8>(bytes[i]);
+    }
+    light.assign(values);
+    return true;
+}
+
+void writeBlocks(const ChunkStorage& blocks, const BlockStateNames& names, io::BinaryWriter& out);
+
 } // namespace
 
-void encodeChunk(const ChunkStorage& blocks, const BlockStateNames& names, io::BinaryWriter& out) {
+void encodeChunk(const ChunkStorage& blocks, const BlockStateNames& names, io::BinaryWriter& out,
+                 const ChunkLight* light) {
     VXE_PROFILE_FUNCTION();
     out.writeU8(kChunkPayloadVersion);
-    out.writeU8(0);
+    out.writeU8(light != nullptr ? kFlagLight : u8{0});
+    writeBlocks(blocks, names, out);
+    if (light != nullptr) {
+        writeLight(*light, out);
+    }
+}
+
+namespace {
+
+void writeBlocks(const ChunkStorage& blocks, const BlockStateNames& names, io::BinaryWriter& out) {
     if (blocks.isUniform()) {
         out.writeVarU64(1);
         out.writeString(names.nameOf(blocks.uniformState()));
@@ -77,6 +126,8 @@ void encodeChunk(const ChunkStorage& blocks, const BlockStateNames& names, io::B
     }
 }
 
+} // namespace
+
 Result<DecodedChunk> decodeChunk(std::span<const std::byte> payload, const BlockStateNames& names,
                                  BlockStateId fallback) {
     VXE_PROFILE_FUNCTION();
@@ -91,7 +142,7 @@ Result<DecodedChunk> decodeChunk(std::span<const std::byte> payload, const Block
                      std::format("Chunk payload version {} is not supported (this build reads {})", version,
                                  kChunkPayloadVersion));
     }
-    if (flags != 0) {
+    if ((flags & ~kFlagLight) != 0) {
         return Error(ErrorCode::VersionMismatch, std::format("Chunk payload has unknown flags {:#x}", flags));
     }
     const u64 count = reader.readVarU64();
@@ -112,12 +163,24 @@ Result<DecodedChunk> decodeChunk(std::span<const std::byte> payload, const Block
         }
         work.palette.push_back(state.value_or(fallback));
     }
-    if (count == 1) {
-        if (!reader.atEnd()) {
-            return Error(ErrorCode::ParseError, "Chunk payload has data after a one state palette");
+    const auto finish = [&]() -> Result<DecodedChunk> {
+        if ((flags & kFlagLight) != 0) {
+            ChunkLight light;
+            if (!readLight(reader, light)) {
+                return Error(ErrorCode::ParseError, "Chunk payload light is malformed or truncated");
+            }
+            result.light = std::move(light);
         }
+        if (!reader.ok() || !reader.atEnd()) {
+            return Error(
+                ErrorCode::ParseError,
+                std::format("Chunk payload of {} bytes is truncated or has extra bytes", payload.size()));
+        }
+        return std::move(result);
+    };
+    if (count == 1) {
         result.blocks.fill(work.palette.front());
-        return result;
+        return finish();
     }
     const u32 bits = reader.readU8();
     if (bits != indexBits(static_cast<u32>(count))) {
@@ -136,13 +199,11 @@ Result<DecodedChunk> decodeChunk(std::span<const std::byte> payload, const Block
             work.states[first + k] = work.palette[static_cast<usize>(index)];
         }
     }
-    if (!reader.ok() || !reader.atEnd()) {
-        return Error(
-            ErrorCode::ParseError,
-            std::format("Chunk payload of {} bytes is truncated or has extra bytes", payload.size()));
+    if (!reader.ok()) {
+        return Error(ErrorCode::ParseError, "Chunk payload indices are truncated");
     }
     result.blocks.assign(work.states);
-    return result;
+    return finish();
 }
 
 } // namespace vxe::voxel

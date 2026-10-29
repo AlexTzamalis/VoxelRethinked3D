@@ -46,6 +46,7 @@ public:
         const ChunkPos position = request.position();
         if (position.y < 0) {
             out.blocks.fill(kStone);
+            out.light = voxel::ChunkLight(voxel::kDarkLight); // Underground arrives lit (as from a save).
         } else if (position.y > 0) {
             out.blocks.fill(voxel::kAirState);
         } else {
@@ -199,6 +200,9 @@ TEST_CASE("Streaming loads the range and meshes each chunk once its neighbors ar
     CHECK(rig.source.produced.load() == 7U * 7U * 5U);
     REQUIRE(rig.world.findColumn({.x = 0, .z = 0}) != nullptr);
     CHECK(rig.world.findColumn({.x = 0, .z = 0})->surfaceEstimate() == 7);
+    // A source's light goes into the world; without one chunks start as open sky.
+    CHECK(rig.world.findChunk({.x = 0, .y = -1, .z = 0})->light() == voxel::ChunkLight(voxel::kDarkLight));
+    CHECK(rig.world.findChunk({.x = 0, .y = 0, .z = 0})->light() == voxel::ChunkLight());
 }
 
 TEST_CASE("Chunks at the top and bottom of the world are meshed without neighbors beyond it") {
