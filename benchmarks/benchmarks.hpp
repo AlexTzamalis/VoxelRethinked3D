@@ -18,4 +18,7 @@ void runRegionBenchmarks();
 // Sky and block light of a chunk (light_bench.cpp, E10.3).
 void runLightBenchmarks();
 
+// LOD tiles, their cache files and the clipmap (lod_bench.cpp, E11.1).
+void runLodBenchmarks();
+
 } // namespace vxe::bench

@@ -268,6 +268,8 @@ vxe_add_module(voxel
         src/voxel/chunk_codec.cpp
         src/voxel/region_file.cpp
         src/voxel/region_store.cpp
+        src/voxel/lod_tile.cpp
+        src/voxel/lod_cache.cpp
     DEPENDS
         core
         math

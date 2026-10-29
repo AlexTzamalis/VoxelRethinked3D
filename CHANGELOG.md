@@ -2,6 +2,19 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#071] 2026-10-29, E11.1 LOD data structures
+### Added
+- LOD tiles (Section 13.2): LodTileKey (level, tile position, cell and tile size, quadtree parent and children), LodSpan (bottom and top Y, top and side material, sky light), LodTile with flat span storage and 16 bit cell offsets, LodTileBuilder for filling a tile cell by cell, setCell for edits, validLodSpans.
+- LOD cache files (Section 13.4, 21): lodWorldHash from seed, generator version and preset hash; encodeLodTile and decodeLodTile (header with world hash and checksum, LZ4 payload of span counts and varint deltas); stale files report VersionMismatch, damaged ones ParseError, never reading out of bounds.
+- LodTileCache: one file per tile at l<level>/t.<x>.<z>.vxl, atomic writes, misses for missing, stale and damaged files; stats Voxel.Lod.Cache.Hits, Misses, Stale, Damaged, BytesRead and BytesWritten.
+- LodClipmap (Section 13.1): squares of tiles per level around the camera that move two tiles at a time, with a hole of whole tiles where the finer level lies; update() reports added and removed tiles.
+- Tests: tile keys below zero and the quadtree, span rules, edits against building, cache file round trips at the int32 extremes, truncated and damaged files, the cache with stale and damaged files, clipmap coverage (every column within reach drawn by exactly one tile, neighbors at most one level apart) and update differences.
+- benchmarks/lod_bench.cpp.
+### Performance
+- A hills tile: 76.5 KB in memory, 13.9 KB on disk; encode 0.23 ms, decode 0.18 ms, cache load 0.29 ms, cache save 1.84 ms. Clipmap update 14 ns when nothing changes, 14.6 us when the finest squares move.
+### Docs
+- docs/perf/lod.md.
+
 ## [#070] 2026-10-29, E10.4 Light in meshes
 ### Added
 - The mesher puts the sky and block light of the open cell in front of each face into its quad (Section 10.4 word1 bits 22 to 29, until now a placeholder of full sky). Faces merge only where their light is the same, unless Graphics.Terrain.MergeAcrossLight is on (Section 10.2).

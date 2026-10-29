@@ -14,6 +14,7 @@ int main() {
         vxe::bench::runMeshingBenchmarks();
         vxe::bench::runRegionBenchmarks();
         vxe::bench::runLightBenchmarks();
+        vxe::bench::runLodBenchmarks();
         return 0;
     } catch (const std::exception& error) {
         std::fputs("vxe_benchmarks: ", stderr);
