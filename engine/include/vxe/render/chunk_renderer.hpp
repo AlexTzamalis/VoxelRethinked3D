@@ -160,6 +160,10 @@ public:
     // renderer sets it from the time of day every frame; quads keep their
     // sky light level, and this scales its brightness.
     void setDaylight(f32 daylight) noexcept;
+    // The animation table of the block textures (BlockTextureData::animations,
+    // one entry per texture key layer; 0 for still textures). Animated layers
+    // show their frames in turn, 20 game ticks per second.
+    void setTextureAnimations(std::span<const u32> animations);
     // Graphics.Lighting.Brightness, for other renderers that light terrain alike.
     [[nodiscard]] f32 brightness() const { return m_brightness.get(); }
     // Multiplies World.Streaming.MaxUploadKBPerFrame, still capped by the
@@ -297,10 +301,11 @@ private:
     rhi::BufferHandle m_arena;
     rhi::BufferHandle m_metadata;
     rhi::BufferHandle m_indices;
-    rhi::BufferHandle m_draws;     // Every candidate draw, in pass order.
-    rhi::BufferHandle m_drawFaces; // The face direction of each candidate.
-    rhi::BufferHandle m_survivors; // What the GPU culling kept.
-    rhi::BufferHandle m_params;    // Per pass uniforms (AO strength), rewritten when a setting changes.
+    rhi::BufferHandle m_draws;      // Every candidate draw, in pass order.
+    rhi::BufferHandle m_drawFaces;  // The face direction of each candidate.
+    rhi::BufferHandle m_survivors;  // What the GPU culling kept.
+    rhi::BufferHandle m_params;     // Per pass uniforms (AO strength), rewritten when a setting changes.
+    rhi::BufferHandle m_animations; // One u32 per texture layer (setTextureAnimations).
     Vec4 m_lastParams{-1.0F};
     usize m_drawCapacity = 0; // Indirect commands the draw buffers hold.
     std::array<rhi::PipelineHandle, kChunkPassCount> m_pipelines{};

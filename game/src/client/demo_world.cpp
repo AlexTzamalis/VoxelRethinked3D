@@ -13,44 +13,6 @@ namespace vr {
 using vxe::usize;
 using vxe::voxel::BlockStateId;
 
-namespace {
-
-constexpr vxe::u32 rgba(vxe::u32 red, vxe::u32 green, vxe::u32 blue, vxe::u32 alpha = 255) noexcept {
-    return red | (green << 8U) | (blue << 16U) | (alpha << 24U);
-}
-
-// Placeholder colors by texture key, until the default texture pack (G2).
-// Keys not listed show magenta, like a missing texture will.
-vxe::u32 placeholderColor(std::string_view key) noexcept {
-    constexpr std::array<std::pair<std::string_view, vxe::u32>, 17> kColors = {{
-        {"stone", rgba(125, 125, 128)},
-        {"dirt", rgba(121, 85, 58)},
-        {"grass_top", rgba(95, 159, 53)},
-        {"grass_side", rgba(110, 120, 60)},
-        {"sand", rgba(220, 205, 150)},
-        {"gravel", rgba(130, 122, 118)},
-        {"water_still", rgba(38, 82, 170, 200)},
-        {"oak_log_side", rgba(102, 81, 51)},
-        {"oak_log_top", rgba(160, 130, 80)},
-        {"oak_leaves", rgba(60, 120, 40, 255)},
-        {"glass", rgba(200, 225, 235, 90)},
-        {"lumen_block", rgba(250, 220, 140)},
-        {"snow", rgba(240, 245, 250)},
-        {"coal_ore", rgba(60, 60, 64)},
-        {"iron_ore", rgba(170, 140, 115)},
-        {"gold_ore", rgba(220, 190, 60)},
-        {"foundation_stone", rgba(45, 45, 50)},
-    }};
-    for (const auto& [name, color] : kColors) {
-        if (name == key) {
-            return color;
-        }
-    }
-    return rgba(255, 0, 255);
-}
-
-} // namespace
-
 void DemoChunkSource::produce(const vxe::voxel::ChunkRequest& request, vxe::voxel::ChunkProduct& out) {
     // Generation writes every block, so a reused array per worker thread
     // needs no clearing and the job allocates nothing but the result.
@@ -63,8 +25,7 @@ void DemoChunkSource::produce(const vxe::voxel::ChunkRequest& request, vxe::voxe
 }
 
 DemoWorld::DemoWorld(const DemoWorldDesc& desc, const DemoBlocks& blocks)
-    : m_device(desc.device)
-    , m_chunks(desc.chunks)
+    : m_chunks(desc.chunks)
     , m_catalog(*desc.catalog)
     , m_terrain(blocks, desc.seed)
     , m_world({}, desc.stats)
@@ -130,9 +91,6 @@ vxe::Result<std::unique_ptr<DemoWorld>> DemoWorld::create(const DemoWorldDesc& d
         return std::move(blocks).error();
     }
     std::unique_ptr<DemoWorld> world(new DemoWorld(desc, blocks.value()));
-    if (world->m_device != nullptr && world->m_chunks != nullptr) {
-        VXE_TRY(world->createTextures());
-    }
     return world;
 }
 
@@ -140,23 +98,12 @@ DemoWorld::~DemoWorld() {
     release();
 }
 
-vxe::Result<void> DemoWorld::createTextures() {
-    std::vector<vxe::u32> colors;
-    for (const std::string& key : m_catalog.textureKeys()) {
-        colors.push_back(placeholderColor(key));
-    }
-    auto textures = vxe::render::createPlaceholderBlockTextures(*m_device, colors);
-    if (!textures) {
-        return std::move(textures).error();
-    }
-    m_textures = textures.value();
-    m_chunks->setTextures(m_textures.texture, m_textures.sampler);
+void DemoWorld::setTextureColors(std::span<const vxe::u32> averageColors) {
     if (m_lodRenderer != nullptr) {
         // What each texture looks like from far away, plus the far terrain's
         // own blends, so far terrain matches the chunks (Section 13.2).
-        m_lodRenderer->setMaterialColors(m_lodSampler.materialColors(m_textures.averageColors));
+        m_lodRenderer->setMaterialColors(m_lodSampler.materialColors(averageColors));
     }
-    return {};
 }
 
 void DemoWorld::shutdown() {
@@ -185,18 +132,6 @@ void DemoWorld::release() noexcept {
     m_lod.reset(); // Waits for its jobs; the renderer forgets the tiles below.
     if (m_lodRenderer != nullptr) {
         m_lodRenderer->clear();
-    }
-    if (m_device != nullptr) {
-        if (m_chunks != nullptr) {
-            m_chunks->setTextures({}, {});
-        }
-        if (m_textures.texture.isValid()) {
-            m_device->destroy(m_textures.texture);
-        }
-        if (m_textures.sampler.isValid()) {
-            m_device->destroy(m_textures.sampler);
-        }
-        m_textures = {};
     }
 }
 

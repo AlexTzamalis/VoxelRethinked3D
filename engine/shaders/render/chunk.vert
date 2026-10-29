@@ -15,6 +15,13 @@ VXE_BINDING_STD430(2, 0) readonly buffer Quads {
     uvec2 quads[];
 };
 
+// Per texture layer: 0 for a still texture, else the frame count (bits 0..7),
+// game ticks per frame (8..15) and the layer of frame 2 (16..31), as
+// render::BlockTextureData::animations.
+VXE_BINDING_STD430(2, 3) readonly buffer Animations {
+    uint animations[];
+};
+
 struct ChunkInfo {
     ivec4 position; // xyz: chunk position, w: unused.
 };
@@ -76,7 +83,15 @@ void main() {
     // right way around; V is up on every side face.
     const bool mirrorU = face == 0u || face == 5u;
     const float u = (mirrorU ? 1.0 - cornerU : cornerU) * width;
-    vUvLayer = vec3(u, cornerV * height, float(quad.y & 0x3FFFu));
+    // Animated textures step through their frames at 20 game ticks per second.
+    uint layer = quad.y & 0x3FFFu;
+    const uint animation = animations[layer];
+    if ((animation & 0xFFu) > 1u) {
+        const uint ticks = uint(frame.time.x * 20.0) / max((animation >> 8u) & 0xFFu, 1u);
+        const uint step = ticks % (animation & 0xFFu);
+        layer = step == 0u ? layer : (animation >> 16u) + step - 1u;
+    }
+    vUvLayer = vec3(u, cornerV * height, float(layer));
 
     const uint ao = (quad.y >> (14u + 2u * corner)) & 3u;
     const float occlusion = mix(1.0, kAoCurve[ao], chunkParams.params.x);

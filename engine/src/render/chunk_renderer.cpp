@@ -23,6 +23,8 @@ constexpr u32 kMaxQuadsPerDraw = 16 * 16 * 16;
 constexpr u32 kIndicesPerQuad = 6;
 
 using IndirectDraw = ChunkRenderer::IndirectDraw;
+// Texture layers the animation table covers: the 14 bit layer field of a quad.
+constexpr usize kMaxTextureLayers = 16384;
 static_assert(sizeof(IndirectDraw) == 20);
 
 // First capacities of the draw list regions; a full region doubles.
@@ -228,6 +230,15 @@ Result<std::unique_ptr<ChunkRenderer>> ChunkRenderer::create(const ChunkRenderer
         return params.error().withContext("Chunk renderer");
     }
     r.m_params = params.value();
+    auto animations = device.createBuffer({.sizeBytes = kMaxTextureLayers * sizeof(u32),
+                                           .usage = BufferUsage::Storage | BufferUsage::TransferDst,
+                                           .debugName = "Block texture animations"});
+    if (!animations) {
+        return animations.error().withContext("Chunk renderer");
+    }
+    r.m_animations = animations.value();
+    const std::vector<u32> still(kMaxTextureLayers, 0);
+    VXE_TRY(device.updateBuffer(r.m_animations, 0, std::as_bytes(std::span(still))));
     VXE_TRY(r.m_staging.create(device, desc.stagingBytesPerFrame, BufferUsage::TransferSrc,
                                "Chunk upload staging"));
 
@@ -443,7 +454,7 @@ ChunkRenderer::~ChunkRenderer() {
         }
     }
     for (const rhi::BufferHandle buffer : {m_arena, m_metadata, m_indices, m_draws, m_drawFaces, m_survivors,
-                                           m_params, m_caveBitsBuffer, m_cullCounts, m_zeros}) {
+                                           m_params, m_animations, m_caveBitsBuffer, m_cullCounts, m_zeros}) {
         if (buffer.isValid()) {
             m_device.destroy(buffer);
         }
@@ -453,6 +464,12 @@ ChunkRenderer::~ChunkRenderer() {
 void ChunkRenderer::setTextures(rhi::TextureHandle textures, rhi::SamplerHandle sampler) noexcept {
     m_textures = textures;
     m_sampler = sampler;
+}
+
+void ChunkRenderer::setTextureAnimations(std::span<const u32> animations) {
+    std::vector<u32> table(kMaxTextureLayers, 0);
+    std::ranges::copy(animations.first(std::min(animations.size(), kMaxTextureLayers)), table.begin());
+    static_cast<void>(m_device.updateBuffer(m_animations, 0, std::as_bytes(std::span(table))));
 }
 
 void ChunkRenderer::setDaylight(f32 daylight) noexcept {
@@ -1114,6 +1131,7 @@ void ChunkRenderer::record(rhi::CommandList& commands, ChunkPass pass) {
     commands.bindStorageBuffer(2, 0, m_arena, 0, m_arenaBytes);
     commands.bindStorageBuffer(2, 1, m_metadata, 0, usize{m_maxChunks} * sizeof(ChunkInfo));
     commands.bindTexture(2, 2, m_textures, m_sampler);
+    commands.bindStorageBuffer(2, 3, m_animations, 0, kMaxTextureLayers * sizeof(u32));
     commands.bindIndexBuffer(m_indices, rhi::IndexType::Uint16);
     const usize offset = usize{m_drawFirst.at(index)} * sizeof(IndirectDraw);
     switch (m_cullPath) {

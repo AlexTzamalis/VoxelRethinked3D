@@ -10,6 +10,7 @@ set(vrGameSources
     src/app/game_state.hpp
     src/app/voxel_rethinked_app.cpp
     src/app/voxel_rethinked_app.hpp
+    src/client/default_pack.hpp
     src/client/demo_world.cpp
     src/client/demo_world.hpp
     src/common/block_catalog.cpp
@@ -22,7 +23,21 @@ set(vrGameSources
 
 find_package(tomlplusplus CONFIG REQUIRED)
 
-add_library(vr_game STATIC ${vrGameSources})
+# The default texture pack (textures/default) built into the program as the
+# last fallback (Section 15.1): every file becomes a byte array, regenerated
+# whenever a file of the pack changes.
+set(vrDefaultPackFolder "${PROJECT_SOURCE_DIR}/textures/default")
+file(GLOB_RECURSE vrDefaultPackFiles CONFIGURE_DEPENDS "${vrDefaultPackFolder}/*")
+set(vrDefaultPackSource "${CMAKE_CURRENT_BINARY_DIR}/generated/default_pack_files.cpp")
+add_custom_command(OUTPUT "${vrDefaultPackSource}"
+    COMMAND "${CMAKE_COMMAND}" "-DFOLDER=${vrDefaultPackFolder}" "-DOUTPUT=${vrDefaultPackSource}"
+            "-DHEADER=client/default_pack.hpp" "-DNAMESPACE=vr" "-DFUNCTION=defaultPackFiles"
+            -P "${PROJECT_SOURCE_DIR}/cmake/EmbedFiles.cmake"
+    DEPENDS ${vrDefaultPackFiles} "${PROJECT_SOURCE_DIR}/cmake/EmbedFiles.cmake"
+    COMMENT "Embedding the default texture pack"
+    VERBATIM)
+
+add_library(vr_game STATIC ${vrGameSources} "${vrDefaultPackSource}")
 target_include_directories(vr_game PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(vr_game PUBLIC vxe::vxe PRIVATE tomlplusplus::tomlplusplus)
 vxe_set_warnings(vr_game)
@@ -39,7 +54,9 @@ add_custom_command(TARGET voxel_rethinked POST_BUILD
             "$<TARGET_FILE_DIR:voxel_rethinked>/shaders"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets"
             "$<TARGET_FILE_DIR:voxel_rethinked>/assets"
-    COMMENT "Copying engine shaders and game assets next to voxel_rethinked"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PROJECT_SOURCE_DIR}/textures"
+            "$<TARGET_FILE_DIR:voxel_rethinked>/textures"
+    COMMENT "Copying engine shaders, game assets and texture packs next to voxel_rethinked"
     VERBATIM)
 
 # The game may use any engine module, but never the graphics API directly.

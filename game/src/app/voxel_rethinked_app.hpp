@@ -7,6 +7,7 @@
 
 #include <vxe/app/application.hpp>
 #include <vxe/render/camera.hpp>
+#include <vxe/render/texture_pack_manager.hpp>
 #include <vxe/voxel/block_registry.hpp>
 
 #include <memory>
@@ -42,11 +43,14 @@ private:
     void setMouseCaptured(vxe::EngineContext& context, bool captured);
     void registerCommands(vxe::EngineContext& context);
     void startDemoWorld(vxe::EngineContext& context);
+    void updateTextures(vxe::EngineContext& context);
 
     GameStateMachine m_states;
     std::optional<BlockCatalog> m_blocks;
     std::unique_ptr<vxe::voxel::BlockRegistry> m_blockRegistry;
     std::unique_ptr<DemoWorld> m_demo;
+    // Block textures from the texture packs (G2.2); with a renderer only.
+    std::unique_ptr<vxe::render::TexturePackManager> m_texturePacks;
     std::unique_ptr<GameSettings> m_settings;
     std::unique_ptr<GameActions> m_actions;
     vxe::render::Camera m_camera;

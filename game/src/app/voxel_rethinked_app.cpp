@@ -1,5 +1,7 @@
 #include "voxel_rethinked_app.hpp"
 
+#include "client/default_pack.hpp"
+
 #include <vxe/core/log.hpp>
 #include <vxe/core/version.hpp>
 #include <vxe/debug/overlay.hpp>
@@ -180,6 +182,28 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
     m_blockRegistry->publish(std::move(view).value());
     VXE_LOG_INFO(gameLog, "Loaded {} blocks with {} states and {} texture keys", m_blocks->blockCount(),
                  m_blocks->stateCount(), m_blocks->textureKeys().size());
+    if (context.device != nullptr && context.renderer != nullptr) {
+        // Texture packs from textures/ next to the program, over the default
+        // pack built into it (Section 15.1); loaded on a job.
+        auto builtIn = vxe::render::openEmbeddedPack("default", defaultPackFiles());
+        if (!builtIn) {
+            return std::move(builtIn).error();
+        }
+        const auto packsFolder = context.vfs.resolve("textures:/");
+        auto packs = vxe::render::TexturePackManager::create(
+            {.device = context.device,
+             .settings = &context.settings,
+             .jobs = &context.jobs,
+             .stats = &context.stats,
+             .packsFolder = packsFolder ? packsFolder.value() : std::filesystem::path(),
+             .builtIn = std::move(builtIn).value()});
+        if (!packs) {
+            return std::move(packs).error();
+        }
+        m_texturePacks = std::move(packs).value();
+        const auto keys = m_blocks->textureKeys();
+        m_texturePacks->setKeys(std::vector<std::string>(keys.begin(), keys.end()));
+    }
     return {};
 }
 
@@ -293,7 +317,6 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
          .catalog = &*m_blocks,
          .blocks = m_blockRegistry.get(),
          .stats = &context.stats,
-         .device = context.device,
          .chunks = context.renderer != nullptr ? &context.renderer->chunks() : nullptr,
          .lod = context.renderer != nullptr ? &context.renderer->lod() : nullptr,
          .debugDraw = context.renderer != nullptr ? &context.renderer->debugDraw() : nullptr,
@@ -303,6 +326,9 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
         return;
     }
     m_demo = std::move(demo).value();
+    if (const vxe::render::BlockTextures* textures = m_texturePacks ? m_texturePacks->textures() : nullptr) {
+        m_demo->setTextureColors(textures->averageColors);
+    }
     // Streaming centers on the camera, so it waits at the spawn while the
     // world loads around it.
     m_camera.position = m_demo->spawnPosition();
@@ -313,9 +339,23 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
     }
 }
 
+// Hands newly loaded block textures to the chunk renderer and the far terrain.
+void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
+    if (!m_texturePacks || !m_texturePacks->update() || context.renderer == nullptr) {
+        return;
+    }
+    const vxe::render::BlockTextures* textures = m_texturePacks->textures();
+    context.renderer->chunks().setTextures(textures->texture, textures->sampler);
+    context.renderer->chunks().setTextureAnimations(m_texturePacks->animations());
+    if (m_demo) {
+        m_demo->setTextureColors(textures->averageColors);
+    }
+}
+
 void VoxelRethinkedApp::onFrame(vxe::EngineContext& context, const vxe::FrameTime& time) {
     handleGlobalActions(context);
     advanceStartup(context);
+    updateTextures(context);
     // The world streams in while loading (no loading screen before G5.3).
     if (isWorldState(m_states.current()) || m_states.current() == GameState::LoadingWorld) {
         updateWorld(context, time);
@@ -338,6 +378,10 @@ void VoxelRethinkedApp::onShutdown(vxe::EngineContext& context) {
         m_demo->shutdown();
         m_demo.reset();
     }
+    if (context.renderer != nullptr) {
+        context.renderer->chunks().setTextures({}, {});
+    }
+    m_texturePacks.reset();
     m_flight.reset();
     VXE_LOG_INFO(gameLog, "Voxel Rethinked shutting down");
 }

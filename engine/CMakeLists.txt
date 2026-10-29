@@ -211,15 +211,23 @@ vxe_add_module(render
         src/render/post_process.cpp
         src/render/renderer.cpp
         src/render/sky.cpp
+        src/render/texture_pack.cpp
+        src/render/texture_pack_manager.cpp
     DEPENDS
         core
         math
         jobs
+        io
         platform
         config
         input
         rhi
+    PRIVATE_LIBS
+        tomlplusplus::tomlplusplus
 )
+# stb_image decodes texture pack PNGs (render/texture_pack.cpp); its warnings are not ours.
+find_package(Stb REQUIRED)
+target_include_directories(vxe_render SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 
 # Engine shaders (GLSL 460 with the engine's include system). Checked with
 # glslang on every build, so a broken shader fails the build (E6.4).

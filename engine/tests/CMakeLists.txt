@@ -39,6 +39,7 @@ add_executable(vxe_tests
     render/chunk_culling_tests.cpp
     render/chunk_renderer_tests.cpp
     render/lod_renderer_tests.cpp
+    render/texture_pack_tests.cpp
     render/debug_draw_tests.cpp
     render/frame_graph_tests.cpp
     render/frame_pacer_tests.cpp
@@ -73,6 +74,9 @@ add_dependencies(vxe_tests vxe_region_crash_writer)
 # (and the region crash test can start and kill a process).
 find_package(SDL3 CONFIG REQUIRED)
 target_link_libraries(vxe_tests PRIVATE vxe::vxe doctest::doctest SDL3::SDL3)
+# stb_image_write makes the PNGs of the texture pack tests.
+find_package(Stb REQUIRED)
+target_include_directories(vxe_tests SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 # doctest forward declares std types by default; with real std headers it can
 # print std::string_view and other values in failure messages.
 target_compile_definitions(vxe_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS

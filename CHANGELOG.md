@@ -2,6 +2,18 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#079] 2026-10-29, G2.2 Texture pack loader
+### Added
+- render/texture_pack: pack manifests (pack.toml: name, format, resolution 16 to 256, options), pack sources from folders and from memory, pack discovery, and buildBlockTextures: each texture key from the first pack of the stack that has blocks/<key>.png, decoded with stb_image, flipped bottom row first (ADR-016), scaled with nearest filtering to the largest resolution of the stack (capped by Graphics.Textures.MaxResolution), mipmaps averaged by alpha with alpha coverage kept for cut out textures (leaves do not thin out with distance), animations from vertical frame strips plus blocks/<key>.anim.toml (frames after the key layers, so layer numbers never change), a magenta checker and a warning for anything missing or broken, and each layer's average color.
+- render::TexturePackManager: builds the array on a job and swaps it in on the main thread; settings Graphics.Textures.Packs (enabled packs, highest priority first; "default" always last, then the built in pack), MaxResolution and Anisotropy, all live; stats Render.Textures.Layers, Resolution, Bytes, Warnings and LoadMs.
+- Animated block textures in the chunk shader: a per layer animation table (ChunkRenderer::setTextureAnimations), frames at 20 game ticks per second.
+- The game loads its block textures from the packs: the default pack is copied next to the program (textures/) and also built into it (cmake/EmbedFiles.cmake) as the last fallback; the far terrain colors come from the loaded textures.
+- Tests: manifests, stack precedence, missing and broken images as warnings, mixed resolutions and the resolution limit, row order, animation frames, mip coverage of cut out textures, built in packs, and live pack switching through the manager.
+### Removed
+- The demo world's placeholder colors and textures.
+### Performance
+- Loading the 17 default textures takes 122 ms on a worker; the main thread only uploads.
+
 ## [#078] 2026-10-29, G2.1 Default texture pack, generated
 ### Added
 - tools/texture_gen (vxe_texture_gen): paints a texture pack from recipes. Each recipe names a pattern (speckle, stone, grass_top, overhang, gravel, water, bark, rings, leaves, glass, glow, ore), a dark to light palette, an accent palette and an optional base texture painted first. Textures are deterministic and tile seamlessly. Existing PNGs are kept unless --force (hand edits survive), --only limits a run to some keys, --preview writes an enlarged sheet of every texture, --template copies the pack as it is into a new folder named "My Pack" with a list of its keys.

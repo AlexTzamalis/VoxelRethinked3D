@@ -39,7 +39,6 @@ struct DemoWorldDesc {
     const BlockCatalog* catalog = nullptr;
     const vxe::voxel::BlockRegistry* blocks = nullptr;
     vxe::stats::StatRegistry* stats = nullptr;    // Optional.
-    vxe::rhi::Device* device = nullptr;           // Optional: no textures and no drawing without it.
     vxe::render::ChunkRenderer* chunks = nullptr; // Optional, with the device.
     vxe::render::LodRenderer* lod = nullptr;      // Optional, with the device: far terrain.
     vxe::render::DebugDraw* debugDraw = nullptr;  // Optional: far terrain debug views.
@@ -70,8 +69,8 @@ private:
 // meshed (the "playable" radius of Section 2, at most the render distance),
 // with streaming in burst mode; the rest fills in while playing.
 //
-// Textures are flat placeholder colors per texture key until the default
-// texture pack (G2).
+// Block textures come from the app's texture packs; setTextureColors()
+// passes their average colors on to the far terrain.
 //
 // Far terrain (Section 13) comes from DemoLodSampler through the engine's
 // LodManager, drawn by the renderer's LodRenderer and hidden over chunk
@@ -98,6 +97,10 @@ public:
     DemoWorld(DemoWorld&&) = delete;
     DemoWorld& operator=(DemoWorld&&) = delete;
 
+    // The average color of each texture layer (render::BlockTextures), for
+    // the far terrain's color table. Call whenever the textures change.
+    void setTextureColors(std::span<const vxe::u32> averageColors);
+
     // Streams around the camera. Call once per frame, after the renderer's
     // beginFrame (uploads need its staging memory).
     void update(const vxe::render::Camera& camera);
@@ -115,15 +118,13 @@ public:
 
 private:
     explicit DemoWorld(const DemoWorldDesc& desc, const DemoBlocks& blocks);
-    [[nodiscard]] vxe::Result<void> createTextures();
+
     // shutdown() without its log line, for the destructor.
     void release() noexcept;
 
-    vxe::rhi::Device* m_device;
     vxe::render::ChunkRenderer* m_chunks;
     const BlockCatalog& m_catalog;
     DemoTerrain m_terrain;
-    vxe::render::BlockTextures m_textures{};
     vxe::voxel::VoxelWorld m_world;
     DemoChunkSource m_source;
     std::optional<vxe::voxel::ChunkRenderSink> m_sink;
