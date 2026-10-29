@@ -115,7 +115,8 @@ StreamingManager::StreamingManager(const StreamingDesc& desc)
     constexpr u32 kMaxSlots = std::numeric_limits<u16>::max();
     const u32 loadSlots = std::clamp<u32>(desc.loadSlots, 1, kMaxSlots);
     const u32 meshSlots = std::clamp<u32>(desc.meshSlots, 1, kMaxSlots);
-    registerSettings(*desc.settings, loadSlots, meshSlots);
+    const u32 lightSlots = std::clamp<u32>(desc.lightSlots, 1, kMaxSlots);
+    registerSettings(*desc.settings, loadSlots, meshSlots, lightSlots);
     registerStats();
 
     m_loadSlots.reserve(loadSlots);
@@ -135,8 +136,18 @@ StreamingManager::StreamingManager(const StreamingDesc& desc)
             m_freeMeshSlots.push_back(static_cast<u16>(meshSlots - 1 - i));
         }
         m_options = m_mesherSettings.options();
-        m_view = m_blocks->current();
     }
+    if (m_blocks != nullptr) {
+        m_view = m_blocks->current();
+        m_lightSlots.reserve(lightSlots);
+        m_freeLightSlots.reserve(lightSlots);
+        m_busyLightSlots.reserve(lightSlots);
+        for (u32 i = 0; i < lightSlots; ++i) {
+            m_lightSlots.push_back(std::make_unique<LightSlot>());
+            m_freeLightSlots.push_back(static_cast<u16>(lightSlots - 1 - i));
+        }
+    }
+    m_blockLightOn = m_blockLight.get();
 }
 
 StreamingManager::~StreamingManager() {
@@ -146,10 +157,14 @@ StreamingManager::~StreamingManager() {
     for (const u16 index : m_busyMeshSlots) {
         m_meshSlots[index]->cancelled.store(true, std::memory_order_relaxed);
     }
+    for (const u16 index : m_busyLightSlots) {
+        m_lightSlots[index]->cancelled.store(true, std::memory_order_relaxed);
+    }
     m_jobs.wait(m_jobCounter);
 }
 
-void StreamingManager::registerSettings(config::SettingsRegistry& settings, u32 loadSlots, u32 meshSlots) {
+void StreamingManager::registerSettings(config::SettingsRegistry& settings, u32 loadSlots, u32 meshSlots,
+                                        u32 lightSlots) {
     const auto integer = [&settings](std::string_view id, std::string_view name, std::string_view description,
                                      i32 value, i32 min, i32 max, config::Visibility visibility) {
         return settings.registerInt(
@@ -175,6 +190,15 @@ void StreamingManager::registerSettings(config::SettingsRegistry& settings, u32 
                             "Chunks meshed or waiting for upload at the same time.",
                             std::min(32, static_cast<i32>(meshSlots)), 1, static_cast<i32>(meshSlots),
                             config::Visibility::Advanced);
+    m_maxLightJobs = integer("World.Streaming.MaxLightJobsInFlight", "Light jobs in flight",
+                             "Chunks lit at the same time. Only chunks near light sources need a job.",
+                             std::min(16, static_cast<i32>(lightSlots)), 1, static_cast<i32>(lightSlots),
+                             config::Visibility::Advanced);
+    m_blockLight = settings.registerBool({{.id = "Graphics.Lighting.BlockLight",
+                                           .displayName = "Block light",
+                                           .description = "Light from torches, lava and glowing blocks. Off "
+                                                          "leaves only sky light."},
+                                          true});
     m_maxChunks = integer("World.Streaming.MaxChunks", "Most chunks",
                           "The most chunks loaded or waiting to load, a memory cap. Normally the render "
                           "distance decides.",
@@ -232,6 +256,7 @@ void StreamingManager::registerStats() {
         gauge("Voxel.Streaming.Pending", "Chunks wanted, waiting for a load job."),
         gauge("Voxel.Streaming.Loading", "Chunks being generated or read."),
         gauge("Voxel.Streaming.Ready", "Chunks in the world, not in the mesh pipeline."),
+        gauge("Voxel.Streaming.Lighting", "Chunks waiting for or running a light job."),
         gauge("Voxel.Streaming.MeshQueued", "Chunks waiting for a mesh job."),
         gauge("Voxel.Streaming.Meshing", "Chunks being meshed."),
         gauge("Voxel.Streaming.Uploading", "Meshes waiting for the upload budget."),
@@ -244,6 +269,13 @@ void StreamingManager::registerStats() {
     m_statIds.unloadedPerFrame = counter("Voxel.Streaming.ChunksUnloaded", "Chunks taken out of the world.");
     m_statIds.cancelled = counter("Voxel.Streaming.Cancelled", "Jobs whose chunk left the range.");
     m_statIds.stale = counter("Voxel.Streaming.StaleMeshes", "Meshes thrown away because the chunk changed.");
+    m_statIds.lightJobs = counter("Voxel.Light.ChunksLit", "Chunks whose block light a job computed.");
+    m_statIds.lightSkipped =
+        counter("Voxel.Light.Skipped", "Chunks lit without a job: no light source within reach.");
+    m_statIds.lightTime = add({.name = "Voxel.Light.JobTime",
+                               .description = "Time in block light jobs, on all workers.",
+                               .type = stats::StatType::Timer,
+                               .unit = stats::StatUnit::Milliseconds});
     m_statIds.updateTime = add({.name = "Voxel.Streaming.UpdateTime",
                                 .description = "Main thread time of the streaming update.",
                                 .type = stats::StatType::Timer,
@@ -278,6 +310,11 @@ u32 StreamingManager::meshLimit() const noexcept {
     return std::min(limit, static_cast<u32>(m_meshSlots.size()));
 }
 
+u32 StreamingManager::lightLimit() const noexcept {
+    const auto limit = static_cast<u32>(std::max(m_maxLightJobs.get(), 1)) * (m_bursting ? kBurstFactor : 1U);
+    return std::min(limit, static_cast<u32>(m_lightSlots.size()));
+}
+
 bool StreamingManager::overBudget() const noexcept {
     return Clock::now() >= m_deadline;
 }
@@ -291,6 +328,11 @@ bool StreamingManager::within(ChunkPos position, i32 horizontal, i32 vertical) c
     const i64 dy = std::abs(i64{position.y} - m_center.y);
     const i64 dz = std::abs(i64{position.z} - m_center.z);
     return std::max(dx, dz) <= horizontal && dy <= vertical;
+}
+
+bool StreamingManager::wantsLight(ChunkPos position, const Entry& entry) const noexcept {
+    return within(position, m_rangeR + 1, m_rangeV + 1) ||
+           (entry.lit && within(position, m_rangeR + 1 + m_hysteresis, m_rangeV + 1 + m_hysteresis));
 }
 
 bool StreamingManager::wantsMesh(ChunkPos position, const Entry& entry) const noexcept {
@@ -363,8 +405,8 @@ void StreamingManager::readSettings() {
 // render distance 32 and vertical distance 8.
 void StreamingManager::rebuildOffsets() {
     VXE_PROFILE_FUNCTION();
-    const i32 horizontal = m_rangeR + 1;
-    const i32 vertical = m_rangeV + 1;
+    const i32 horizontal = m_rangeR + 2;
+    const i32 vertical = m_rangeV + 2;
     std::vector<std::pair<f32, Offset>> sorted;
     sorted.reserve(static_cast<usize>((2 * horizontal) + 1) * static_cast<usize>((2 * horizontal) + 1) *
                    static_cast<usize>((2 * vertical) + 1));
@@ -426,7 +468,7 @@ void StreamingManager::reprioritize() {
         if (it == m_entries.end() || it->second.stage != ChunkStage::Pending) {
             return true;
         }
-        if (!within(candidate.position, m_rangeR + 1, m_rangeV + 1)) {
+        if (!within(candidate.position, m_rangeR + 2, m_rangeV + 2)) {
             m_unloadQueue.push_back(candidate.position); // Erased between maintenance passes.
             return true;
         }
@@ -447,6 +489,19 @@ void StreamingManager::reprioritize() {
         return false;
     });
     std::ranges::make_heap(m_meshQueue, kLater);
+    std::erase_if(m_lightQueue, [this](Candidate& candidate) {
+        const auto it = m_entries.find(candidate.position);
+        if (it == m_entries.end() || it->second.stage != ChunkStage::Lighting || it->second.lightRunning) {
+            return true;
+        }
+        if (!wantsLight(candidate.position, it->second)) {
+            setStage(it->second, ChunkStage::Ready);
+            return true;
+        }
+        candidate.score = score(candidate.position);
+        return false;
+    });
+    std::ranges::make_heap(m_lightQueue, kLater);
     m_scanCursor = 0;
     m_scanDone = false;
     requestMaintenance();
@@ -462,19 +517,34 @@ void StreamingManager::requestMaintenance() {
     m_maintainAgain = false;
     m_passRemesh = m_remeshAll;
     m_remeshAll = false;
+    m_passRelight = m_relightAll;
+    m_relightAll = false;
 }
 
 void StreamingManager::checkMeshInputs() {
-    if (m_sink == nullptr) {
+    if (m_blocks == nullptr) {
         return;
     }
-    const MeshOptions options = m_mesherSettings.options();
-    std::shared_ptr<const BlockRegistryView> view = m_blocks->current();
-    if (options != m_options || view != m_view) {
-        m_options = options;
-        m_view = std::move(view);
+    const std::shared_ptr<const BlockRegistryView> view = m_blocks->current();
+    const bool blockLight = m_blockLight.get();
+    if (view != m_view || blockLight != m_blockLightOn) {
+        // New block data can change what emits light and what blocks it.
+        m_view = view;
+        m_blockLightOn = blockLight;
+        relightAll();
+        if (m_sink != nullptr) {
+            remeshAll();
+        }
+    }
+    if (m_sink != nullptr && m_mesherSettings.options() != m_options) {
+        m_options = m_mesherSettings.options();
         remeshAll();
     }
+}
+
+void StreamingManager::relightAll() {
+    m_relightAll = true;
+    requestMaintenance();
 }
 
 void StreamingManager::remeshAll() {
@@ -499,9 +569,12 @@ void StreamingManager::update(const StreamingView& view) {
     // Finishing work first (stage bias): results in, then uploads and new
     // mesh jobs, and only then new chunks.
     collectLoads();
+    collectLights();
     collectMeshes();
+    processEditedChunks();
     processChangedChunks();
     uploadMeshes();
+    scheduleLights();
     scheduleMeshes();
     maintain();
     requestChunks();
@@ -559,13 +632,17 @@ void StreamingManager::insertLoaded(ChunkPos position, Entry& entry, LoadSlot& s
     }
     setStage(entry, ChunkStage::Ready);
     entry.meshDirty = true;
-    // Count the neighbors that are there, and tell them about this one.
-    // Chunks above and below the world never come, so they count as there.
+    entry.lightDirty = true;
+    // Count the neighbors that are there (and lit), and tell them about this
+    // one. Chunks above and below the world never come, so they count as
+    // there and lit.
     u8 neighbors = 0;
+    u8 litNeighbors = 0;
     for (const auto& offset : kNeighborOffsets) {
         const auto at = offsetPosition(position, offset[0], offset[1], offset[2]);
         if (!at || !inWorldHeight(at->y)) {
             ++neighbors;
+            ++litNeighbors;
             continue;
         }
         const auto it = m_entries.find(*at);
@@ -573,23 +650,235 @@ void StreamingManager::insertLoaded(ChunkPos position, Entry& entry, LoadSlot& s
             continue;
         }
         ++neighbors;
+        litNeighbors = static_cast<u8>(litNeighbors + (it->second.lit ? 1U : 0U));
         VXE_ASSERT(it->second.neighbors < kNeighborCount, "A chunk has more than 26 neighbors");
         ++it->second.neighbors;
-        considerMesh(*at, it->second);
+        considerWork(*at, it->second);
     }
     entry.neighbors = neighbors;
-    considerMesh(position, entry);
+    entry.litNeighbors = litNeighbors;
+    considerWork(position, entry);
     if (m_stats != nullptr && m_statIds.loadedPerFrame.isValid()) {
         m_stats->add(m_statIds.loadedPerFrame);
     }
-    if (m_sink == nullptr) {
-        sampleLatency(entry); // Without meshing, loaded is done.
+}
+
+void StreamingManager::considerWork(ChunkPos position, Entry& entry) {
+    considerLight(position, entry);
+    considerMesh(position, entry);
+}
+
+// Queues the chunk for light once all its neighbors are loaded: a light
+// source up to 15 blocks away can reach it, which is at most one chunk over.
+void StreamingManager::considerLight(ChunkPos position, Entry& entry) {
+    if (entry.stage != ChunkStage::Ready || !entry.lightDirty || entry.neighbors != kNeighborCount ||
+        !wantsLight(position, entry)) {
+        return;
+    }
+    if (m_lightQueue.size() >= std::max<usize>(kMinPending, usize{4} * std::max(lightLimit(), 1U))) {
+        m_lightBacklog = true;
+        return;
+    }
+    setStage(entry, ChunkStage::Lighting);
+    entry.lightRunning = false;
+    m_lightQueue.push_back({.score = score(position), .position = position});
+    std::ranges::push_heap(m_lightQueue, kLater);
+}
+
+// The chunk has light now. The first time, its neighbors learn it: a chunk
+// is meshed only when it and all its neighbors are lit, so its mesh never
+// has to be redone because a neighbor's light arrived late.
+void StreamingManager::markLit(ChunkPos position, Entry& entry) {
+    if (!entry.lit) {
+        entry.lit = true;
+        for (const auto& offset : kNeighborOffsets) {
+            const auto at = offsetPosition(position, offset[0], offset[1], offset[2]);
+            if (!at || !inWorldHeight(at->y)) {
+                continue;
+            }
+            if (const auto it = m_entries.find(*at); it != m_entries.end() && inWorld(it->second.stage)) {
+                VXE_ASSERT(it->second.litNeighbors < kNeighborCount,
+                           "A chunk has more than 26 lit neighbors");
+                ++it->second.litNeighbors;
+                considerWork(*at, it->second);
+            }
+        }
+        if (m_sink == nullptr) {
+            sampleLatency(entry); // Without meshing, lit is done.
+        }
+    }
+    considerWork(position, entry);
+}
+
+// Takes lit chunks off the light queue: chunks with no light source in
+// reach right here (block light 0 everywhere, no job), the others into job
+// slots with copies of their neighborhood.
+void StreamingManager::scheduleLights() {
+    VXE_PROFILE_FUNCTION();
+    static constexpr std::array<u8, kChunkVolume> kNoBlockLight{};
+    usize handled = 0;
+    while (!m_lightQueue.empty()) {
+        if (handled > 0 && overBudget()) {
+            break;
+        }
+        std::ranges::pop_heap(m_lightQueue, kLater);
+        const Candidate candidate = m_lightQueue.back();
+        m_lightQueue.pop_back();
+        const auto it = m_entries.find(candidate.position);
+        if (it == m_entries.end() || it->second.stage != ChunkStage::Lighting || it->second.lightRunning) {
+            continue;
+        }
+        Entry& entry = it->second;
+        if (entry.neighbors != kNeighborCount || !wantsLight(candidate.position, entry)) {
+            setStage(entry, ChunkStage::Ready);
+            continue;
+        }
+        ++handled;
+        ChunkNeighborhood around{};
+        std::array<const Chunk*, 27> chunks{};
+        for (usize k = 0; k < 27; ++k) {
+            const auto at = offsetPosition(candidate.position, static_cast<i64>(k % 3) - 1,
+                                           static_cast<i64>(k / 9) - 1, static_cast<i64>((k / 3) % 3) - 1);
+            chunks.at(k) = at ? m_world.findChunk(*at) : nullptr;
+            around.at(k) = chunks.at(k) != nullptr ? &chunks.at(k)->blocks() : nullptr;
+        }
+        Chunk* chunk = m_world.findChunk(candidate.position);
+        const bool needsJob = m_view && m_blockLightOn && neighborhoodEmitsLight(around, *m_view);
+        if (!needsJob) {
+            static_cast<void>(m_world.replaceBlockLight(candidate.position, kNoBlockLight));
+            chunk->clearDirty(kDirtyLight);
+            entry.lightDirty = false;
+            setStage(entry, ChunkStage::Ready);
+            if (m_stats != nullptr && m_statIds.lightSkipped.isValid()) {
+                m_stats->add(m_statIds.lightSkipped);
+            }
+            markLit(candidate.position, entry);
+            continue;
+        }
+        if (m_freeLightSlots.empty() || m_busyLightSlots.size() >= lightLimit()) {
+            m_lightQueue.push_back(candidate); // Waits for a slot.
+            std::ranges::push_heap(m_lightQueue, kLater);
+            break;
+        }
+        const u16 index = m_freeLightSlots.back();
+        m_freeLightSlots.pop_back();
+        LightSlot& slot = *m_lightSlots[index];
+        slot.position = candidate.position;
+        slot.done.store(false, std::memory_order_relaxed);
+        slot.cancelled.store(false, std::memory_order_relaxed);
+        for (usize k = 0; k < 27; ++k) {
+            slot.present.at(k) = chunks.at(k) != nullptr;
+            if (chunks.at(k) != nullptr) {
+                slot.chunks.at(k) = chunks.at(k)->blocks();
+                slot.versions.at(k) = chunks.at(k)->blocksVersion();
+            }
+        }
+        slot.blocks = m_view;
+        chunk->clearDirty(kDirtyLight);
+        entry.lightDirty = false;
+        entry.lightRunning = true;
+        entry.slot = index;
+        m_busyLightSlots.push_back(index);
+        m_jobs.schedule(m_jobCounter, [this, index] { runLight(index); }, jobs::Priority::High);
+    }
+    const usize cap = std::max<usize>(kMinPending, usize{4} * std::max(lightLimit(), 1U));
+    if (m_lightBacklog && m_lightQueue.size() < cap / 2) {
+        m_lightBacklog = false;
+        requestMaintenance();
     }
 }
 
+void StreamingManager::runLight(u16 index) {
+    LightSlot& slot = *m_lightSlots[index];
+    if (!slot.cancelled.load(std::memory_order_relaxed)) {
+        const Stopwatch stopwatch;
+        thread_local BlockLighter lighter;
+        ChunkNeighborhood around{};
+        for (usize k = 0; k < 27; ++k) {
+            around.at(k) = slot.present.at(k) ? &slot.chunks.at(k) : nullptr;
+        }
+        lighter.compute(around, *slot.blocks, slot.result);
+        if (m_stats != nullptr && m_statIds.lightTime.isValid()) {
+            m_stats->addTime(m_statIds.lightTime, stopwatch.elapsed());
+        }
+    }
+    slot.done.store(true, std::memory_order_release);
+}
+
+void StreamingManager::collectLights() {
+    VXE_PROFILE_FUNCTION();
+    usize handled = 0;
+    for (usize i = 0; i < m_busyLightSlots.size();) {
+        const u16 index = m_busyLightSlots[i];
+        LightSlot& slot = *m_lightSlots[index];
+        if (!slot.done.load(std::memory_order_acquire)) {
+            ++i;
+            continue;
+        }
+        if (handled > 0 && overBudget()) {
+            return;
+        }
+        ++handled;
+        m_busyLightSlots[i] = m_busyLightSlots.back();
+        m_busyLightSlots.pop_back();
+        m_freeLightSlots.push_back(index);
+        slot.blocks.reset();
+        const auto it = m_entries.find(slot.position);
+        if (it == m_entries.end() || it->second.stage != ChunkStage::Lighting || !it->second.lightRunning ||
+            it->second.slot != index || slot.cancelled.load(std::memory_order_relaxed)) {
+            continue;
+        }
+        Entry& entry = it->second;
+        entry.lightRunning = false;
+        setStage(entry, ChunkStage::Ready);
+        // Blocks that changed since the copy make the result outdated.
+        bool current = true;
+        for (usize k = 0; k < 27 && current; ++k) {
+            const auto at = offsetPosition(slot.position, static_cast<i64>(k % 3) - 1,
+                                           static_cast<i64>(k / 9) - 1, static_cast<i64>((k / 3) % 3) - 1);
+            const Chunk* chunk = at ? m_world.findChunk(*at) : nullptr;
+            current = (chunk != nullptr) == slot.present.at(k) &&
+                      (chunk == nullptr || chunk->blocksVersion() == slot.versions.at(k));
+        }
+        if (!current) {
+            entry.lightDirty = true;
+            considerWork(slot.position, entry);
+            continue;
+        }
+        static_cast<void>(m_world.replaceBlockLight(slot.position, slot.result));
+        if (m_stats != nullptr && m_statIds.lightJobs.isValid()) {
+            m_stats->add(m_statIds.lightJobs);
+        }
+        markLit(slot.position, entry);
+    }
+}
+
+// Block edits change the light up to 15 blocks around them: the edited
+// chunk and its 26 neighbors are lit again.
+void StreamingManager::processEditedChunks() {
+    for (const ChunkPos position : m_world.editedChunks()) {
+        if (Chunk* chunk = m_world.findChunk(position); chunk != nullptr) {
+            chunk->clearDirty(kDirtyLight);
+        }
+        for (i32 k = 0; k < 27; ++k) {
+            const auto at = offsetPosition(position, (k % 3) - 1, (k / 9) - 1, ((k / 3) % 3) - 1);
+            if (!at) {
+                continue;
+            }
+            const auto it = m_entries.find(*at);
+            if (it == m_entries.end() || !inWorld(it->second.stage)) {
+                continue;
+            }
+            it->second.lightDirty = true;
+            considerWork(*at, it->second);
+        }
+    }
+    m_world.clearEditedChunks();
+}
+
 void StreamingManager::considerMesh(ChunkPos position, Entry& entry) {
-    if (m_sink == nullptr || entry.stage != ChunkStage::Ready || !entry.meshDirty ||
-        entry.neighbors != kNeighborCount || !wantsMesh(position, entry)) {
+    if (m_sink == nullptr || entry.stage != ChunkStage::Ready || !entry.meshDirty || !entry.lit ||
+        entry.litNeighbors != kNeighborCount || !wantsMesh(position, entry)) {
         return;
     }
     // A full queue leaves the chunk Ready and dirty; a maintenance pass
@@ -658,7 +947,7 @@ void StreamingManager::collectMeshes() {
             setStage(entry, ChunkStage::Ready);
             entry.meshDirty = true;
             freeMeshSlot(index);
-            considerMesh(slot.position, entry);
+            considerWork(slot.position, entry);
             continue;
         }
         if (m_stats != nullptr && m_statIds.meshedPerFrame.isValid()) {
@@ -676,7 +965,7 @@ void StreamingManager::processChangedChunks() {
             continue;
         }
         it->second.meshDirty = true;
-        considerMesh(position, it->second);
+        considerWork(position, it->second);
     }
     m_world.clearChangedChunks();
 }
@@ -725,7 +1014,7 @@ void StreamingManager::uploadMeshes() {
         }
         setStage(entry, ChunkStage::Ready);
         freeMeshSlot(index);
-        considerMesh(slot.position, entry);
+        considerWork(slot.position, entry);
     }
     m_uploadQueue.erase(m_uploadQueue.begin(), m_uploadQueue.begin() + static_cast<std::ptrdiff_t>(used));
 }
@@ -751,7 +1040,8 @@ void StreamingManager::scheduleMeshes() {
         }
         Entry& entry = it->second;
         Chunk* chunk = m_world.findChunk(position);
-        if (entry.neighbors != kNeighborCount || !wantsMesh(position, entry) || chunk == nullptr) {
+        if (entry.litNeighbors != kNeighborCount || !entry.lit || !wantsMesh(position, entry) ||
+            chunk == nullptr) {
             setStage(entry, ChunkStage::Ready);
             continue;
         }
@@ -815,6 +1105,8 @@ void StreamingManager::unload(ChunkPos position, Entry& entry) {
         m_loadSlots[entry.slot]->cancelled.store(true, std::memory_order_relaxed);
     } else if (entry.stage == ChunkStage::Meshing) {
         m_meshSlots[entry.slot]->cancelled.store(true, std::memory_order_relaxed);
+    } else if (entry.stage == ChunkStage::Lighting && entry.lightRunning) {
+        m_lightSlots[entry.slot]->cancelled.store(true, std::memory_order_relaxed);
     }
     if (inWorld(entry.stage)) {
         for (const auto& offset : kNeighborOffsets) {
@@ -824,6 +1116,9 @@ void StreamingManager::unload(ChunkPos position, Entry& entry) {
             }
             if (const auto it = m_entries.find(*at); it != m_entries.end() && inWorld(it->second.stage)) {
                 --it->second.neighbors;
+                if (entry.lit) {
+                    --it->second.litNeighbors;
+                }
             }
         }
         m_world.removeChunk(position);
@@ -845,6 +1140,24 @@ void StreamingManager::unload(ChunkPos position, Entry& entry) {
 // around in the map, which would make a walk by index skip some. A pass
 // asked for while one runs follows it, so passes always finish even when
 // the camera crosses a chunk border every frame.
+// One chunk of a maintenance pass.
+void StreamingManager::maintainEntry(ChunkPos position, Entry& entry) {
+    if (!within(position, m_rangeR + 2 + m_hysteresis, m_rangeV + 2 + m_hysteresis)) {
+        m_unloadQueue.push_back(position);
+        return;
+    }
+    if (entry.meshed && !within(position, m_rangeR + m_hysteresis, m_rangeV + m_hysteresis)) {
+        unmesh(position, entry);
+    }
+    if (m_passRemesh && entry.meshed) {
+        entry.meshDirty = true;
+    }
+    if (m_passRelight && entry.lit) {
+        entry.lightDirty = true;
+    }
+    considerWork(position, entry);
+}
+
 void StreamingManager::maintain() {
     VXE_PROFILE_FUNCTION();
     usize steps = 0;
@@ -859,19 +1172,7 @@ void StreamingManager::maintain() {
             }
             ++steps;
             const auto it = m_entries.begin() + static_cast<std::ptrdiff_t>(m_maintainCursor++);
-            const ChunkPos position = it->first;
-            Entry& entry = it->second;
-            if (!within(position, m_rangeR + 1 + m_hysteresis, m_rangeV + 1 + m_hysteresis)) {
-                m_unloadQueue.push_back(position);
-                continue;
-            }
-            if (entry.meshed && !within(position, m_rangeR + m_hysteresis, m_rangeV + m_hysteresis)) {
-                unmesh(position, entry);
-            }
-            if (m_passRemesh && entry.meshed) {
-                entry.meshDirty = true;
-            }
-            considerMesh(position, entry);
+            maintainEntry(it->first, it->second);
         }
         while (!m_unloadQueue.empty()) {
             if (steps > 0 && overBudget()) {
@@ -892,12 +1193,12 @@ void StreamingManager::maintain() {
                 m_scanDone = false;
                 continue;
             }
-            if (within(position, m_rangeR + 1 + m_hysteresis, m_rangeV + 1 + m_hysteresis)) {
+            if (within(position, m_rangeR + 2 + m_hysteresis, m_rangeV + 2 + m_hysteresis)) {
                 continue; // Back in range since it was listed.
             }
             unload(position, it->second);
         }
-        if (!m_maintainAgain && !m_remeshAll) {
+        if (!m_maintainAgain && !m_remeshAll && !m_relightAll) {
             return;
         }
         m_maintainAgain = false;
@@ -998,7 +1299,8 @@ void StreamingManager::updateBurst() {
 
 bool StreamingManager::isSettled() const noexcept {
     return m_hasCenter && m_scanDone && !m_maintaining && !m_maintainAgain && !m_remeshAll &&
-           !m_meshBacklog && m_unloadQueue.empty() && m_pending.empty() && m_busyLoadSlots.empty() &&
+           !m_meshBacklog && !m_relightAll && !m_lightBacklog && m_unloadQueue.empty() && m_pending.empty() &&
+           m_busyLoadSlots.empty() && m_busyLightSlots.empty() && m_lightQueue.empty() &&
            m_busyMeshSlots.empty() && m_uploadQueue.empty() && m_meshQueue.empty();
 }
 
@@ -1017,7 +1319,7 @@ bool StreamingManager::isAreaReady(i32 radius) const {
                 }
                 const auto it = m_entries.find(*position);
                 if (it == m_entries.end() || !inWorld(it->second.stage) ||
-                    (m_sink != nullptr && !it->second.meshed)) {
+                    (m_blocks != nullptr && !it->second.lit) || (m_sink != nullptr && !it->second.meshed)) {
                     return false;
                 }
             }
@@ -1033,7 +1335,17 @@ void StreamingManager::unloadAll() {
     for (const u16 index : m_busyMeshSlots) {
         m_meshSlots[index]->cancelled.store(true, std::memory_order_relaxed);
     }
+    for (const u16 index : m_busyLightSlots) {
+        m_lightSlots[index]->cancelled.store(true, std::memory_order_relaxed);
+    }
     m_jobs.wait(m_jobCounter);
+    for (const u16 index : m_busyLightSlots) {
+        m_lightSlots[index]->blocks.reset();
+        m_freeLightSlots.push_back(index);
+    }
+    m_busyLightSlots.clear();
+    m_lightQueue.clear();
+    m_world.clearEditedChunks();
     m_freeLoadSlots.insert(m_freeLoadSlots.end(), m_busyLoadSlots.begin(), m_busyLoadSlots.end());
     m_busyLoadSlots.clear();
     for (const u16 index : m_busyMeshSlots) {
@@ -1065,6 +1377,9 @@ void StreamingManager::unloadAll() {
     m_passRemesh = false;
     m_remeshAll = false;
     m_meshBacklog = false;
+    m_lightBacklog = false;
+    m_relightAll = false;
+    m_passRelight = false;
     m_hasCenter = false;
 }
 
@@ -1074,6 +1389,11 @@ std::optional<ChunkStage> StreamingManager::stageOf(ChunkPos position) const {
         return std::nullopt;
     }
     return it->second.stage;
+}
+
+bool StreamingManager::isLit(ChunkPos position) const {
+    const auto it = m_entries.find(position);
+    return it != m_entries.end() && it->second.lit;
 }
 
 bool StreamingManager::hasMesh(ChunkPos position) const {

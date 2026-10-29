@@ -11,6 +11,8 @@ namespace vxe::voxel {
 // read these and clear them once the work is queued.
 inline constexpr u8 kDirtyMesh = 1U << 0; // Its mesh no longer matches its snapshot.
 inline constexpr u8 kDirtySave = 1U << 1; // Its own blocks changed since the last save.
+// Its own blocks changed since the light around it was last computed.
+inline constexpr u8 kDirtyLight = 1U << 2;
 
 // One 16x16x16 chunk of a VoxelWorld (Section 9.5): its blocks, their light
 // (Section 14.2), a version counter and dirty flags. The
@@ -41,6 +43,10 @@ public:
     [[nodiscard]] const ChunkStorage& blocks() const noexcept { return m_blocks; }
     [[nodiscard]] const ChunkLight& light() const noexcept { return m_light; }
     [[nodiscard]] u64 version() const noexcept { return m_version; }
+    // Like version(), but moved only by changes to this chunk's own blocks
+    // (not light, not neighbors). A light job remembers the block versions
+    // of the chunks it read; if one moved on, its result is outdated.
+    [[nodiscard]] u64 blocksVersion() const noexcept { return m_blocksVersion; }
 
     [[nodiscard]] u8 dirtyFlags() const noexcept { return m_dirty; }
     [[nodiscard]] bool isDirty(u8 flags) const noexcept { return (m_dirty & flags) != 0; }
@@ -65,6 +71,7 @@ private:
     ChunkLight m_light;
     ChunkPos m_position;
     u64 m_version = 0;
+    u64 m_blocksVersion = 0;
     u8 m_dirty = 0;
     u64 m_lastAccessTick = 0;
 };

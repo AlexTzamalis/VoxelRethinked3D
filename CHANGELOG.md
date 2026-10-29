@@ -2,6 +2,24 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#068] 2026-10-29, E10.2 Block light
+### Added
+- voxel::BlockLighter (Section 14.1 stage B): the block light of a chunk from its 48 x 48 x 48 neighborhood (the chunk and its 26 neighbors; a light source reaches at most 15 blocks, so nothing farther matters). A flood fill from every source at once, level by level from 15 down, losing at least one level per block and more through blocks with a higher light opacity; fully opaque blocks stop light but still glow when they emit. Computing a chunk from scratch makes placing and removing a source the same operation and leaves no stale light behind.
+- voxel::neighborhoodEmitsLight and ChunkStorage::anyState: whether any of the 27 chunks holds a light source, from palettes only.
+- Lighting in the streaming manager: a Lighting stage between loading and meshing. Chunks are lit once their 26 neighbors are loaded and meshed once they and their 26 neighbors are lit, so a mesh never has to be redone because a neighbor's light arrived. Ranges grow by one ring: lit within render distance + 1, loaded within + 2. Chunks with no source in reach get block light 0 without a job; the others go to light jobs that copy their neighborhood, and results from blocks that changed meanwhile are thrown away and computed again. Block edits light the edited chunk and its 26 neighbors again.
+- VoxelWorld: Chunk::blocksVersion (moves only with the chunk's own blocks), editedChunks (chunks whose blocks were edited, for relighting), replaceBlockLight (new block light, sky light kept).
+- Settings Graphics.Lighting.BlockLight and World.Streaming.MaxLightJobsInFlight. Stats Voxel.Light.ChunksLit, Voxel.Light.Skipped, Voxel.Light.JobTime and Voxel.Streaming.Lighting; the overlay page "Streaming and Jobs" shows the Lighting stage.
+- StreamingManager::isLit.
+- Tests: the flood fill against a brute force relaxation on random neighborhoods; streamed chunks against a flood over the whole loaded world with sources on chunk borders and corners (no seams); placing and removing a torch (lit within 1.8 ms, dark within 1.5 ms, nothing left behind); turning block light off and on.
+### Changed
+- Streaming loads one more ring of chunks (render distance + 2) so lit chunks have all their neighbors; tests updated for the larger range.
+### Fixed
+- The frame limiter accuracy test measures up to three times: parallel test processes now and then delay one sleep by several milliseconds, which made it fail twice in full ctest runs.
+### Performance
+- Demo world flight at 300 blocks per second: streaming main thread time 0.08 to 0.10 ms per frame (0.06 to 0.08 before); playable after 314 to 343 ms (255 to 306 before).
+### Docs
+- docs/perf/light.md: E10.2 measurements.
+
 ## [#067] 2026-10-29, E10.1 Light storage
 ### Added
 - voxel::ChunkLight (Section 14.2): sky and block light of a chunk's 4096 blocks, 4 bits each in one byte (packLight, skyLightOf, blockLightOf). Uniform chunks (open sky above the ground, dark deep below) keep their one value in the object; any other chunk stores 4096 bytes under MemoryTag::Chunks. Writes switch to full storage by themselves, compact() and assign() switch back when every block is lit alike. Chunks start as open sky, matching the mesher's placeholder light until the light engine (E10.2, E10.3) computes real light.

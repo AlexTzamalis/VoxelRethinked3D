@@ -221,6 +221,14 @@ void VoxelWorld::markChanged(Chunk& chunk, u64 stamp) {
     }
 }
 
+void VoxelWorld::blocksEdited(Chunk& chunk, u64 stamp) {
+    chunk.m_blocksVersion = stamp;
+    if (!chunk.isDirty(kDirtyLight)) {
+        chunk.m_dirty = static_cast<u8>(chunk.m_dirty | kDirtyLight);
+        m_editedChunks.push_back(chunk.position());
+    }
+}
+
 void VoxelWorld::neighborChanged(ChunkPos position, i32 dx, i32 dy, i32 dz, u64 stamp) {
     if (const auto at = neighborPosition(position, dx, dy, dz)) {
         if (Chunk* found = findChunk(*at); found != nullptr) {
@@ -253,6 +261,7 @@ Chunk& VoxelWorld::insertChunk(ChunkPos position, ChunkStorage blocks, ChunkLigh
         account(existing->m_blocks, true);
         accountLight(existing->m_light, true);
         markChanged(*existing, stamp);
+        blocksEdited(*existing, stamp);
         neighborsChanged(position, stamp);
         ColumnSummary& column = *m_columns.find(columnOf(position))->second;
         const i64 top = chunkBase(position.y) + kChunkMask;
@@ -272,6 +281,7 @@ Chunk& VoxelWorld::insertChunk(ChunkPos position, ChunkStorage blocks, ChunkLigh
     chunk->m_blocks = std::move(blocks);
     chunk->m_light = std::move(light);
     chunk->changed(stamp);
+    chunk->m_blocksVersion = stamp;
     m_chunks.emplace(position, chunk);
     account(chunk->m_blocks, true);
     accountLight(chunk->m_light, true);
@@ -309,6 +319,7 @@ void VoxelWorld::clear() {
     }
     m_columns.clear();
     m_changedChunks.clear();
+    m_editedChunks.clear();
 }
 
 void VoxelWorld::addToColumn(const Chunk& chunk) {
@@ -442,6 +453,7 @@ bool VoxelWorld::setBlock(const BlockPos& position, BlockStateId state) {
     chunk->m_blocks.set(local, state);
     account(chunk->m_blocks, true);
     markChanged(*chunk, stamp);
+    blocksEdited(*chunk, stamp);
     chunk->m_dirty = static_cast<u8>(chunk->m_dirty | kDirtySave);
     borderChanged(chunkPosition, local, stamp);
 
@@ -506,6 +518,27 @@ bool VoxelWorld::setLight(const BlockPos& position, u8 packed) {
     markChanged(*chunk, stamp);
     borderChanged(chunkPosition, local, stamp);
     return true;
+}
+
+bool VoxelWorld::replaceBlockLight(ChunkPos position, std::span<const u8, kChunkVolume> blockLight) {
+    const Chunk* chunk = findChunk(position);
+    if (chunk == nullptr) {
+        return false;
+    }
+    const ChunkLight& current = chunk->light();
+    // The common answer for chunks next to a light source that did not
+    // reach them: still no block light at all.
+    if (current.isUniform() && blockLightOf(current.uniformValue()) == 0 &&
+        std::ranges::all_of(blockLight, [](u8 level) { return level == 0; })) {
+        return true;
+    }
+    std::array<u8, kChunkVolume> merged{};
+    for (u16 i = 0; i < kChunkVolume; ++i) {
+        merged.at(i) = packLight(skyLightOf(current.getIndex(i)), blockLight[i]);
+    }
+    ChunkLight next;
+    next.assign(merged);
+    return replaceLight(position, std::move(next));
 }
 
 bool VoxelWorld::replaceLight(ChunkPos position, ChunkLight light) {

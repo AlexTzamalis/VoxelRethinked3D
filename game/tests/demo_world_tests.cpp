@@ -127,8 +127,8 @@ TEST_CASE("The demo world streams in around the camera without a renderer") {
     }
     CHECK(demo.isLoaded());
     REQUIRE(demo.streaming().isSettled());
-    // Within render distance + 1 sideways, all 8 layers of the world.
-    CHECK(demo.world().chunkCount() == 7 * 7 * 8);
+    // Within render distance + 2 sideways, all 8 layers of the world.
+    CHECK(demo.world().chunkCount() == 9 * 9 * 8);
     CHECK(demo.spawnPosition().y > vr::DemoTerrain::kSeaLevel);
     demo.shutdown();
     CHECK(demo.world().chunkCount() == 0);

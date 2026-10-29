@@ -182,8 +182,9 @@ i64 horizontalDistance(ChunkPos a, ChunkPos b) {
 TEST_CASE("Streaming loads the range and meshes each chunk once its neighbors are there") {
     Rig rig;
     rig.settle();
-    // Loaded: within 3 chunks sideways and 2 up and down, all 5 world layers.
-    CHECK(rig.manager->counts().loaded == 7U * 7U * 5U);
+    // Loaded: within 4 chunks sideways (render distance + 2, so every lit
+    // chunk has its neighbors) and 3 up and down, all 5 world layers.
+    CHECK(rig.manager->counts().loaded == 9U * 9U * 5U);
     // Meshed: within 2 sideways and 1 up and down.
     CHECK(rig.manager->counts().meshed == 5U * 5U * 3U);
     rig.checkConsistent();
@@ -195,9 +196,9 @@ TEST_CASE("Streaming loads the range and meshes each chunk once its neighbors ar
     CHECK(rig.manager->isAreaReady(2));
     CHECK(rig.manager->stageOf({.x = 3, .y = 0, .z = 0}) == ChunkStage::Ready);
     CHECK_FALSE(rig.manager->hasMesh({.x = 3, .y = 0, .z = 0}));
-    CHECK_FALSE(rig.manager->stageOf({.x = 4, .y = 0, .z = 0}).has_value());
+    CHECK_FALSE(rig.manager->stageOf({.x = 5, .y = 0, .z = 0}).has_value());
     // Each chunk was produced once, and the generator's estimate arrived.
-    CHECK(rig.source.produced.load() == 7U * 7U * 5U);
+    CHECK(rig.source.produced.load() == 9U * 9U * 5U);
     REQUIRE(rig.world.findColumn({.x = 0, .z = 0}) != nullptr);
     CHECK(rig.world.findColumn({.x = 0, .z = 0})->surfaceEstimate() == 7);
     // A source's light goes into the world; without one chunks start as open sky.
@@ -209,7 +210,7 @@ TEST_CASE("Chunks at the top and bottom of the world are meshed without neighbor
     Rig rig(true, -1, 1);
     rig.set("World.Streaming.VerticalRenderDistance", 4);
     rig.settle();
-    CHECK(rig.manager->counts().loaded == 7U * 7U * 3U);
+    CHECK(rig.manager->counts().loaded == 9U * 9U * 3U);
     CHECK(rig.manager->counts().meshed == 5U * 5U * 3U);
     CHECK(rig.manager->hasMesh({.x = 0, .y = 1, .z = 0}));
     CHECK(rig.manager->hasMesh({.x = 0, .y = -1, .z = 0}));
@@ -220,14 +221,14 @@ TEST_CASE("Moving unloads past the hysteresis and loads ahead") {
     rig.settle();
     rig.moveTo({.x = 1, .y = 0, .z = 0});
     rig.settle();
-    // x = -3 is 4 away now: still within render distance + 1 + hysteresis.
+    // x = -3 is 4 away now: still within render distance + 2 + hysteresis.
     CHECK(rig.manager->stageOf({.x = -3, .y = 0, .z = 0}).has_value());
     // x = -2 is 3 away: its mesh stays (render distance + hysteresis).
     CHECK(rig.manager->hasMesh({.x = -2, .y = 0, .z = 0}));
     CHECK(rig.manager->hasMesh({.x = 3, .y = 0, .z = 0}));
     rig.checkConsistent();
 
-    rig.moveTo({.x = 3, .y = 0, .z = 0});
+    rig.moveTo({.x = 4, .y = 0, .z = 0});
     rig.settle();
     CHECK_FALSE(rig.manager->stageOf({.x = -2, .y = 0, .z = 0}).has_value());
     CHECK(rig.world.findChunk({.x = -2, .y = 0, .z = 0}) == nullptr);
@@ -238,7 +239,7 @@ TEST_CASE("Moving unloads past the hysteresis and loads ahead") {
         CHECK(count == 1); // Moving never remeshed a chunk.
     }
     for (const ChunkPos& position : rig.sink.held) {
-        CHECK(horizontalDistance(position, {.x = 3, .y = 0, .z = 0}) <= 3);
+        CHECK(horizontalDistance(position, {.x = 4, .y = 0, .z = 0}) <= 3);
     }
 }
 
@@ -278,8 +279,8 @@ TEST_CASE("Chunks leaving the range cancel their load jobs") {
     rig.settle();
     CHECK(rig.source.sawCancel.load() > 0);
     rig.world.forEachChunk(
-        [](const voxel::Chunk& chunk) { CHECK(horizontalDistance(chunk.position(), {.x = 100}) <= 3); });
-    CHECK(rig.manager->counts().loaded == 7U * 7U * 5U);
+        [](const voxel::Chunk& chunk) { CHECK(horizontalDistance(chunk.position(), {.x = 100}) <= 4); });
+    CHECK(rig.manager->counts().loaded == 9U * 9U * 5U);
     rig.checkConsistent();
 }
 
@@ -343,22 +344,22 @@ TEST_CASE("A smaller render distance unloads, a larger one loads more") {
     Rig rig;
     rig.set("World.Streaming.RenderDistance", 3);
     rig.settle();
-    CHECK(rig.manager->counts().loaded == 9U * 9U * 5U);
+    CHECK(rig.manager->counts().loaded == 11U * 11U * 5U);
     rig.set("World.Streaming.RenderDistance", 2);
     rig.settle();
-    // Kept within 2 + 1 + hysteresis 1 = 4: nothing unloads yet; meshes
+    // Kept within 2 + 2 + hysteresis 1 = 5: nothing unloads yet; meshes
     // stay within 2 + 1.
-    CHECK(rig.manager->counts().loaded == 9U * 9U * 5U);
+    CHECK(rig.manager->counts().loaded == 11U * 11U * 5U);
     for (const ChunkPos& position : rig.sink.held) {
         CHECK(horizontalDistance(position, {}) <= 3);
     }
     rig.set("World.Streaming.UnloadHysteresisChunks", 0);
     rig.settle();
-    CHECK(rig.manager->counts().loaded == 7U * 7U * 5U);
+    CHECK(rig.manager->counts().loaded == 9U * 9U * 5U);
     CHECK(rig.manager->counts().meshed == 5U * 5U * 3U);
     rig.set("World.Streaming.RenderDistance", 4);
     rig.settle();
-    CHECK(rig.manager->counts().loaded == 11U * 11U * 5U);
+    CHECK(rig.manager->counts().loaded == 13U * 13U * 5U);
     CHECK(rig.manager->counts().meshed == 9U * 9U * 3U);
     rig.checkConsistent();
 }
@@ -366,7 +367,7 @@ TEST_CASE("A smaller render distance unloads, a larger one loads more") {
 TEST_CASE("Without a sink chunks load but are never meshed") {
     Rig rig(false);
     rig.settle();
-    CHECK(rig.manager->counts().loaded == 7U * 7U * 5U);
+    CHECK(rig.manager->counts().loaded == 9U * 9U * 5U);
     CHECK(rig.manager->counts().meshed == 0);
     CHECK(rig.manager->isAreaReady(2));
     CHECK(rig.sink.uploads.empty());
@@ -388,7 +389,7 @@ TEST_CASE("Stats show the pipeline") {
     Rig rig;
     rig.settle();
     rig.stats.endFrame(1.0 / 60.0);
-    CHECK(rig.stats.value(rig.stats.find("Voxel.Streaming.Loaded")) == doctest::Approx(7.0 * 7.0 * 5.0));
+    CHECK(rig.stats.value(rig.stats.find("Voxel.Streaming.Loaded")) == doctest::Approx(9.0 * 9.0 * 5.0));
     CHECK(rig.stats.value(rig.stats.find("Voxel.Streaming.Meshed")) == doctest::Approx(5.0 * 5.0 * 3.0));
     CHECK(rig.stats.histogram(rig.stats.find("Voxel.Streaming.Latency")).samples == 5U * 5U * 3U);
     CHECK(rig.stats.find("Voxel.Streaming.UpdateTime").isValid());

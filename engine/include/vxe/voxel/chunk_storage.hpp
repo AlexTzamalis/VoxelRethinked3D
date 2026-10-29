@@ -63,6 +63,26 @@ public:
     // that holds them, as compact() would. For generated or loaded chunks.
     void assign(std::span<const BlockStateId, kChunkVolume> states);
 
+    // True if any state the chunk holds passes `test`, without unpacking:
+    // the one state of a uniform chunk, the palette of a palette chunk (which
+    // may still list states overwritten since the last compact(), so the
+    // answer can be a false yes, never a false no), or every block of a raw
+    // chunk. The light engine asks it whether a chunk emits light.
+    template <typename Test>
+    [[nodiscard]] bool anyState(Test&& test) const {
+        if (m_mode == Mode::Uniform) {
+            return test(m_uniformState);
+        }
+        const std::span<const BlockStateId> states(m_mode == Mode::Palette ? palette() : raw(),
+                                                   m_mode == Mode::Palette ? m_paletteSize : kChunkVolume);
+        for (const BlockStateId state : states) {
+            if (test(state)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // All 4096 states into a flat array in block order, so meshing and
     // lighting loops never touch the packed format.
     void decompressTo(std::span<BlockStateId, kChunkVolume> out) const noexcept;

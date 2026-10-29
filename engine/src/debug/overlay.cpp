@@ -546,16 +546,18 @@ void DebugOverlay::drawStreamingPage() {
         text(std::format("Chunks: {:.0f} loaded, {:.0f} with a mesh{}", m_stats.value(loaded),
                          statValue("Voxel.Streaming.Meshed"),
                          statValue("Voxel.Streaming.Burst") > 0.0 ? "   (burst mode)" : ""));
-        constexpr std::array<std::pair<std::string_view, std::string_view>, 6> kStages = {{
+        constexpr std::array<std::pair<std::string_view, std::string_view>, 7> kStages = {{
             {"Pending", "Voxel.Streaming.Pending"},
             {"Loading", "Voxel.Streaming.Loading"},
             {"Ready", "Voxel.Streaming.Ready"},
+            {"Lighting", "Voxel.Streaming.Lighting"},
             {"Mesh queued", "Voxel.Streaming.MeshQueued"},
             {"Meshing", "Voxel.Streaming.Meshing"},
             {"Uploading", "Voxel.Streaming.Uploading"},
         }};
-        constexpr std::array<std::pair<std::string_view, std::string_view>, 6> kRates = {{
+        constexpr std::array<std::pair<std::string_view, std::string_view>, 7> kRates = {{
             {"Loaded", "Voxel.Streaming.ChunksLoaded"},
+            {"Lit by a job", "Voxel.Light.ChunksLit"},
             {"Meshed", "Voxel.Streaming.ChunksMeshed"},
             {"Uploaded", "Voxel.Streaming.ChunksUploaded"},
             {"Unloaded", "Voxel.Streaming.ChunksUnloaded"},

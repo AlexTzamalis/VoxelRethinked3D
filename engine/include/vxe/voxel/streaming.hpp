@@ -8,6 +8,7 @@
 #include <vxe/jobs/job_system.hpp>
 #include <vxe/math/coords.hpp>
 #include <vxe/math/vector.hpp>
+#include <vxe/voxel/block_light.hpp>
 #include <vxe/voxel/block_registry.hpp>
 #include <vxe/voxel/chunk_snapshot.hpp>
 #include <vxe/voxel/chunk_source.hpp>
@@ -71,9 +72,11 @@ struct StreamingDesc {
     ChunkSource* source = nullptr;
     jobs::JobSystem* jobs = nullptr;
     config::SettingsRegistry* settings = nullptr;
-    // Optional: without a sink chunks are loaded but never meshed, which is
-    // what a server needs. With one, `blocks` is required for meshing.
+    // Optional: without a sink chunks are loaded and lit but never meshed,
+    // which is what a server needs. With one, `blocks` is required.
     ChunkMeshSink* sink = nullptr;
+    // The block registry, for meshing and lighting. Without it chunks are not
+    // lit (they keep the light they were loaded with).
     const BlockRegistry* blocks = nullptr;
     stats::StatRegistry* stats = nullptr; // Optional.
     // The world's height in chunks, both ends included (Section 9.2): the
@@ -85,22 +88,24 @@ struct StreamingDesc {
     // (also in burst mode, which raises them).
     u32 loadSlots = 512;
     u32 meshSlots = 256;
+    u32 lightSlots = 64;
 };
 
 // Where a chunk the manager tracks is in the pipeline (Section 11.2). The
 // plan's Generating and LoadingFromDisk are one stage here, since the game's
 // ChunkSource decides which it is; Featuring happens inside generation
-// (gathered features, Section 12.2); Lighting joins between Loading and
-// Ready in E10. "Resident" is a Ready chunk whose mesh is with the sink.
+// (gathered features, Section 12.2). "Resident" is a Ready chunk whose mesh
+// is with the sink.
 enum class ChunkStage : u8 {
     Pending,    // Wanted, waiting for a load job slot.
     Loading,    // A load job runs (generation or disk).
     Ready,      // In the world. Meshed or not; waits for neighbors or a change.
+    Lighting,   // Waiting for, or running, a light job (E10).
     MeshQueued, // Waiting for a mesh job slot.
     Meshing,    // A mesh job runs on a snapshot.
     Uploading,  // The mesh is done and waits for the sink's upload budget.
 };
-inline constexpr usize kChunkStageCount = 6;
+inline constexpr usize kChunkStageCount = 7;
 
 // How many tracked chunks are in each stage, plus derived totals.
 struct StreamingCounts {
@@ -113,22 +118,31 @@ struct StreamingCounts {
 
 // Decides which chunks exist around the camera and drives each through the
 // chunk pipeline (Section 11): request, load or generate on workers, insert
-// into the VoxelWorld, mesh on workers once all 26 neighbors are there,
-// upload within the sink's budget, and unload when the camera moved away.
+// into the VoxelWorld, light once all 26 neighbors are there, mesh once the
+// chunk and all 26 neighbors are lit, upload within the sink's budget, and
+// unload when the camera moved away.
 //
 // Ranges, around the camera's chunk (R = render distance, V = vertical
 // render distance, H = unload hysteresis), horizontally as the larger of the
 // X and Z distance (square rings) and vertically on their own:
 //   meshed     within R and V
-//   loaded     within R + 1 and V + 1, so every meshed chunk has all of its
+//   lit        within R + 1 and V + 1, so every meshed chunk has lit
 //              neighbors for its border
-//   kept       meshes within R + H, loaded chunks within R + 1 + H; beyond
-//              that they go. The gap stops chunks at the edge from loading
-//              and unloading over and over while the camera wanders.
-// A meshed chunk therefore never sees a neighbor arrive or leave, so a
-// loaded chunk is meshed once, and again only when the world says it
-// changed (VoxelWorld::changedChunks, edits) or the mesh settings or block
-// registry changed.
+//   loaded     within R + 2 and V + 2, so every lit chunk has all of its
+//              neighbors (a light source up to 15 blocks away can reach it)
+//   kept       meshes within R + H, light within R + 1 + H, loaded chunks
+//              within R + 2 + H; beyond that they go. The gap stops chunks at
+//              the edge from loading and unloading over and over.
+// A meshed chunk therefore never sees a neighbor arrive or get its first
+// light, so a chunk is meshed once, and again only when the world says it
+// changed (VoxelWorld::changedChunks, edits and their light) or the mesh
+// settings or block registry changed.
+//
+// Lighting (E10): block light (BlockLighter) runs as a job only for chunks
+// with a light source among their 27; all others get block light 0 right
+// away. Block edits (VoxelWorld::editedChunks) light the edited chunk and
+// its 26 neighbors again; a light result from blocks that changed since its
+// job copied them is thrown away and computed again.
 //
 // Priority (Section 11.3): candidates come from a list of offsets sorted by
 // distance (with vertical distance counting double), scanned from the
@@ -152,15 +166,17 @@ struct StreamingCounts {
 // World.Streaming.BurstSeconds or until everything in range is done.
 //
 // Settings (World.Streaming): RenderDistance, VerticalRenderDistance,
-// MaxLoadJobsInFlight, MaxMeshJobsInFlight, MaxChunks,
+// MaxLoadJobsInFlight, MaxLightJobsInFlight, MaxMeshJobsInFlight, MaxChunks,
 // UnloadHysteresisChunks, LoadOrder, MainThreadBudgetMs, BurstSeconds; the
 // upload budget is the sink's (MaxUploadKBPerFrame of the chunk renderer).
-// Mesh options come from MesherSettings (Graphics.Terrain).
+// Mesh options come from MesherSettings (Graphics.Terrain);
+// Graphics.Lighting.BlockLight turns block light off and on.
 //
 // Stats (Voxel.Streaming): chunks per stage, chunks loaded, meshed,
 // uploaded, unloaded, cancelled and stale meshes per frame, the main thread
 // time per update, and the latency from requesting a chunk to its first
-// mesh at the sink as a histogram.
+// mesh at the sink as a histogram; Voxel.Light.ChunksLit, .Skipped and
+// .JobTime for lighting.
 //
 // Thread safety: main thread only (the thread that owns the VoxelWorld).
 // Jobs touch only their own slot and the ChunkSource.
@@ -200,6 +216,8 @@ public:
     [[nodiscard]] const StreamingCounts& counts() const noexcept { return m_counts; }
     [[nodiscard]] std::optional<ChunkStage> stageOf(ChunkPos position) const;
     [[nodiscard]] bool hasMesh(ChunkPos position) const;
+    // The chunk's light was computed at least once.
+    [[nodiscard]] bool isLit(ChunkPos position) const;
     [[nodiscard]] ChunkPos center() const noexcept { return m_center; }
     [[nodiscard]] i32 renderDistance() const noexcept;
     [[nodiscard]] i32 verticalRenderDistance() const noexcept;
@@ -222,11 +240,15 @@ private:
     struct Entry {
         TimePoint requested{};
         ChunkStage stage = ChunkStage::Pending;
-        u8 neighbors = 0;         // Neighbors in the world or outside its height, 0 to 26.
-        bool meshed = false;      // The sink holds a mesh of this chunk.
-        bool meshDirty = false;   // The chunk needs a (new) mesh.
-        bool latencyDone = false; // The request to first mesh time was recorded.
-        u16 slot = 0;             // The job slot while Loading, Meshing or Uploading.
+        u8 neighbors = 0;          // Neighbors in the world or outside its height, 0 to 26.
+        u8 litNeighbors = 0;       // Neighbors lit at least once (or outside the world's height).
+        bool lit = false;          // Its light was computed at least once.
+        bool lightDirty = true;    // Its light must be computed (again).
+        bool lightRunning = false; // In Lighting: a job has its slot (else it waits in the queue).
+        bool meshed = false;       // The sink holds a mesh of this chunk.
+        bool meshDirty = false;    // The chunk needs a (new) mesh.
+        bool latencyDone = false;  // The request to first mesh time was recorded.
+        u16 slot = 0;              // The job slot while Loading, Lighting, Meshing or Uploading.
     };
 
     // A load job's slot: the chunk, the result and the flags shared with
@@ -248,6 +270,19 @@ private:
         ChunkSnapshot snapshot;
         ChunkMesh mesh;
     };
+    // A light job's slot: copies of the chunk and its 26 neighbors (the job
+    // must not read the live world), their block versions to tell later
+    // whether the result is still current, and the result.
+    struct LightSlot {
+        ChunkPos position{};
+        std::atomic<bool> done{false};
+        std::atomic<bool> cancelled{false};
+        std::array<ChunkStorage, 27> chunks;
+        std::array<bool, 27> present{};
+        std::array<u64, 27> versions{};
+        std::shared_ptr<const BlockRegistryView> blocks;
+        std::array<u8, kChunkVolume> result{};
+    };
     struct Candidate {
         f32 score = 0.0F; // Lower goes first.
         ChunkPos position{};
@@ -258,7 +293,7 @@ private:
         i16 z = 0;
     };
 
-    void registerSettings(config::SettingsRegistry& settings, u32 loadSlots, u32 meshSlots);
+    void registerSettings(config::SettingsRegistry& settings, u32 loadSlots, u32 meshSlots, u32 lightSlots);
     void registerStats();
     void readSettings();
     void rebuildOffsets();
@@ -267,11 +302,22 @@ private:
     void checkMeshInputs();
     void collectLoads();
     void collectMeshes();
+    void collectLights();
+    void processEditedChunks();
+    void scheduleLights();
+    void runLight(u16 index);
+    void considerLight(ChunkPos position, Entry& entry);
+    void considerWork(ChunkPos position, Entry& entry);
+    void markLit(ChunkPos position, Entry& entry);
+    void relightAll();
+    [[nodiscard]] bool wantsLight(ChunkPos position, const Entry& entry) const noexcept;
+    [[nodiscard]] u32 lightLimit() const noexcept;
     void processChangedChunks();
     void uploadMeshes();
     void scheduleMeshes();
     void requestMaintenance();
     void maintain();
+    void maintainEntry(ChunkPos position, Entry& entry);
     void requestChunks();
     void scheduleLoads();
     void updateBurst();
@@ -319,11 +365,16 @@ private:
     usize m_scanCursor = 0;
     bool m_scanDone = false;
     usize m_maintainCursor = 0;
-    bool m_maintaining = false;   // A maintenance pass runs.
-    bool m_maintainAgain = false; // Another pass follows the running one.
-    bool m_passRemesh = false;    // The running pass marks meshed chunks for a new mesh.
-    bool m_remeshAll = false;     // The next pass does.
-    bool m_meshBacklog = false;   // Chunks wait for room in the mesh queue.
+    bool m_maintaining = false;          // A maintenance pass runs.
+    bool m_maintainAgain = false;        // Another pass follows the running one.
+    bool m_passRemesh = false;           // The running pass marks meshed chunks for a new mesh.
+    bool m_remeshAll = false;            // The next pass does.
+    bool m_meshBacklog = false;          // Chunks wait for room in the mesh queue.
+    bool m_passRelight = false;          // The running pass marks lit chunks for new light.
+    bool m_relightAll = false;           // The next pass does.
+    bool m_lightBacklog = false;         // Chunks wait for room in the light queue.
+    bool m_blockLightOn = true;          // Graphics.Lighting.BlockLight as last seen.
+    std::vector<Candidate> m_lightQueue; // Min heap on score.
     std::vector<ChunkPos> m_unloadQueue;
 
     std::vector<std::unique_ptr<LoadSlot>> m_loadSlots;
@@ -333,6 +384,9 @@ private:
     std::vector<u16> m_freeMeshSlots;
     std::vector<u16> m_busyMeshSlots; // Jobs running.
     std::vector<u16> m_uploadQueue;   // Meshes done, oldest first.
+    std::vector<std::unique_ptr<LightSlot>> m_lightSlots;
+    std::vector<u16> m_freeLightSlots;
+    std::vector<u16> m_busyLightSlots;
     jobs::JobCounter m_jobCounter;
 
     ChunkPos m_center{};
@@ -355,6 +409,8 @@ private:
     config::Setting<i32> m_verticalDistance;
     config::Setting<i32> m_maxLoadJobs;
     config::Setting<i32> m_maxMeshJobs;
+    config::Setting<i32> m_maxLightJobs;
+    config::Setting<bool> m_blockLight;
     config::Setting<i32> m_maxChunks;
     config::Setting<i32> m_unloadHysteresis;
     config::Setting<LoadOrder> m_loadOrder;
@@ -371,6 +427,9 @@ private:
         stats::StatId unloadedPerFrame;
         stats::StatId cancelled;
         stats::StatId stale;
+        stats::StatId lightJobs;
+        stats::StatId lightSkipped;
+        stats::StatId lightTime;
         stats::StatId updateTime;
         stats::StatId latency;
         stats::StatId burst;

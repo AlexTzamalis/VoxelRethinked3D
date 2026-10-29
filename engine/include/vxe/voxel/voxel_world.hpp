@@ -89,6 +89,13 @@ public:
     [[nodiscard]] std::span<const ChunkPos> changedChunks() const noexcept { return m_changedChunks; }
     void clearChangedChunks() noexcept { m_changedChunks.clear(); }
 
+    // Chunks whose own blocks were edited (setBlock, or insertChunk over a
+    // loaded chunk) while their kDirtyLight flag was clear: the light around
+    // them must be computed again. Each appears once until the flag is
+    // cleared; newly loaded chunks are not listed (their loader knows).
+    [[nodiscard]] std::span<const ChunkPos> editedChunks() const noexcept { return m_editedChunks; }
+    void clearEditedChunks() noexcept { m_editedChunks.clear(); }
+
     // The packed light (packLight) at a world position, or `unloaded`.
     [[nodiscard]] u8 getLight(const BlockPos& position, u8 unloaded = kOpenSkyLight) const noexcept;
     // Changes the light of one block. Like setBlock it marks the chunk and
@@ -100,6 +107,9 @@ public:
     // neighbors whose border light actually changed are marked, so relighting
     // a chunk does not remesh 26 others. Returns false if not loaded.
     bool replaceLight(ChunkPos position, ChunkLight light);
+    // Replaces only the block light of a chunk (0 to 15 per block, block
+    // order), keeping its sky light, as block light jobs deliver it.
+    bool replaceBlockLight(ChunkPos position, std::span<const u8, kChunkVolume> blockLight);
 
     [[nodiscard]] const ColumnSummary* findColumn(ColumnPos position) const noexcept;
     [[nodiscard]] usize columnCount() const noexcept { return m_columns.size(); }
@@ -146,6 +156,7 @@ private:
     [[nodiscard]] static std::optional<ChunkPos> neighborPosition(ChunkPos position, i32 dx, i32 dy,
                                                                   i32 dz) noexcept;
     void markChanged(Chunk& chunk, u64 stamp);
+    void blocksEdited(Chunk& chunk, u64 stamp);
     void neighborChanged(ChunkPos position, i32 dx, i32 dy, i32 dz, u64 stamp);
     void neighborsChanged(ChunkPos position, u64 stamp);
     static void raiseHeights(ColumnSummary& column, const Chunk& chunk);
@@ -162,6 +173,7 @@ private:
     StorageCounts m_counts;
     u64 m_changeCounter = 0; // Source of chunk version stamps.
     std::vector<ChunkPos> m_changedChunks;
+    std::vector<ChunkPos> m_editedChunks;
 
     stats::StatRegistry* m_stats;
     struct StatIds {
