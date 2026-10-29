@@ -17,6 +17,7 @@ vxe_add_module(core
         src/core/event_bus.cpp
         src/core/hash.cpp
         src/core/linear_allocator.cpp
+        src/core/offset_allocator.cpp
         src/core/log.cpp
         src/core/memory.cpp
         src/core/profile.cpp
@@ -197,6 +198,7 @@ vxe_add_module(rhi_gl
 vxe_add_module(render
     SOURCES
         src/render/camera.cpp
+        src/render/chunk_renderer.cpp
         src/render/cpu_write_ring.cpp
         src/render/debug_draw.cpp
         src/render/frame_constants.cpp

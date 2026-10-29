@@ -81,3 +81,29 @@ number. 1080p has 2.25 times the pixels, so roughly 0.16 ms is expected there
 Tonemapping check on the GPU: a scene value of 4.0 gives 231 with Reinhard
 (4 / 5 = 0.8 linear, sRGB encoded) and 188 with no curve at exposure 0.125,
 matching the CPU reference (render::tonemap).
+
+## E9.5 Chunk renderer (2026-10-29)
+
+Scene: `vxe_rhi_demo --terrain`, a field of 32 x 8 x 32 chunks of the
+synthetic terrain sample (8192 chunks, 6592 with quads), release build,
+1280x720, RTX 4060, camera above the field looking across it.
+
+| Metric | Value |
+|--------|-------|
+| Quads resident | 1,541,235 |
+| GPU bytes per meshed chunk (quads plus 16 bytes of metadata) | 1886 (target 3 KB, Section 2) |
+| Vertex arena in use | 11.8 MiB |
+| Frames to upload the field (4 MB per frame budget) | 3 |
+| GPU frame time | 0.64 ms |
+| CPU frame time, debug UI off | 0.76 ms (about 1300 FPS) |
+| Draw calls per frame, debug UI off | 4: an opaque and a translucent indirect multi draw (the sample has no cutout blocks), the sky and post processing |
+| Invalid commands, driver errors | 0, 0 |
+
+Every chunk is drawn: there is no culling yet (E9.6). Generation of the field
+takes 1.4 s and meshing 0.25 s, both on the main thread at startup; the
+streaming manager (E9.7) moves that onto workers.
+
+The GPU test "Chunks render with vertex pulling, the same far from the
+origin" draws a stone chunk 20 blocks away at the origin and 10 million
+blocks away (identical images), and every face of a block head on with and
+without the AO diagonal flip, checking both triangles of each quad.

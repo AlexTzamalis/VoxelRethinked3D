@@ -3,7 +3,7 @@
 //
 // Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui] [--imgui-demo]
 //                     [--overlay-page N] [--console] [--exec COMMAND]...
-//                     [--origin BLOCKS]
+//                     [--origin BLOCKS] [--terrain]
 //
 // The cube is drawn into an offscreen color and depth target with reversed Z,
 // then copied to the window with a fullscreen triangle, and the triangle is
@@ -28,6 +28,14 @@
 // developer console (E7.4), --console opens it at startup, and --exec runs a
 // console command at startup, for
 // example --exec "set Video.FpsLimit 144" (Video.FpsLimit caps the frame rate).
+//
+// --terrain adds a field of 32 x 8 x 32 terrain chunks (the E9.5 acceptance
+// scene): the synthetic terrain sample, meshed by the binary greedy mesher
+// and drawn by the chunk renderer with placeholder textures. The chunks
+// upload over the first frames within World.Streaming.MaxUploadKBPerFrame;
+// Debug.Terrain.Wireframe shows the merged quads.
+
+#include "terrain_field.hpp"
 
 #include <vxe/config/console.hpp>
 #include <vxe/config/settings.hpp>
@@ -111,6 +119,7 @@ struct Options {
     std::vector<std::string> commands; // From --exec, run through the console at startup.
     bool openConsole = false;
     f64 origin = 0.0; // Where the camera starts on X and Z, in blocks.
+    bool terrain = false;
 };
 
 std::optional<Options> parseOptions(int argc, char** argv) {
@@ -125,6 +134,8 @@ std::optional<Options> parseOptions(int argc, char** argv) {
             options.imguiDemo = true;
         } else if (args[i] == "--console") {
             options.openConsole = true;
+        } else if (args[i] == "--terrain") {
+            options.terrain = true;
         } else if (args[i] == "--origin" && i + 1 < args.size()) {
             const std::string_view text = args[++i];
             const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), options.origin);
@@ -251,20 +262,24 @@ struct WorldView {
     std::unique_ptr<render::SkyRenderer> sky;
     std::unique_ptr<render::PostProcess> post;
     render::FrameConstantsBuffer constants;
+    std::unique_ptr<demo::TerrainField> terrain; // Only with --terrain.
     DVec3 start{0.0};
     bool looking = false;
 };
 
 constexpr f64 kGridHeight = 64.0;
 
-Result<std::unique_ptr<WorldView>> createWorldView(Device& device, config::SettingsRegistry& settings,
-                                                   stats::StatRegistry& statRegistry,
-                                                   input::InputSystem& input,
-                                                   input::InputContextId debugContext, f64 origin) {
+Result<std::unique_ptr<WorldView>>
+createWorldView(Device& device, config::SettingsRegistry& settings, stats::StatRegistry& statRegistry,
+                input::InputSystem& input, input::InputContextId debugContext, f64 origin, bool terrain) {
     auto view = std::make_unique<WorldView>();
     view->start = DVec3(origin + 8.5, kGridHeight + 4.0, origin + 8.5);
+    if (terrain) {
+        // Above the south edge of the field, looking north across it.
+        view->start = DVec3(origin + 8.5, 110.0, origin + 230.0);
+    }
     view->camera.position = view->start;
-    view->camera.pitch = glm::radians(-20.0F);
+    view->camera.pitch = glm::radians(terrain ? -25.0F : -20.0F);
     view->controller = std::make_unique<render::FreeCameraController>(
         render::FreeCameraDesc{.input = &input, .settings = &settings});
     auto draw = render::DebugDraw::create({.device = &device,
@@ -294,6 +309,19 @@ Result<std::unique_ptr<WorldView>> createWorldView(Device& device, config::Setti
     }
     view->post = std::move(post.value());
     VXE_TRY(view->constants.create(device));
+    if (terrain) {
+        auto field = demo::TerrainField::create({.device = &device,
+                                                 .settings = &settings,
+                                                 .stats = &statRegistry,
+                                                 .shaders = folderShaderReader(VXE_ENGINE_SHADER_DIR),
+                                                 .colorFormat = kSceneFormat,
+                                                 .center = toChunk(blockAt(DVec3(origin, 0.0, origin)))});
+        if (!field) {
+            view->constants.destroy(device);
+            return field.error();
+        }
+        view->terrain = std::move(field.value());
+    }
     return view;
 }
 
@@ -312,10 +340,16 @@ void updateWorldView(WorldView& view, Device& device, platform::Window& window, 
     draw.beginFrame(view.camera);
     constexpr u32 kMinor = render::debugColor(90, 96, 110, 160);
     constexpr u32 kMajor = render::debugColor(90, 150, 255, 220);
-    draw.grid(view.camera.position, kGridHeight, 96, 1.0, kMinor, kMajor, 16);
-    // An outline around the cube, which floats in front of the start.
-    draw.box(view.start + DVec3(-1.1, -1.1, -9.1), view.start + DVec3(1.1, 1.1, -6.9),
-             render::debugColor(255, 220, 60));
+    if (view.terrain) {
+        view.terrain->update(view.camera);
+    } else {
+        draw.grid(view.camera.position, kGridHeight, 96, 1.0, kMinor, kMajor, 16);
+    }
+    if (!view.terrain) {
+        // An outline around the cube, which floats in front of the start.
+        draw.box(view.start + DVec3(-1.1, -1.1, -9.1), view.start + DVec3(1.1, 1.1, -6.9),
+                 render::debugColor(255, 220, 60));
+    }
     const u32 width = std::max(device.backBufferWidth(), 1U);
     const u32 height = std::max(device.backBufferHeight(), 1U);
     view.post->update(width, height);
@@ -332,7 +366,20 @@ void updateWorldView(WorldView& view, Device& device, platform::Window& window, 
 // the overlay's GPU page and can be switched off with Debug.Passes.<name>.
 Result<void> buildFrameGraph(render::FrameGraph& graph, const Scene& scene, WorldView& view,
                              debug::DebugUi* ui) {
-    auto cube = graph.addPass({.name = "Cube", .record = [&scene](render::PassContext& context) {
+    if (view.terrain) {
+        // New chunk meshes into the vertex arena, before anything draws (E9.5).
+        static_cast<void>(graph.addPass({.name = "ChunkUpload",
+                                         .type = render::PassType::Transfer,
+                                         .record = [&view](render::PassContext& context) {
+                                             view.terrain->renderer().recordUploads(context.commands);
+                                         }}));
+    }
+    // With --terrain the pass only clears the targets: the cube and the
+    // triangle would sit in the middle of the landscape.
+    auto cube = graph.addPass({.name = "Cube", .record = [&scene, &view](render::PassContext& context) {
+                                   if (view.terrain) {
+                                       return;
+                                   }
                                    context.commands.bindPipeline(scene.cubePipeline);
                                    context.commands.bindUniformBuffer(1, 1, scene.uniforms, kCubeParamsOffset,
                                                                       sizeof(CubeParams));
@@ -344,6 +391,18 @@ Result<void> buildFrameGraph(render::FrameGraph& graph, const Scene& scene, Worl
     const render::TextureRef depth = cube.createTexture("SceneDepth", {.format = Format::D32Float});
     cube.depthAttachment(depth);
 
+    if (view.terrain) {
+        // Opaque and cutout chunks (Section 8.1 passes 3 and 4).
+        auto chunks =
+            graph.addPass({.name = "Chunks", .record = [&view](render::PassContext& context) {
+                               view.constants.bind(context.commands);
+                               view.terrain->renderer().record(context.commands, render::ChunkPass::Opaque);
+                               view.terrain->renderer().record(context.commands, render::ChunkPass::Cutout);
+                           }});
+        chunks.colorAttachment(color, LoadOp::Load);
+        chunks.depthAttachment(depth, LoadOp::Load);
+    }
+
     // Sky where nothing was drawn and height fog over the rest (E8.3).
     auto skyPass = graph.addPass({.name = "Sky", .record = [&view, depth](render::PassContext& context) {
                                       view.constants.bind(context.commands);
@@ -351,6 +410,17 @@ Result<void> buildFrameGraph(render::FrameGraph& graph, const Scene& scene, Worl
                                   }});
     skyPass.colorAttachment(color, LoadOp::Load);
     skyPass.sampleTexture(depth);
+
+    if (view.terrain) {
+        // Water and glass after the sky, blended over it (Section 8.1 pass 7).
+        auto translucent = graph.addPass(
+            {.name = "ChunksTranslucent", .record = [&view](render::PassContext& context) {
+                 view.constants.bind(context.commands);
+                 view.terrain->renderer().record(context.commands, render::ChunkPass::Translucent);
+             }});
+        translucent.colorAttachment(color, LoadOp::Load);
+        translucent.depthAttachment(depth, LoadOp::Load);
+    }
 
     // Debug lines on top of the cube, hidden by it where it is in front.
     auto lines = graph.addPass({.name = "DebugDraw", .record = [&view](render::PassContext& context) {
@@ -364,6 +434,9 @@ Result<void> buildFrameGraph(render::FrameGraph& graph, const Scene& scene, Worl
         graph.addPass({.name = "Composite", .record = [&scene, &view, color](render::PassContext& context) {
                            // Tonemapping, FXAA and sRGB encoding into the window (E8.4).
                            view.post->record(context.commands, context.texture(color));
+                           if (view.terrain) {
+                               return;
+                           }
                            context.commands.bindPipeline(scene.trianglePipeline);
                            context.commands.bindUniformBuffer(1, 0, scene.uniforms, kTriangleParamsOffset,
                                                               sizeof(TriangleParams));
@@ -549,9 +622,9 @@ int run(const Options& options) {
         }
         tools = std::move(toolsCreated.value());
     }
-    auto viewCreated =
-        createWorldView(device, settings, statRegistry, input,
-                        tools ? tools->overlay->inputContext() : input::InputContextId{}, options.origin);
+    auto viewCreated = createWorldView(device, settings, statRegistry, input,
+                                       tools ? tools->overlay->inputContext() : input::InputContextId{},
+                                       options.origin, options.terrain);
     std::unique_ptr<WorldView> view = viewCreated ? std::move(viewCreated.value()) : nullptr;
     auto graph = std::make_unique<render::FrameGraph>(
         render::FrameGraphDesc{.device = &device, .settings = &settings, .stats = &statRegistry});
@@ -666,7 +739,7 @@ int main(int argc, char** argv) {
         if (!options) {
             std::fputs(
                 "Usage: vxe_rhi_demo [--frames N] [--vsync] [--no-ui] [--imgui-demo] [--overlay-page N] "
-                "[--console] [--exec COMMAND]... [--origin BLOCKS]\n",
+                "[--console] [--exec COMMAND]... [--origin BLOCKS] [--terrain]\n",
                 stderr);
             return 2;
         }

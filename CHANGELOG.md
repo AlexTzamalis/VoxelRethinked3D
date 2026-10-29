@@ -2,6 +2,20 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#057] 2026-10-29, E9.5 Chunk renderer
+### Added
+- vxe::OffsetAllocator in core: O(1) range allocation for the GPU vertex arena, after Sebastian Aaltonen's OffsetAllocator design (256 small float size bins, two level bit masks, neighbor merging). Written in house because vcpkg has no port; when the fast path fails it also checks the bin below, so a request for exactly the free space left succeeds.
+- render::ChunkRenderer (Section 8.2): chunk quads in one vertex arena (OffsetAllocator in 8 byte quads), a shared index buffer for 4096 quads, a chunk metadata buffer read through gl_BaseInstance, and one indirect multi draw per pass (opaque, cutout, translucent) over all non empty face groups. Uploads go through a staging ring with a per frame budget; replaced and removed chunks free their ranges once the GPU finished the frames that drew them. Translucent chunks draw far to near, reordered when the camera enters another chunk.
+- Shaders render/chunk.vert (vertex pulling of the packed quads, AO flip and winding per face, directional face shading, AO strength) and render/chunk.frag (texture array, cutout and translucent variants).
+- render::createPlaceholderBlockTextures: a mipmapped 16 x 16 texture array per color until texture packs (G2).
+- Settings World.Streaming.MaxUploadKBPerFrame, Graphics.Terrain.AoStrength and Debug.Terrain.Wireframe; stats Render.Chunks.Resident, Quads, ArenaBytes, BytesPerChunk, Draws, UploadBytes, UploadsOverBudget and UploadsOutOfMemory.
+- vxe_rhi_demo --terrain: a 32 x 8 x 32 field of terrain chunks, meshed and drawn through the chunk renderer.
+- Tests: allocator bins, merging, limits and 50,000 random operations against a byte map; renderer draw lists, metadata, the upload budget over frames, deferred frees, a full arena and the translucent order on the Null backend; on the GPU, pixels of a chunk at the origin and 10 million blocks away (identical) and every face head on with and without the AO flip.
+### Performance
+- Terrain field: 6592 meshed chunks at 1886 GPU bytes each (target 3 KB), uploaded in 3 frames, 0.64 ms GPU and 0.76 ms CPU per frame at 720p without culling.
+### Docs
+- docs/perf/render.md: E9.5 section.
+
 ## [#056] 2026-10-29, E9.4 Binary greedy mesher
 ### Added
 - voxel::Mesher (Section 10): binary greedy meshing of a chunk snapshot. Opaque row masks give visible faces with shifts and ANDs; cutout and translucent blocks hide faces against opaque neighbors and against their own state when it culls its own type; a greedy merge over 16 x 16 face planes grows rectangles of faces with the same state, texture, AO and light. Reuses its scratch memory, one Mesher per worker thread.

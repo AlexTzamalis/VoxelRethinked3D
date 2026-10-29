@@ -15,6 +15,7 @@ add_executable(vxe_tests
     core/event_time_tests.cpp
     core/log_tests.cpp
     core/memory_tests.cpp
+    core/offset_allocator_tests.cpp
     core/profile_tests.cpp
     core/result_tests.cpp
     core/stats_tests.cpp
@@ -35,6 +36,7 @@ add_executable(vxe_tests
     math/projection_tests.cpp
     platform/platform_tests.cpp
     render/camera_tests.cpp
+    render/chunk_renderer_tests.cpp
     render/debug_draw_tests.cpp
     render/frame_graph_tests.cpp
     render/frame_pacer_tests.cpp
