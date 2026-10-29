@@ -196,6 +196,7 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
              .jobs = &context.jobs,
              .stats = &context.stats,
              .packsFolder = packsFolder ? packsFolder.value() : std::filesystem::path(),
+             .watcher = &context.fileWatcher,
              .builtIn = std::move(builtIn).value()});
         if (!packs) {
             return std::move(packs).error();

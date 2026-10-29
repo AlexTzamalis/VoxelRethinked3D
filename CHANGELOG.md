@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#081] 2026-10-30, G2.3 Texture hot reload and LOD colors
+### Added
+- Hot reload of texture packs (Section 15.3): with Graphics.Textures.HotReload on (default in debug builds), saving any file in the packs folder loads the packs again on a job and swaps them in live; the far terrain color table follows every load (from G2.2).
+- Graphics.Textures.Folder: points the game at another packs folder, for example the source tree's textures/ while editing the default pack (set Graphics.Textures.Folder C:/Code/C++/VoxelRethinked3D/textures).
+- TexturePackManager takes the engine's file watcher; hotReloads() counts reloads.
+- Test: saving a texture reloads it live, another folder can be chosen, and with hot reload off nothing reloads.
+
 ## [#080] 2026-10-30, Default pack hand edits
 ### Changed
 - textures/default: stone, dirt, gravel, grass side, coal ore and gold ore refined by hand in Aseprite.

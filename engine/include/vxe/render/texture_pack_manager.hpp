@@ -5,6 +5,7 @@
 #include <vxe/core/stats.hpp>
 #include <vxe/core/time.hpp>
 #include <vxe/core/types.hpp>
+#include <vxe/io/file_watcher.hpp>
 #include <vxe/jobs/job_system.hpp>
 #include <vxe/render/chunk_renderer.hpp>
 #include <vxe/render/texture_pack.hpp>
@@ -24,6 +25,7 @@ struct TexturePackManagerDesc {
     jobs::JobSystem* jobs = nullptr;
     stats::StatRegistry* stats = nullptr; // Optional.
     std::filesystem::path packsFolder{};  // textures/ next to the executable; may not exist.
+    io::FileWatcher* watcher = nullptr;   // Optional: hot reload (Graphics.Textures.HotReload).
     // The default pack built into the executable: used for whatever no
     // folder pack has (Section 15.1), so every key always resolves.
     std::unique_ptr<PackSource> builtIn{};
@@ -41,8 +43,14 @@ struct TexturePackManagerDesc {
 // stalls a frame. Layer numbers follow the keys, so changing packs never
 // needs a remesh.
 //
-// Settings: Graphics.Textures.Packs, Graphics.Textures.MaxResolution and
-// Graphics.Textures.Anisotropy, all live (a change starts a new load).
+// Hot reload (Section 15.3): with Graphics.Textures.HotReload on, a change
+// to any file in the packs folder (saving a texture in an image editor)
+// loads the packs again, live. Graphics.Textures.Folder points the game at
+// another packs folder, for example the textures/ of the source tree while
+// editing the default pack.
+//
+// Settings: Graphics.Textures.Packs, MaxResolution, Anisotropy, HotReload
+// and Folder, all live (a change starts a new load).
 // Stats: Render.Textures.Layers, .Resolution, .Bytes, .Warnings (gauges) and
 // .LoadMs (the latest load, on a worker).
 //
@@ -76,6 +84,8 @@ public:
     [[nodiscard]] std::span<const u32> animations() const noexcept { return m_animations; }
     // Problems of the latest load (missing textures, broken images, unknown packs).
     [[nodiscard]] std::span<const std::string> warnings() const noexcept { return m_warnings; }
+    // How many times files changed and the packs were loaded again.
+    [[nodiscard]] u32 hotReloads() const noexcept { return m_hotReloads; }
     // Every pack that can be enabled (folders under textures/ and the built in pack).
     [[nodiscard]] std::vector<PackManifest> availablePacks() const;
     // The packs of the latest load, highest priority first.
@@ -86,6 +96,8 @@ private:
     explicit TexturePackManager(TexturePackManagerDesc desc);
     void registerStats();
     void scanPacks();
+    void watchFolder();
+    [[nodiscard]] std::filesystem::path folder() const;
     void startLoad();
     [[nodiscard]] Result<void> upload(const BlockTextureData& data);
     void destroyTextures();
@@ -94,6 +106,10 @@ private:
     jobs::JobSystem& m_jobs;
     stats::StatRegistry* m_stats;
     std::filesystem::path m_packsFolder;
+    io::FileWatcher* m_watcher;
+    io::WatchId m_watch = 0;
+    bool m_watching = false;
+    bool m_reloadRequested = false;
     std::unique_ptr<PackSource> m_builtIn;
     // Shared with load jobs, so a rescan never pulls packs from under one.
     std::shared_ptr<const std::vector<std::unique_ptr<PackSource>>> m_packs;
@@ -102,11 +118,14 @@ private:
     config::Setting<std::string> m_enabledPacks;
     config::Setting<i32> m_maxResolution;
     config::Setting<i32> m_anisotropy;
+    config::Setting<bool> m_hotReload;
+    config::Setting<std::string> m_folderSetting;
     std::vector<config::Subscription> m_subscriptions;
 
     std::vector<std::string> m_keys;
     std::unique_ptr<Load> m_load;
     bool m_loadAgain = false;
+    u32 m_hotReloads = 0;
     jobs::JobCounter m_jobCounter;
 
     BlockTextures m_textures{};

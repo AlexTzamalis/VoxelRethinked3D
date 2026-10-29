@@ -28,6 +28,7 @@ TexturePackManager::TexturePackManager(TexturePackManagerDesc desc)
     , m_jobs(*desc.jobs)
     , m_stats(desc.stats)
     , m_packsFolder(std::move(desc.packsFolder))
+    , m_watcher(desc.watcher)
     , m_builtIn(std::move(desc.builtIn)) {
     config::SettingsRegistry& settings = *desc.settings;
     m_enabledPacks = settings.registerString(
@@ -53,10 +54,32 @@ TexturePackManager::TexturePackManager(TexturePackManagerDesc desc)
                               1,
                               16,
                               1});
+#ifdef NDEBUG
+    constexpr bool kHotReloadByDefault = false;
+#else
+    constexpr bool kHotReloadByDefault = true;
+#endif
+    m_hotReload =
+        settings.registerBool({{.id = "Graphics.Textures.HotReload",
+                                .displayName = "Reload changed textures",
+                                .description = "Loads texture packs again when a file in them changes, "
+                                               "for editing textures while the game runs."},
+                               kHotReloadByDefault});
+    m_folderSetting = settings.registerString(
+        {{.id = "Graphics.Textures.Folder",
+          .displayName = "Texture packs folder",
+          .description = "Where texture packs are. Empty: textures/ next to the program.",
+          .visibility = config::Visibility::Advanced},
+         ""});
     const auto restart = [this](const auto& /*oldValue*/, const auto& /*newValue*/) { startLoad(); };
     m_subscriptions.push_back(m_enabledPacks.onChanged(restart));
     m_subscriptions.push_back(m_maxResolution.onChanged(restart));
     m_subscriptions.push_back(m_anisotropy.onChanged(restart));
+    m_subscriptions.push_back(m_hotReload.onChanged([this](bool, bool) { watchFolder(); }));
+    m_subscriptions.push_back(m_folderSetting.onChanged([this](const std::string&, const std::string&) {
+        watchFolder();
+        reload();
+    }));
 }
 
 Result<std::unique_ptr<TexturePackManager>> TexturePackManager::create(TexturePackManagerDesc desc) {
@@ -65,10 +88,14 @@ Result<std::unique_ptr<TexturePackManager>> TexturePackManager::create(TexturePa
     std::unique_ptr<TexturePackManager> manager(new TexturePackManager(std::move(desc)));
     manager->registerStats();
     manager->scanPacks();
+    manager->watchFolder();
     return manager;
 }
 
 TexturePackManager::~TexturePackManager() {
+    if (m_watching) {
+        m_watcher->unwatch(m_watch);
+    }
     m_jobs.wait(m_jobCounter);
     destroyTextures();
 }
@@ -92,14 +119,48 @@ void TexturePackManager::registerStats() {
                         stats::StatUnit::Milliseconds)};
 }
 
+std::filesystem::path TexturePackManager::folder() const {
+    const std::string chosen = m_folderSetting.get();
+    return chosen.empty() ? m_packsFolder : std::filesystem::path(chosen);
+}
+
 void TexturePackManager::scanPacks() {
     m_scanProblems.clear();
     auto packs = std::make_shared<std::vector<std::unique_ptr<PackSource>>>();
     std::error_code error;
-    if (!m_packsFolder.empty() && std::filesystem::is_directory(m_packsFolder, error)) {
-        *packs = discoverPacks(m_packsFolder, m_scanProblems);
+    const std::filesystem::path root = folder();
+    if (!root.empty() && std::filesystem::is_directory(root, error)) {
+        *packs = discoverPacks(root, m_scanProblems);
+    } else if (!m_folderSetting.get().empty()) {
+        m_scanProblems.push_back(std::format("Texture packs folder {} does not exist", root.string()));
     }
     m_packs = std::move(packs);
+}
+
+// Watches the packs folder while hot reload is on. Any change asks for a
+// reload, which update() starts once no load is running (the watcher already
+// turns a burst of writes from one save into one event).
+void TexturePackManager::watchFolder() {
+    if (m_watcher == nullptr) {
+        return;
+    }
+    if (m_watching) {
+        m_watcher->unwatch(m_watch);
+        m_watching = false;
+    }
+    std::error_code error;
+    const std::filesystem::path root = folder();
+    if (!m_hotReload.get() || root.empty() || !std::filesystem::is_directory(root, error)) {
+        return;
+    }
+    auto watch =
+        m_watcher->watch(root, true, [this](const io::FileEvent& /*event*/) { m_reloadRequested = true; });
+    if (!watch) {
+        VXE_LOG_WARN(log::core, "Texture packs: cannot watch {}: {}", root.string(), watch.error().message());
+        return;
+    }
+    m_watch = watch.value();
+    m_watching = true;
 }
 
 void TexturePackManager::setKeys(std::vector<std::string> keys) {
@@ -146,7 +207,7 @@ void TexturePackManager::startLoad() {
         if (found == m_packs->end()) {
             if (id != "default") {
                 load->problems.push_back(
-                    std::format("Texture pack '{}' is not in {}", id, m_packsFolder.string()));
+                    std::format("Texture pack '{}' is not in {}", id, folder().string()));
             }
             continue;
         }
@@ -171,6 +232,12 @@ void TexturePackManager::startLoad() {
 }
 
 bool TexturePackManager::update() {
+    if (m_reloadRequested && m_load == nullptr) {
+        m_reloadRequested = false;
+        ++m_hotReloads;
+        VXE_LOG_INFO(log::core, "Texture packs: files changed, loading again");
+        reload();
+    }
     if (m_load == nullptr || !m_load->done.load(std::memory_order_acquire)) {
         return false;
     }

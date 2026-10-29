@@ -3,6 +3,7 @@
 #include <vxe/config/settings.hpp>
 #include <vxe/core/time.hpp>
 #include <vxe/io/file_io.hpp>
+#include <vxe/io/file_watcher.hpp>
 #include <vxe/jobs/job_system.hpp>
 #include <vxe/render/texture_pack.hpp>
 #include <vxe/render/texture_pack_manager.hpp>
@@ -12,6 +13,7 @@
 #include <doctest/doctest.h>
 #include <stb_image_write.h>
 
+#include <chrono>
 #include <filesystem>
 #include <string>
 #include <thread>
@@ -280,4 +282,62 @@ TEST_CASE("The pack manager loads on a job and swaps packs live") {
     CHECK(manager.warnings().size() == 1);
     CHECK(manager.textures()->averageColors[0] == kBlue);
     CHECK_FALSE(device->liveResources().empty());
+}
+
+TEST_CASE("Saving a texture reloads the packs live (hot reload), and another folder can be chosen") {
+    const auto root = freshFolder("hot");
+    writePack(root / "default", 16, {{"blocks/stone.png", solid(16, kRed)}});
+    const auto other = freshFolder("hot_other");
+    writePack(other / "default", 16, {{"blocks/stone.png", solid(16, kGreen)}});
+    const auto device = rhi::createNullDevice();
+    config::SettingsRegistry settings;
+    jobs::JobSystem jobs{jobs::JobSystemConfig{.workerCount = 2, .ioThreadCount = 1}};
+    io::FileWatcher watcher(std::chrono::milliseconds(50));
+    auto created = render::TexturePackManager::create({.device = device.get(),
+                                                       .settings = &settings,
+                                                       .jobs = &jobs,
+                                                       .packsFolder = root,
+                                                       .watcher = &watcher});
+    REQUIRE(created.hasValue());
+    render::TexturePackManager& manager = *created.value();
+    REQUIRE(settings.set("Graphics.Textures.HotReload", config::SettingValue{true}).hasValue());
+    settings.dispatchChanges();
+    manager.setKeys({"stone"});
+    const auto waitFor = [&](u32 color) {
+        const Stopwatch clock;
+        while (clock.elapsedMilliseconds() < 10000.0) {
+            watcher.poll();
+            settings.dispatchChanges();
+            manager.update();
+            if (manager.textures() != nullptr && manager.textures()->averageColors[0] == color) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        return false;
+    };
+    REQUIRE(waitFor(kRed));
+
+    // An image editor saves the texture.
+    REQUIRE(io::writeFile(root / "default" / "blocks" / "stone.png", solid(16, kBlue)).hasValue());
+    CHECK(waitFor(kBlue));
+    CHECK(manager.hotReloads() >= 1);
+
+    // Another packs folder, chosen by setting.
+    REQUIRE(settings.set("Graphics.Textures.Folder", config::SettingValue{other.string()}).hasValue());
+    settings.dispatchChanges();
+    CHECK(waitFor(kGreen));
+
+    // With hot reload off, saving changes nothing.
+    REQUIRE(settings.set("Graphics.Textures.HotReload", config::SettingValue{false}).hasValue());
+    settings.dispatchChanges();
+    REQUIRE(io::writeFile(other / "default" / "blocks" / "stone.png", solid(16, kRed)).hasValue());
+    const Stopwatch quiet;
+    while (quiet.elapsedMilliseconds() < 500.0) {
+        watcher.poll();
+        manager.update();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    CHECK_FALSE(manager.isLoading());
+    CHECK(manager.textures()->averageColors[0] == kGreen);
 }
