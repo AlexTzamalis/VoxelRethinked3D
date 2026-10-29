@@ -52,7 +52,10 @@ std::shared_ptr<voxel::BlockRegistryView> testBlocks() {
 struct TestSnapshot {
     ChunkSnapshot snapshot;
 
-    explicit TestSnapshot(BlockStateId fill = kAir) { snapshot.states.fill(fill); }
+    explicit TestSnapshot(BlockStateId fill = kAir) {
+        snapshot.states.fill(fill);
+        snapshot.light.fill(voxel::kOpenSkyLight); // What an unlit chunk holds.
+    }
     void set(i32 x, i32 y, i32 z, BlockStateId state) {
         snapshot.states[ChunkSnapshot::index(x, y, z)] = state;
     }
@@ -324,8 +327,16 @@ struct BruteForce {
                 forEachCoveredBlock(quad, [&](const std::array<i32, 3>& b) {
                     ++covered.at(faceIndex(g, b));
                     const BlockStateId state = snapshot->at(b[0], b[1], b[2]);
+                    // Lit by the cell in front of the face (unless merged across light).
+                    const voxel::FaceAxes axes = voxel::faceAxes(face);
+                    std::array<i32, 3> front = b;
+                    front[axes.normal] += axes.positive ? 1 : -1;
+                    const u8 light = snapshot->lightAt(front[0], front[1], front[2]);
+                    const bool lit =
+                        options.mergeAcrossLight || (quad.skyLight() == voxel::skyLightOf(light) &&
+                                                     quad.blockLight() == voxel::blockLightOf(light));
                     const bool same =
-                        quad.textureLayer() == blocks->info(state).textureLayer(face) &&
+                        lit && quad.textureLayer() == blocks->info(state).textureLayer(face) &&
                         quad.ao(0) == cornerAo(b, face, -1, -1) && quad.ao(1) == cornerAo(b, face, 1, -1) &&
                         quad.ao(2) == cornerAo(b, face, 1, 1) && quad.ao(3) == cornerAo(b, face, -1, 1);
                     badKeys += same ? 0U : 1U;
@@ -383,7 +394,15 @@ TEST_CASE("Greedy quads cover exactly the visible faces, against a brute force m
                 state = roll < 50 ? kStone : kAir; // Large uniform areas, where merging matters.
             }
         }
-        const MeshOptions options{.greedyMerge = round % 5 != 4, .fancyLeaves = round % 3 != 2};
+        // Light in patches, so merging has to stop where it changes.
+        if (round % 2 == 1) {
+            for (usize i = 0; i < snapshot.snapshot.light.size(); ++i) {
+                snapshot.snapshot.light.at(i) =
+                    voxel::packLight(static_cast<u8>(15 - ((i / 97) % 3)), static_cast<u8>((i / 211) % 4));
+            }
+        }
+        const MeshOptions options{
+            .greedyMerge = round % 5 != 4, .mergeAcrossLight = round % 7 == 3, .fancyLeaves = round % 3 != 2};
         mesher.mesh(snapshot.snapshot, *blocks, options, mesh);
 
         const BruteForce reference{
@@ -399,6 +418,34 @@ TEST_CASE("Greedy quads cover exactly the visible faces, against a brute force m
             CHECK(mesh.quads.size() == faces);
         }
     }
+}
+
+TEST_CASE("Faces take the light of the cell in front, and merge only where it is the same") {
+    TestSnapshot snapshot;
+    for (i32 z = 0; z < 16; ++z) {
+        for (i32 x = 0; x < 16; ++x) {
+            snapshot.set(x, 0, z, kStone); // A floor.
+            // Above the floor: sky 15 on the left half, sky 4 with block
+            // light 9 on the right half.
+            snapshot.snapshot.light[ChunkSnapshot::index(x, 1, z)] =
+                x < 8 ? voxel::kOpenSkyLight : voxel::packLight(4, 9);
+        }
+    }
+    const ChunkMesh mesh = meshOf(snapshot);
+    const auto top = mesh.group(MeshLayer::Opaque, BlockFace::PosY);
+    REQUIRE(top.size() == 2); // One quad per light, not one for the whole floor.
+    for (const PackedQuad& quad : top) {
+        const bool left = quad.x() < 8;
+        CHECK(quad.width() == 8);
+        CHECK(quad.skyLight() == (left ? 15U : 4U));
+        CHECK(quad.blockLight() == (left ? 0U : 9U));
+    }
+    // Merging across light makes it one quad again, with one of the lights.
+    const auto blocks = testBlocks();
+    voxel::Mesher mesher;
+    ChunkMesh merged;
+    mesher.mesh(snapshot.snapshot, *blocks, {.mergeAcrossLight = true}, merged);
+    CHECK(merged.group(MeshLayer::Opaque, BlockFace::PosY).size() == 1);
 }
 
 TEST_CASE("A checkerboard cannot merge at all") {

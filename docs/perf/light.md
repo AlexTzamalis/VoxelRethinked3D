@@ -74,3 +74,28 @@ chunks without allocating is the next thing to try if they matter.
 The torch test (a closed room, 27 chunks and the chunks below relit with sky
 and block light): lit after 4.8 to 5.0 ms, dark again after 4.8 to 4.9 ms on
 4 workers.
+
+## E10.4 Light in meshes (2026-10-29)
+
+Every quad carries the sky and block light of the open cell in front of its
+face (bits 22 to 29 of word1, Section 10.4), and faces merge only where that
+light is the same (unless Graphics.Terrain.MergeAcrossLight). The chunk
+shader shows the brighter of sky light times the daylight (from the sun's
+height, a quarter at night) and slightly warm block light, on a curve where
+each level is a fifth darker than the one above, never below
+Graphics.Lighting.Brightness.
+
+| Case | Result |
+|------|--------|
+| Torch placed: its chunk's new mesh, with the light, at the GPU sink after | 4.3 to 4.4 ms (target: within one frame) |
+| Torch removed: mesh without its light after | 4.2 to 4.3 ms |
+| GPU frame time, demo spawn view, light in meshes against before | 0.299 ms, 0.299 ms |
+| Demo world standing still / flying at 300 blocks per second | 1813 FPS (1% low 709) / 1299 FPS (1% low 599) |
+
+The flight numbers vary a lot between runs on this machine; the GPU time,
+which light in meshes could change through more quads, did not move.
+
+Phase E10 acceptance: torch placement and removal update the local chunk
+within one frame (above); no light seams across chunk borders (light tests
+compare every lit block with floods over the whole loaded world); performance
+recorded here.

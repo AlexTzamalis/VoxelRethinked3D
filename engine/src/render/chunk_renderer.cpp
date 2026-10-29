@@ -38,7 +38,7 @@ struct ChunkInfo {
 static_assert(sizeof(ChunkInfo) == 16);
 
 struct ChunkParams {
-    Vec4 params{1.0F, 0.0F, 0.0F, 0.0F}; // x: AO strength.
+    Vec4 params{1.0F, 1.0F, 0.0F, 0.0F}; // x: AO strength, y: daylight, z: darkest brightness.
 };
 
 // The uniforms of render/chunk_cull.comp (std140; every member a 16 byte multiple).
@@ -102,6 +102,14 @@ ChunkRenderer::ChunkRenderer(const ChunkRendererDesc& desc)
                                                  0.0F,
                                                  1.0F,
                                                  0.05F}))
+    , m_brightness(desc.settings->registerFloat({{.id = "Graphics.Lighting.Brightness",
+                                                  .displayName = "Brightness",
+                                                  .description = "How bright the darkest places (caves, "
+                                                                 "night) still are."},
+                                                 0.08F,
+                                                 0.0F,
+                                                 0.5F,
+                                                 0.01F}))
     , m_wireframe(desc.settings->registerBool({{.id = "Debug.Terrain.Wireframe",
                                                 .displayName = "Terrain wireframe",
                                                 .description = "Draws chunk quads as lines.",
@@ -447,6 +455,10 @@ void ChunkRenderer::setTextures(rhi::TextureHandle textures, rhi::SamplerHandle 
     m_sampler = sampler;
 }
 
+void ChunkRenderer::setDaylight(f32 daylight) noexcept {
+    m_daylight = std::clamp(daylight, 0.0F, 1.0F);
+}
+
 void ChunkRenderer::setUploadBudgetScale(f32 scale) noexcept {
     m_uploadBudgetScale = std::max(static_cast<f64>(scale), 0.0);
 }
@@ -495,7 +507,7 @@ void ChunkRenderer::beginFrame(const Camera& camera) {
     } else {
         m_frozenCamera.reset();
     }
-    const ChunkParams params{.params = Vec4(m_aoStrength.get(), 0.0F, 0.0F, 0.0F)};
+    const ChunkParams params{.params = Vec4(m_aoStrength.get(), m_daylight, m_brightness.get(), 0.0F)};
     if (params.params != m_lastParams) {
         m_lastParams = params.params;
         static_cast<void>(m_device.updateBuffer(m_params, 0, std::as_bytes(std::span(&params, 1))));

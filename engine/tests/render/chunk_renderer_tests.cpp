@@ -348,6 +348,7 @@ voxel::ChunkMesh stoneMesh(ChunkPos position, std::initializer_list<std::array<i
     const auto registry = builder.build();
     auto snapshot = std::make_unique<voxel::ChunkSnapshot>();
     snapshot->position = position;
+    snapshot->light.fill(voxel::kOpenSkyLight); // Lit like open sky, as unlit chunks are.
     for (i32 y = 0; y < 16; ++y) {
         for (i32 z = 0; z < 16; ++z) {
             for (i32 x = 0; x < 16; ++x) {

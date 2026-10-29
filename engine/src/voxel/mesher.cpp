@@ -17,7 +17,6 @@ constexpr u32 kInterior = 0x1FFFEU;        // Bits 1 to 16 of a row: the chunk's
 constexpr u32 kKindMask = 3U;              // Kind in the low bits of a state's class byte...
 constexpr u8 kCullsSameBit = 4U;           // ...plus "hides faces against its own state".
 constexpr u64 kLightBits = 0xFFULL << 22U; // Sky and block light in word1.
-constexpr u32 kFullSkyLight = 15;          // Until E10 computes light.
 
 constexpr std::array<BlockFace, kBlockFaceCount> kFaces = {BlockFace::PosX, BlockFace::NegX, BlockFace::PosY,
                                                            BlockFace::NegY, BlockFace::PosZ, BlockFace::NegZ};
@@ -363,7 +362,12 @@ u64 Mesher::faceKey(const ChunkSnapshot& snapshot, const BlockRegistryView& bloc
     const u32 ao = cornerAo(left, down, opaqueAt(-1, -1)) | (cornerAo(right, down, opaqueAt(1, -1)) << 2U) |
                    (cornerAo(right, up, opaqueAt(1, 1)) << 4U) | (cornerAo(left, up, opaqueAt(-1, 1)) << 6U);
     const u32 layer = std::min<u32>(blocks.info(state).textureLayer(face), 0x3FFFU);
-    const u32 word1 = layer | (ao << 14U) | (kFullSkyLight << 22U);
+    // A face is lit by the open cell in front of it (Section 14): its sky
+    // light in bits 22 to 25, its block light in 26 to 29.
+    const usize front = (static_cast<usize>(frontRow) * kRow) + static_cast<usize>(frontBit);
+    const u8 light = snapshot.light[front];
+    const u32 word1 =
+        layer | (ao << 14U) | (u32{skyLightOf(light)} << 22U) | (u32{blockLightOf(light)} << 26U);
     return u64{word1} | (u64{state} << 32U);
 }
 

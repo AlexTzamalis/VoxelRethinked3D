@@ -12,6 +12,18 @@ namespace {
 
 // The scene is lit in linear HDR; the post pass tonemaps it for the window.
 constexpr rhi::Format kSceneFormat = rhi::Format::RGBA16Float;
+
+// How strong sky light is for the chunks: full while the sun is up, fading
+// through dusk to moonlight (a quarter) when it is down. With the sky off it
+// is always day.
+f32 daylightOf(const SkyParams& sky) noexcept {
+    if (sky.flags.x == 0) {
+        return 1.0F;
+    }
+    const f32 t = std::clamp((sky.sunDirection.y + 0.1F) / 0.35F, 0.0F, 1.0F);
+    const f32 smooth = t * t * (3.0F - (2.0F * t));
+    return 0.25F + (0.75F * smooth);
+}
 constexpr rhi::Format kDepthFormat = rhi::Format::D32Float;
 
 // Lines showing the view of a camera out to `distance` blocks, for
@@ -193,6 +205,7 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
     const u32 height = std::max(m_device.backBufferHeight(), 1U);
     m_graph->setOutputSize(width, height);
     m_sky->update(time.deltaSeconds);
+    m_chunks->setDaylight(daylightOf(m_sky->params()));
     m_post->update(width, height);
     m_constants.update(m_device, makeFrameConstants(camera, {.width = width,
                                                              .height = height,

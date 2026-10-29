@@ -1,6 +1,7 @@
 #include "../test_helpers.hpp"
 
 #include <vxe/config/settings.hpp>
+#include <vxe/core/containers.hpp>
 #include <vxe/core/hash.hpp>
 #include <vxe/core/stats.hpp>
 #include <vxe/core/time.hpp>
@@ -213,25 +214,51 @@ public:
     }
 };
 
-struct LightRig {
+// Keeps the brightest block light among the faces of each chunk's latest
+// mesh that lie inside a box of local corners (3 to 14 on every axis: the
+// inside of the test room, without its outer walls).
+class LightSink final : public voxel::ChunkMeshSink {
+public:
+    HashMap<ChunkPos, u32> brightest;
+
+    [[nodiscard]] Result upload(const voxel::ChunkMesh& mesh) override {
+        u32 best = 0;
+        for (const voxel::PackedQuad& quad : mesh.quads) {
+            const auto inside = [](u32 value) { return value >= 3 && value <= 14; };
+            if (inside(quad.x()) && inside(quad.y()) && inside(quad.z())) {
+                best = std::max(best, quad.blockLight());
+            }
+        }
+        brightest[mesh.position] = best;
+        return Result::Accepted;
+    }
+    void remove(ChunkPos position) override { brightest.erase(position); }
+};
+
+// Members in lifetime order (the manager, last, waits for its jobs), not
+// packed for size.
+struct LightRig { // NOLINT(clang-analyzer-optin.performance.Padding)
     config::SettingsRegistry settings;
     stats::StatRegistry stats;
     voxel::BlockRegistry blocks;
     voxel::VoxelWorld world;
     LightSource source;
+    LightSink sink;
     jobs::JobSystem jobs{jobs::JobSystemConfig{.workerCount = 4, .ioThreadCount = 1}};
     std::unique_ptr<voxel::StreamingManager> manager;
 
-    LightRig() {
+    explicit LightRig(bool meshes = false) {
         blocks.publish(lightBlocks());
-        manager = std::make_unique<voxel::StreamingManager>(voxel::StreamingDesc{.world = &world,
-                                                                                 .source = &source,
-                                                                                 .jobs = &jobs,
-                                                                                 .settings = &settings,
-                                                                                 .blocks = &blocks,
-                                                                                 .stats = &stats,
-                                                                                 .minChunkY = -1,
-                                                                                 .maxChunkY = 1});
+        manager =
+            std::make_unique<voxel::StreamingManager>(voxel::StreamingDesc{.world = &world,
+                                                                           .source = &source,
+                                                                           .jobs = &jobs,
+                                                                           .settings = &settings,
+                                                                           .sink = meshes ? &sink : nullptr,
+                                                                           .blocks = &blocks,
+                                                                           .stats = &stats,
+                                                                           .minChunkY = -1,
+                                                                           .maxChunkY = 1});
         REQUIRE(settings.set("World.Streaming.RenderDistance", config::SettingValue{2}).hasValue());
         REQUIRE(settings.set("World.Streaming.VerticalRenderDistance", config::SettingValue{1}).hasValue());
     }
@@ -484,4 +511,47 @@ TEST_CASE("Turning block light off removes it, turning it on brings it back") {
     REQUIRE(rig.settings.set("Graphics.Lighting.BlockLight", config::SettingValue{true}).hasValue());
     rig.settle();
     rig.checkAgainstBruteForce();
+}
+
+TEST_CASE("A torch shows in its chunk's mesh within a frame of placing it, and goes with it") {
+    LightRig rig(true);
+    rig.settle();
+    // In a closed room, as in the test above.
+    const BlockPos torch{.x = 24, .y = 24, .z = 8};
+    for (i64 dz = -6; dz <= 6; ++dz) {
+        for (i64 dy = -6; dy <= 6; ++dy) {
+            for (i64 dx = -6; dx <= 6; ++dx) {
+                const bool wall = std::max({std::abs(dx), std::abs(dy), std::abs(dz)}) == 6;
+                REQUIRE(rig.world.setBlock(torch.offset(dx, dy, dz), wall ? kStone : voxel::kAirState));
+            }
+        }
+    }
+    rig.settle();
+    const ChunkPos chunk = toChunk(torch);
+    REQUIRE(rig.sink.brightest.contains(chunk));
+    REQUIRE(rig.sink.brightest.at(chunk) == 0); // A closed room: no light inside.
+
+    const Stopwatch placed;
+    REQUIRE(rig.world.setBlock(torch, kTorch));
+    while (rig.sink.brightest.at(chunk) == 0 && placed.elapsedMilliseconds() < 5000.0) {
+        rig.update();
+    }
+    const f64 placeMs = placed.elapsedMilliseconds();
+    CHECK(rig.sink.brightest.at(chunk) >= 13); // The faces right next to the torch.
+    rig.settle();
+
+    const Stopwatch removed;
+    REQUIRE(rig.world.setBlock(torch, voxel::kAirState));
+    while (rig.sink.brightest.at(chunk) != 0 && removed.elapsedMilliseconds() < 5000.0) {
+        rig.update();
+    }
+    const f64 removeMs = removed.elapsedMilliseconds();
+    CHECK(rig.sink.brightest.at(chunk) == 0);
+    MESSAGE("Torch in the mesh: after " << placeMs << " ms, gone after " << removeMs << " ms");
+#if defined(NDEBUG) && !defined(VXE_SANITIZER_ACTIVE)
+    if (test::timingIsReliable()) {
+        CHECK(placeMs < 16.7);
+        CHECK(removeMs < 16.7);
+    }
+#endif
 }

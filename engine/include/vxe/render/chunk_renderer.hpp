@@ -129,7 +129,13 @@ struct ChunkCullingCounts {
 // the camera moves into another chunk or a chunk with translucent quads
 // changes.
 //
+// Light (Section 14): each quad carries the sky and block light of the cell
+// in front of it; the shader shows the brighter of sky light times the
+// daylight (setDaylight) and warm block light, never darker than
+// Graphics.Lighting.Brightness.
+//
 // Settings: World.Streaming.MaxUploadKBPerFrame, Graphics.Terrain.AoStrength,
+// Graphics.Lighting.Brightness,
 // Graphics.Terrain.FaceDirectionCulling, Graphics.Culling.*,
 // Debug.FreezeCulling and Debug.Terrain.Wireframe. Stats under
 // Render.Chunks and Render.Culling.
@@ -150,6 +156,10 @@ public:
     // Runs the cave search on `jobs` (CaveCuller::setJobSystem), or on the
     // main thread with nullptr. Set nullptr before the job system goes away.
     void setJobSystem(jobs::JobSystem* jobs) { m_caves.setJobSystem(jobs); }
+    // How strong sky light is right now, 0 (no sun) to 1 (full day). The
+    // renderer sets it from the time of day every frame; quads keep their
+    // sky light level, and this scales its brightness.
+    void setDaylight(f32 daylight) noexcept;
     // Multiplies World.Streaming.MaxUploadKBPerFrame, still capped by the
     // staging memory per frame. Streaming raises it in burst mode while the
     // loading screen shows (Section 11.6).
@@ -365,6 +375,8 @@ private:
 
     config::Setting<i32> m_uploadBudgetKb;
     config::Setting<f32> m_aoStrength;
+    config::Setting<f32> m_brightness;
+    f32 m_daylight = 1.0F;
     config::Setting<bool> m_wireframe;
     config::Setting<bool> m_frustumCulling;
     config::Setting<f32> m_frustumPadding;

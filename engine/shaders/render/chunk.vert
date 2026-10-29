@@ -8,7 +8,7 @@
 #include "include/frame.glsl"
 
 VXE_BINDING_STD140(1, 0) uniform ChunkParams {
-    vec4 params; // x: AO strength (0 none, 1 full), yzw: unused.
+    vec4 params; // x: AO strength (0 none, 1 full), y: daylight (0 to 1), z: darkest brightness.
 } chunkParams;
 
 VXE_BINDING_STD430(2, 0) readonly buffer Quads {
@@ -24,7 +24,7 @@ VXE_BINDING_STD430(2, 1) readonly buffer Chunks {
 };
 
 layout(location = 0) out vec3 vUvLayer; // xy: texture coordinates in blocks, z: texture array layer.
-layout(location = 1) out float vShade;  // Face brightness times ambient occlusion.
+layout(location = 1) out vec3 vShade;   // Face brightness, ambient occlusion and light.
 
 // Per face (+X, -X, +Y, -Y, +Z, -Z) the U and V axes (voxel::faceAxes) and
 // the brightness of the classic directional shading (lighting stage A,
@@ -34,6 +34,15 @@ const vec3 kAxisV[3] = vec3[3](vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.
 const float kFaceShade[6] = float[6](0.8, 0.8, 1.0, 0.5, 0.65, 0.65);
 // Brightness for AO 0 (two sides closed) to 3 (open).
 const float kAoCurve[4] = float[4](0.45, 0.62, 0.8, 1.0);
+// Block light is firelight: a little warm next to white daylight.
+const vec3 kBlockLightTint = vec3(1.0, 0.86, 0.68);
+
+// Brightness of a light level from 0 to 15: each level a fifth darker than
+// the one above, so 15 is full, 8 about a fifth and 0 nearly black. Eyes
+// judge light by ratios, so a straight line from 0 to 15 looks flat.
+float lightCurve(float level) {
+    return pow(0.8, 15.0 - level);
+}
 
 void main() {
     const uvec2 quad = quads[uint(gl_VertexID) >> 2u];
@@ -68,7 +77,10 @@ void main() {
     vUvLayer = vec3(u, cornerV * height, float(quad.y & 0x3FFFu));
 
     const uint ao = (quad.y >> (14u + 2u * corner)) & 3u;
-    const float skyLight = float((quad.y >> 22u) & 15u) / 15.0;
     const float occlusion = mix(1.0, kAoCurve[ao], chunkParams.params.x);
-    vShade = kFaceShade[face] * occlusion * skyLight;
+    // The brighter of sky light (scaled by the time of day) and block light.
+    const float sky = lightCurve(float((quad.y >> 22u) & 15u)) * chunkParams.params.y;
+    const vec3 block = lightCurve(float((quad.y >> 26u) & 15u)) * kBlockLightTint;
+    const vec3 light = mix(vec3(chunkParams.params.z), vec3(1.0), max(vec3(sky), block));
+    vShade = kFaceShade[face] * occlusion * light;
 }

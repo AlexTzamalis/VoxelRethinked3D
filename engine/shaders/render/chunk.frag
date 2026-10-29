@@ -7,7 +7,7 @@
 VXE_BINDING(2, 2) uniform sampler2DArray blockTextures;
 
 layout(location = 0) in vec3 vUvLayer;
-layout(location = 1) in float vShade;
+layout(location = 1) in vec3 vShade;
 layout(location = 0) out vec4 outColor;
 
 void main() {

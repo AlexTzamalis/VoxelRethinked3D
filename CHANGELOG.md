@@ -2,6 +2,19 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#070] 2026-10-29, E10.4 Light in meshes
+### Added
+- The mesher puts the sky and block light of the open cell in front of each face into its quad (Section 10.4 word1 bits 22 to 29, until now a placeholder of full sky). Faces merge only where their light is the same, unless Graphics.Terrain.MergeAcrossLight is on (Section 10.2).
+- The chunk shader lights quads: the brighter of sky light times the daylight and slightly warm block light, each level a fifth darker than the one above, never darker than Graphics.Lighting.Brightness (new setting, default 0.08). ChunkRenderer::setDaylight; the renderer sets it every frame from the sun's height (full by day, a quarter at night, 1 with the sky off).
+- Tests: faces take the light of the cell in front and merge only where it is the same; the brute force mesher comparison checks every covered face's light, with light patches and merging across light; a torch's light reaches its chunk's uploaded mesh within a frame of placing and removing it.
+### Fixed
+- Test snapshots built by hand are lit like open sky, as unlit chunks are, so the GPU render tests see the same brightness as before.
+- The upload budget streaming test held back every mesh until three waited, instead of relying on mesh jobs finishing together (it failed once under load).
+### Performance
+- A torch shows in its chunk's mesh 4.3 to 4.4 ms after it is placed and is gone 4.2 to 4.3 ms after it is removed. GPU frame time at the demo spawn unchanged (0.299 ms).
+### Docs
+- docs/perf/light.md: E10.4 and the phase E10 acceptance.
+
 ## [#069] 2026-10-29, E10.3 Sky light
 ### Added
 - Sky light (Section 14.1 stage C, ADR-019): ChunkLighter (was BlockLighter) computes a chunk's sky and block light together from its 48^3 neighborhood. Full sky light enters every open column at the neighborhood's top, falls straight down through clear blocks without loss, is dimmed by blocks with light opacity, and spreads sideways and downward into overhangs and caves losing at least one level per block.
