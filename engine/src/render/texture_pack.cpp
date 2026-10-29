@@ -337,6 +337,51 @@ std::vector<std::unique_ptr<PackSource>> discoverPacks(const std::filesystem::pa
     return packs;
 }
 
+namespace {
+
+// The UI font of a pack, when it has one: a square sheet of 16 x 16 cells.
+void validateFont(const std::filesystem::path& folder, std::vector<PackIssue>& issues) {
+    const auto bytes = io::readFile(folder / "ui" / "font.png");
+    if (!bytes) {
+        return;
+    }
+    const std::optional<Decoded> font = decodePng(bytes.value());
+    if (!font) {
+        issues.push_back({.error = true, .file = "ui/font.png", .message = "not a readable PNG"});
+    } else if (font->width != font->height || font->width % 16 != 0) {
+        issues.push_back(
+            {.error = true,
+             .file = "ui/font.png",
+             .message = std::format(
+                 "{} x {}: the font is a square sheet of 16 x 16 cells (128 x 128 for 8 pixel cells)",
+                 font->width, font->height)});
+    }
+}
+
+} // namespace
+
+std::optional<PackImage> readPackImage(std::span<const PackSource* const> stack, std::string_view path,
+                                       std::vector<std::string>& warnings) {
+    for (const PackSource* pack : stack) {
+        const std::optional<std::vector<std::byte>> bytes = pack->read(path);
+        if (!bytes) {
+            continue;
+        }
+        std::optional<Decoded> image = decodePng(*bytes);
+        if (!image) {
+            warnings.push_back(
+                std::format("{} in pack '{}' is not a readable PNG", path, pack->manifest().id));
+            continue;
+        }
+        return PackImage{.path = std::string(path),
+                         .source = pack->manifest().id,
+                         .width = image->width,
+                         .height = image->height,
+                         .pixels = std::move(image->pixels)};
+    }
+    return std::nullopt;
+}
+
 std::vector<PackIssue> validatePack(const std::filesystem::path& folder,
                                     std::span<const std::string> referenceKeys) {
     std::vector<PackIssue> issues;
@@ -416,6 +461,7 @@ std::vector<PackIssue> validatePack(const std::filesystem::path& folder,
             issue(true, file, std::string(parseError.description()));
         }
     }
+    validateFont(folder, issues);
     for (const std::string& key : referenceKeys) {
         if (!std::ranges::binary_search(keys, key)) {
             issue(false, "blocks/" + key + ".png", "missing: lower packs (or the default pack) provide it");

@@ -50,11 +50,11 @@ struct RendererDesc {
 //   HiZ                depth pyramid for next frame's occlusion culling (compute)
 //   DebugDraw          debug lines (chunk borders, boxes, grids, a frozen culling frustum)
 //   Post               tonemapping into the window
+//   Ui                 the game UI the owner hooks in (setUi, Section 19)
 //   WindowOverlay      whatever the owner hooks in (the debug UI), never disabled
 //
 // Each pass can be switched off with Debug.Passes.<name> and is timed on the
-// GPU (Gpu.Pass.<name>). Passes not built yet (game UI) slot in here in their
-// steps.
+// GPU (Gpu.Pass.<name>).
 //
 // A frame: the application sets the camera and calls beginFrame once its
 // camera is final for the frame, then uploads chunks and adds debug lines;
@@ -80,6 +80,11 @@ public:
 
     // Recorded into the window after post processing: the debug UI.
     void setWindowOverlay(std::function<void(rhi::CommandList&)> record);
+    // Recorded into the window after post processing, before the window
+    // overlay: the game UI (ui::UiRenderer lives above render, ADR-015).
+    void setUi(std::function<void(rhi::CommandList&)> record);
+    // The engine shader reader, for renderers built above this layer.
+    [[nodiscard]] const rhi::ShaderFileReader& shaders() const noexcept { return m_shaders; }
 
     [[nodiscard]] const Camera& camera() const noexcept { return m_camera; }
     [[nodiscard]] ChunkRenderer& chunks() noexcept { return *m_chunks; }
@@ -110,6 +115,8 @@ private:
     bool m_timerCreated = false;
     rhi::CommandList m_commands;
     std::function<void(rhi::CommandList&)> m_windowOverlay;
+    std::function<void(rhi::CommandList&)> m_ui;
+    rhi::ShaderFileReader m_shaders;
     bool m_frameBegun = false;
     u64 m_frameIndex = 0;
 };

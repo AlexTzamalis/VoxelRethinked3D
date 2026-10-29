@@ -49,6 +49,7 @@ add_executable(vxe_tests
     rhi/null_device_tests.cpp
     rhi/rhi_tests.cpp
     rhi/shader_source_tests.cpp
+    ui/pixel_font_tests.cpp
     voxel/light_tests.cpp
     voxel/block_registry_tests.cpp
     voxel/chunk_light_tests.cpp
@@ -82,6 +83,7 @@ target_include_directories(vxe_tests SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 target_compile_definitions(vxe_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS
     # The GPU tests compile the real engine shaders from the source tree.
     "VXE_ENGINE_SHADER_DIR=\"${PROJECT_SOURCE_DIR}/engine/shaders\""
+    "VXE_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}\""
     "VXE_REGION_CRASH_WRITER=\"$<TARGET_FILE:vxe_region_crash_writer>\"")
 vxe_set_warnings(vxe_tests)
 

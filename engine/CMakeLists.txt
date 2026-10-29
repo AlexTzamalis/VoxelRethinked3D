@@ -233,6 +233,17 @@ target_include_directories(vxe_render SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 # glslang on every build, so a broken shader fails the build (E6.4).
 vxe_add_shader_check(vxe_engine_shaders ROOT "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 
+# UI: the game's own interface (Section 19, ADR-013): pixel font text and
+# the batching renderer, drawn through the RHI in the renderer's Ui pass.
+vxe_add_module(ui
+    SOURCES
+        src/ui/pixel_font.cpp
+        src/ui/ui_renderer.cpp
+    DEPENDS
+        core
+        rhi
+)
+
 # Debug: developer tools on Dear ImGui and ImPlot (E7, ADR-013), drawn
 # through the RHI. ImGui is linked PUBLIC because debug pages and game
 # developer panels call ImGui directly. The stat registry itself lives in

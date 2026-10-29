@@ -367,7 +367,8 @@ TEST_CASE("The pack validator reports errors and warnings with their files") {
                {"blocks/tall.png", png(16, 20, [](int, int) { return kRed; })},
                {"blocks/big.png", solid(32, kRed)},
                {"blocks/strip.png", png(16, 32, [](int, int) { return kRed; })},
-               {"blocks/junk.png", std::vector<std::byte>(10, std::byte{1})}});
+               {"blocks/junk.png", std::vector<std::byte>(10, std::byte{1})},
+               {"ui/font.png", solid(12, kRed)}});
     REQUIRE(io::writeFile(root / "a" / "blocks" / "ghost.anim.toml", std::as_bytes(std::span(slowAnim)))
                 .hasValue());
     REQUIRE(io::writeFile(root / "a" / "blocks" / "stone.anim.toml", std::as_bytes(std::span(badAnim)))
@@ -387,11 +388,49 @@ TEST_CASE("The pack validator reports errors and warnings with their files") {
     CHECK(find("blocks/stone.anim.toml", true) == 1);
     CHECK(find("blocks/ghost.anim.toml", false) == 2); // No ghost.png, frametime out of range.
     CHECK(find("blocks/dirt.png", false) == 1);        // Missing: falls back.
-    CHECK(issues.size() == 10);
+    CHECK(find("ui/font.png", true) == 1);             // Not 16 x 16 cells.
+    CHECK(issues.size() == 11);
 
     const auto noManifest = freshFolder("validate_none");
     const auto none = render::validatePack(noManifest, reference);
     REQUIRE(none.size() == 1);
     CHECK(none[0].error);
     CHECK(none[0].file == "pack.toml");
+}
+
+TEST_CASE("Pack images come from the first pack with a usable one") {
+    const auto root = freshFolder("images");
+    writePack(root / "low", 16, {{"ui/font.png", solid(128, kGreen)}});
+    writePack(root / "high", 16, {{"ui/font.png", std::vector<std::byte>(9, std::byte{3})}});
+    const auto low = open(root / "low");
+    const auto high = open(root / "high");
+    const std::vector<const PackSource*> stack = {high.get(), low.get()};
+    std::vector<std::string> warnings;
+    const auto image = render::readPackImage(stack, "ui/font.png", warnings);
+    REQUIRE(image.has_value());
+    CHECK(image->source == "low");
+    CHECK(image->width == 128);
+    CHECK(image->pixels[0] == kGreen);
+    CHECK(warnings.size() == 1);
+    CHECK_FALSE(render::readPackImage(stack, "ui/missing.png", warnings).has_value());
+
+    const auto device = rhi::createNullDevice();
+    config::SettingsRegistry settings;
+    jobs::JobSystem jobs{jobs::JobSystemConfig{.workerCount = 2, .ioThreadCount = 1}};
+    auto created = render::TexturePackManager::create(
+        {.device = device.get(), .settings = &settings, .jobs = &jobs, .packsFolder = root});
+    REQUIRE(created.hasValue());
+    render::TexturePackManager& manager = *created.value();
+    REQUIRE(settings.set("Graphics.Textures.Packs", config::SettingValue{std::string("low")}).hasValue());
+    settings.dispatchChanges();
+    manager.setImages({"ui/font.png"});
+    manager.setKeys({"stone"});
+    const Stopwatch clock;
+    while (!manager.update() && clock.elapsedMilliseconds() < 10000.0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    const render::PackImage* font = manager.image("ui/font.png");
+    REQUIRE(font != nullptr);
+    CHECK(font->source == "low");
+    CHECK(manager.image("ui/other.png") == nullptr);
 }

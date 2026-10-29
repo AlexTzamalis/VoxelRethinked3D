@@ -124,6 +124,24 @@ struct BlockTextureOptions {
                                                   std::span<const std::string> keys,
                                                   const BlockTextureOptions& options = {});
 
+// An image a pack provides outside the block texture array (ui/font.png,
+// later the UI's button and panel images). RGBA8 with red in the lowest
+// byte, rows from the top as in the file.
+struct PackImage {
+    std::string path;   // Inside the pack, for example "ui/font.png".
+    std::string source; // The id of the pack that provided it.
+    u32 width = 0;
+    u32 height = 0;
+    std::vector<u32> pixels;
+};
+
+// The first usable image at `path` in a stack of packs, highest priority
+// first. An unreadable image falls through to the next pack with a warning;
+// nothing when no pack has a usable one. Thread safety: like the sources.
+[[nodiscard]] std::optional<PackImage> readPackImage(std::span<const PackSource* const> stack,
+                                                     std::string_view path,
+                                                     std::vector<std::string>& warnings);
+
 // One finding of validatePack.
 struct PackIssue {
     bool error = false; // Errors make a texture or the pack unusable; warnings do not.
@@ -135,7 +153,8 @@ struct PackIssue {
 // pack.toml (format, resolution), every blocks/*.png (readable, a power of two
 // wide, square or a vertical strip of square frames, the declared
 // resolution), every blocks/*.anim.toml (valid, with a texture, frametime 1
-// to 255), and against `referenceKeys` (the default pack's keys) which
+// to 255), ui/font.png (a square sheet of 16 x 16 cells), and against
+// `referenceKeys` (the default pack's keys) which
 // textures are missing (they fall back to lower packs) or used by nothing.
 // Never fails itself: problems are issues.
 [[nodiscard]] std::vector<PackIssue> validatePack(const std::filesystem::path& folder,

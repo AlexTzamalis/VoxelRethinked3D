@@ -8,6 +8,7 @@
 #include <vxe/app/application.hpp>
 #include <vxe/render/camera.hpp>
 #include <vxe/render/texture_pack_manager.hpp>
+#include <vxe/ui/ui_renderer.hpp>
 #include <vxe/voxel/block_registry.hpp>
 
 #include <memory>
@@ -44,6 +45,7 @@ private:
     void registerCommands(vxe::EngineContext& context);
     void startDemoWorld(vxe::EngineContext& context);
     void updateTextures(vxe::EngineContext& context);
+    void drawUi(vxe::EngineContext& context);
 
     GameStateMachine m_states;
     std::optional<BlockCatalog> m_blocks;
@@ -51,6 +53,8 @@ private:
     std::unique_ptr<DemoWorld> m_demo;
     // Block textures from the texture packs (G2.2); with a renderer only.
     std::unique_ptr<vxe::render::TexturePackManager> m_texturePacks;
+    // The game UI (E12); with a renderer only.
+    std::unique_ptr<vxe::ui::UiRenderer> m_ui;
     std::unique_ptr<GameSettings> m_settings;
     std::unique_ptr<GameActions> m_actions;
     vxe::render::Camera m_camera;

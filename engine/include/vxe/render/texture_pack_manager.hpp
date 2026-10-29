@@ -68,6 +68,13 @@ public:
     // The block texture keys in layer order (the game's catalog), and a load
     // of them.
     void setKeys(std::vector<std::string> keys);
+    // Images outside the block array to load with the textures, by path
+    // inside the packs (for example "ui/font.png"). Set them before setKeys,
+    // which starts the first load.
+    void setImages(std::vector<std::string> paths);
+    // A loaded image, or nothing (not requested, not loaded yet, or no pack
+    // has a usable one). Changes when update() returns true.
+    [[nodiscard]] const PackImage* image(std::string_view path) const noexcept;
     // Looks for pack folders again and loads.
     void reload();
     // Swaps in a finished load. Returns true in the frame new textures
@@ -123,6 +130,8 @@ private:
     std::vector<config::Subscription> m_subscriptions;
 
     std::vector<std::string> m_keys;
+    std::vector<std::string> m_imagePaths;
+    std::vector<PackImage> m_images;
     std::unique_ptr<Load> m_load;
     bool m_loadAgain = false;
     u32 m_hotReloads = 0;

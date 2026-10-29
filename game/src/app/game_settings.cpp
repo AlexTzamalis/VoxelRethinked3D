@@ -68,6 +68,11 @@ GameSettings::GameSettings(vxe::config::SettingsRegistry& settings)
                                       .displayName = "Show HUD",
                                       .description = "The crosshair and hotbar (F1)."},
                                      true}))
+    , fontSample(settings.registerBool({{.id = "Debug.Ui.FontSample",
+                                         .displayName = "Font sample",
+                                         .description = "Shows the UI font at scales 1 to 4.",
+                                         .visibility = Visibility::Developer},
+                                        false}))
     , screenShake(settings.registerFloat({{.id = "Accessibility.ScreenShake",
                                            .displayName = "Screen shake",
                                            .description = "Strength of camera shake effects."},

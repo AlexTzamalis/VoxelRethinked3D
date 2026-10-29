@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#083] 2026-10-30, E12.1 Pixel font pipeline
+### Added
+- An original pixel font (textures/default/ui/font.png): 128 x 128 sheet of 16 x 16 cells, every printable ASCII character, proportional widths, white on transparent so text takes any color. Packs replace it with their own ui/font.png.
+- ui module (layer 10): ui::PixelFont builds a font from a sheet (glyph widths measured from the opaque pixels, missing characters draw a box, higher resolution sheets keep the text size), measures, lays out and word wraps UTF-8 text.
+- ui::UiRenderer: rectangles and text with a drop shadow, batched into one draw call per frame from a storage buffer of quads (engine/shaders/ui/quad.vert and quad.frag), nearest sampling and whole pixel positions keep text crisp at every scale. Stats Ui.Quads and Ui.DrawCalls.
+- Renderer: a Ui pass between Post and WindowOverlay (Debug.Passes.Ui), Renderer::setUi and Renderer::shaders().
+- Texture packs: render::readPackImage and TexturePackManager::setImages and image() load images outside the block array (ui/font.png) with the textures, including hot reload; the validator checks ui/font.png.
+- Game: loads the font from the pack stack, draws the UI each frame; Debug.Ui.FontSample shows the font at scales 1 to 4.
+- Tests: UTF-8 decoding, glyph widths, measuring, layout, wrapping, sheet rules, the default font's characters, the UI renderer on the Null device, pack images and their fallback.
+
 ## [#082] 2026-10-30, G2.4 Pack validator
 ### Added
 - render::validatePack: checks a pack folder the way the loader reads it (pack.toml, every blocks/*.png readable, a power of two wide, square or a strip of square frames, at the declared resolution; every blocks/*.anim.toml valid, with a texture and frametime 1 to 255) and against the default pack's keys (missing textures fall back, unused ones are reported).

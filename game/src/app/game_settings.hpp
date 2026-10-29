@@ -28,6 +28,8 @@ struct GameSettings {
     vxe::config::Setting<vxe::f32> uiScale; // 0 picks one from the window size.
     vxe::config::Setting<vxe::f32> hudOpacity;
     vxe::config::Setting<bool> showHud; // F1 flips it.
+    // Debug
+    vxe::config::Setting<bool> fontSample; // The UI font at scales 1 to 4.
     // Accessibility
     vxe::config::Setting<vxe::f32> screenShake;
     vxe::config::Setting<bool> fovEffects;

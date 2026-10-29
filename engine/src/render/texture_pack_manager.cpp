@@ -16,9 +16,11 @@ struct TexturePackManager::Load {
     std::vector<const PackSource*> stack;
     std::vector<std::string> stackIds;
     std::vector<std::string> keys;
+    std::vector<std::string> imagePaths;
     BlockTextureOptions options;
     std::vector<std::string> problems; // Found while building the stack.
     BlockTextureData result;
+    std::vector<PackImage> images;
     f64 milliseconds = 0.0;
     std::atomic<bool> done{false};
 };
@@ -168,6 +170,16 @@ void TexturePackManager::setKeys(std::vector<std::string> keys) {
     startLoad();
 }
 
+void TexturePackManager::setImages(std::vector<std::string> paths) {
+    m_imagePaths = std::move(paths);
+    startLoad();
+}
+
+const PackImage* TexturePackManager::image(std::string_view path) const noexcept {
+    const auto found = std::ranges::find(m_images, path, &PackImage::path);
+    return found == m_images.end() ? nullptr : &*found;
+}
+
 void TexturePackManager::reload() {
     scanPacks();
     startLoad();
@@ -186,6 +198,7 @@ void TexturePackManager::startLoad() {
     auto load = std::make_unique<Load>();
     load->packs = m_packs;
     load->keys = m_keys;
+    load->imagePaths = m_imagePaths;
     load->options.maxResolution = static_cast<u32>(m_maxResolution.get());
     load->problems = m_scanProblems;
     // The enabled packs in order, then "default", then the built in pack.
@@ -225,6 +238,13 @@ void TexturePackManager::startLoad() {
         [job] {
             const Stopwatch stopwatch;
             job->result = buildBlockTextures(job->stack, job->keys, job->options);
+            for (const std::string& path : job->imagePaths) {
+                if (auto image = readPackImage(job->stack, path, job->problems)) {
+                    job->images.push_back(std::move(*image));
+                } else {
+                    job->problems.push_back(std::format("No pack has a usable {}", path));
+                }
+            }
             job->milliseconds = stopwatch.elapsedMilliseconds();
             job->done.store(true, std::memory_order_release);
         },
@@ -247,6 +267,7 @@ bool TexturePackManager::update() {
     if (Result<void> uploaded = upload(load->result); uploaded) {
         swapped = true;
         m_animations = std::move(load->result.animations);
+        m_images = std::move(load->images);
         m_warnings = std::move(load->problems);
         m_warnings.insert(m_warnings.end(), load->result.warnings.begin(), load->result.warnings.end());
         m_activeStack = std::move(load->stackIds);

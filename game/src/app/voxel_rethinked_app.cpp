@@ -8,11 +8,13 @@
 #include <vxe/render/debug_draw.hpp>
 #include <vxe/render/renderer.hpp>
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <filesystem>
 #include <format>
 #include <string>
+#include <string_view>
 #include <system_error>
 
 namespace vr {
@@ -20,6 +22,39 @@ namespace {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): the level changes at runtime.
 constinit vxe::log::Category gameLog{"game", vxe::log::Level::Info};
+
+// The UI font inside the texture packs (Section 15.1).
+constexpr std::string_view kFontImage = "ui/font.png";
+
+// Debug.Ui.FontSample: the UI font at every whole scale over a dark panel,
+// to judge it at a glance.
+void drawFontSample(vxe::ui::UiRenderer& ui) {
+    constexpr std::array<std::string_view, 4> kLines = {
+        "The quick brown fox jumps over the lazy dog. 0123456789",
+        "SINGLEPLAYER  Multiplayer  Settings  Resource Packs  Quit",
+        "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~  Render distance: 32 chunks",
+        "Create New World  Seed: 12345",
+    };
+    constexpr vxe::f32 kMargin = 16.0F;
+    constexpr vxe::f32 kPadding = 12.0F;
+    std::array<std::string, 4> labels;
+    vxe::f32 width = 0.0F;
+    vxe::f32 height = 0.0F;
+    for (vxe::u32 scale = 1; scale <= 4; ++scale) {
+        labels[scale - 1] = std::format("{}x  {}", scale, kLines[scale - 1]);
+        const vxe::ui::TextSize size = ui.measureText(labels[scale - 1], scale);
+        width = std::max(width, size.width);
+        height += size.height + static_cast<vxe::f32>(4 * scale);
+    }
+    ui.fillRect(
+        {.x = kMargin, .y = kMargin, .width = width + 2.0F * kPadding, .height = height + 2.0F * kPadding},
+        vxe::ui::rgba(16, 18, 24, 200));
+    vxe::f32 y = kMargin + kPadding;
+    for (vxe::u32 scale = 1; scale <= 4; ++scale) {
+        ui.drawText(labels[scale - 1], kMargin + kPadding, y, {.scale = scale});
+        y += ui.measureText(labels[scale - 1], scale).height + static_cast<vxe::f32>(4 * scale);
+    }
+}
 
 // Where the camera starts: above the debug grid, looking slightly down. The
 // demo world (after G1) replaces the grid with terrain.
@@ -202,8 +237,18 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
             return std::move(packs).error();
         }
         m_texturePacks = std::move(packs).value();
+        // The UI font comes from the packs too, so packs can replace it.
+        m_texturePacks->setImages({std::string(kFontImage)});
         const auto keys = m_blocks->textureKeys();
         m_texturePacks->setKeys(std::vector<std::string>(keys.begin(), keys.end()));
+
+        auto ui = vxe::ui::UiRenderer::create(
+            {.device = context.device, .shaders = context.renderer->shaders(), .stats = &context.stats});
+        if (!ui) {
+            return std::move(ui).error();
+        }
+        m_ui = std::move(ui).value();
+        context.renderer->setUi([ui = m_ui.get()](vxe::rhi::CommandList& commands) { ui->record(commands); });
     }
     return {};
 }
@@ -351,12 +396,30 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
     if (m_demo) {
         m_demo->setTextureColors(textures->averageColors);
     }
+    if (const vxe::render::PackImage* font = m_texturePacks->image(kFontImage); font != nullptr && m_ui) {
+        if (auto set = m_ui->setFont(font->pixels, font->width, font->height); !set) {
+            VXE_LOG_WARN(gameLog, "UI font from pack '{}': {}", font->source, set.error().describe());
+        }
+    }
+}
+
+// The game UI of this frame. Screens and the HUD arrive with E12.5 and G4
+// to G6; for now only the developer font sample.
+void VoxelRethinkedApp::drawUi(vxe::EngineContext& context) {
+    if (!m_ui || context.device == nullptr) {
+        return;
+    }
+    m_ui->begin(context.device->backBufferWidth(), context.device->backBufferHeight());
+    if (m_settings->fontSample.get()) {
+        drawFontSample(*m_ui);
+    }
 }
 
 void VoxelRethinkedApp::onFrame(vxe::EngineContext& context, const vxe::FrameTime& time) {
     handleGlobalActions(context);
     advanceStartup(context);
     updateTextures(context);
+    drawUi(context);
     // The world streams in while loading (no loading screen before G5.3).
     if (isWorldState(m_states.current()) || m_states.current() == GameState::LoadingWorld) {
         updateWorld(context, time);
@@ -381,7 +444,9 @@ void VoxelRethinkedApp::onShutdown(vxe::EngineContext& context) {
     }
     if (context.renderer != nullptr) {
         context.renderer->chunks().setTextures({}, {});
+        context.renderer->setUi({});
     }
+    m_ui.reset();
     m_texturePacks.reset();
     m_flight.reset();
     VXE_LOG_INFO(gameLog, "Voxel Rethinked shutting down");

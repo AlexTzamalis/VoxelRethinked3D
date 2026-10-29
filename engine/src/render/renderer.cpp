@@ -53,6 +53,7 @@ void drawFrustum(DebugDraw& lines, const Camera& camera, f32 aspect, f64 distanc
 Result<std::unique_ptr<Renderer>> Renderer::create(const RendererDesc& desc) {
     VXE_ASSERT(desc.device != nullptr && desc.settings != nullptr, "Renderer needs a device and settings");
     std::unique_ptr<Renderer> renderer(new Renderer(*desc.device));
+    renderer->m_shaders = desc.shaders;
     rhi::Device& device = *desc.device;
     const auto fail = [](const Error& error) { return error.withContext("Renderer"); };
 
@@ -206,6 +207,16 @@ Result<void> Renderer::buildGraph() {
     post.sampleTexture(color);
     post.windowAttachment(rhi::LoadOp::DontCare);
 
+    graph
+        .addPass({.name = "Ui",
+                  .record =
+                      [this](PassContext& context) {
+                          if (m_ui) {
+                              m_ui(context.commands);
+                          }
+                      }})
+        .windowAttachment(rhi::LoadOp::Load);
+
     // Not switchable: the debug UI is how passes are switched back on.
     graph
         .addPass({.name = "WindowOverlay",
@@ -222,6 +233,10 @@ Result<void> Renderer::buildGraph() {
 
 void Renderer::setWindowOverlay(std::function<void(rhi::CommandList&)> record) {
     m_windowOverlay = std::move(record);
+}
+
+void Renderer::setUi(std::function<void(rhi::CommandList&)> record) {
+    m_ui = std::move(record);
 }
 
 void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
