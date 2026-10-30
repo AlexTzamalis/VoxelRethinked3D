@@ -4,6 +4,7 @@
 #include "common/block_catalog.hpp"
 #include "game_settings.hpp"
 #include "game_state.hpp"
+#include "server/world_store.hpp"
 #include "ui/screens/menu_services.hpp"
 
 #include <vxe/app/application.hpp>
@@ -50,6 +51,8 @@ private:
     void registerCommands(vxe::EngineContext& context);
     void startDemoWorld(vxe::EngineContext& context);
     void placeSpawnCamera();
+    // Marks a world as played now and starts it.
+    void playWorld(vxe::EngineContext& context, const WorldInfo& world);
     void updateTextures(vxe::EngineContext& context);
     void drawUi(vxe::EngineContext& context, const vxe::FrameTime& time);
     // Puts the screens the game state and the debug settings ask for on the stack.
@@ -69,6 +72,9 @@ private:
     // Menu navigation (Tab, arrows, Enter, Escape) in the menu context.
     std::unique_ptr<vxe::ui::UiActions> m_uiActions;
     bool m_widgetSampleShown = false;
+    // The world being played. Until world generation exists (G3) every world
+    // shows the demo terrain; this only names it.
+    std::optional<WorldInfo> m_world;
     // How far the menu's panorama has turned, radians.
     vxe::f32 m_panoramaYaw = 0.0F;
     // Measures launch to the first frame of the menu, logged once.

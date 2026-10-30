@@ -2,7 +2,10 @@
 
 #include <vxe/config/settings.hpp>
 #include <vxe/input/input.hpp>
+#include <vxe/jobs/job_system.hpp>
 #include <vxe/ui/ui_context.hpp>
+
+#include <filesystem>
 
 namespace vr {
 
@@ -12,6 +15,8 @@ struct MenuServices {
     vxe::config::SettingsRegistry& settings;
     vxe::input::InputSystem& input;
     vxe::ui::UiContext& ui;
+    vxe::jobs::JobSystem& jobs;
+    std::filesystem::path saves; // The worlds' folder (saves:/).
 };
 
 } // namespace vr

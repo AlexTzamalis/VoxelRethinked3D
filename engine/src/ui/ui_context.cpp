@@ -148,6 +148,15 @@ u32 UiContext::autoScale(u32 windowWidth, u32 windowHeight) noexcept {
     return std::clamp<u32>(fit, 1U, static_cast<u32>(kMaxScale));
 }
 
+Widget& UiContext::topWidget() noexcept {
+    for (auto it = m_layers.rbegin(); it != m_layers.rend(); ++it) {
+        if (!it->closing) {
+            return *it->root;
+        }
+    }
+    return root();
+}
+
 Widget& UiContext::pushLayer(std::unique_ptr<Widget> layer, LayerOptions options) {
     Widget& result = *layer;
     m_layers.push_back({.root = std::move(layer), .options = std::move(options), .focusBefore = m_focused});

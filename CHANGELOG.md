@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#096] 2026-10-30, G5.1 G5.2 World list and create world
+### Added
+- World list behind Singleplayer: worlds sorted by last played, with name, date, type and size, a search box, Play (also a double click), Create New World, Edit, and Delete with a confirmation.
+- Create World with tabs: name, seed (numbers used as they are, text hashed, empty or Random picks one), world type, height presets or custom heights, structures, far terrain pre-map and quality, worldgen preset.
+- Edit World: rename a world and read what it was made with.
+- world.toml for every world (game/src/server/world_store), written atomically. Disk work runs on IO threads, so menus never wait. Until world generation exists, the seed and type are stored and the demo terrain loads.
+- A uiclick console command for scripted runs through real screens, UiContext::topWidget, and tests for seeds, heights, world.toml, the list order, folder names and deleting.
+### Changed
+- Singleplayer opens the world list. The play console command still enters the demo terrain directly.
+
 ## [#095] 2026-10-30, G2.5 G2.6 Block tints, overlays and the No shading option
 ### Added
 - Block textures can be tinted and can have an overlay drawn over them, set per texture layer (voxel::textureLook), so a block tints its top but not its underside. Grass, oak leaves and water now take their color from the block files: tint_color, tint_faces and [overlays]. Biome files replace these colors later (G3.7).

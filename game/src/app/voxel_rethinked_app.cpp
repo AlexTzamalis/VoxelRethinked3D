@@ -7,6 +7,7 @@
 #include "ui/screens/pause_screen.hpp"
 #include "ui/screens/settings_screen.hpp"
 #include "ui/screens/widget_sample.hpp"
+#include "ui/screens/world_screens.hpp"
 
 #include <vxe/core/log.hpp>
 #include <vxe/core/version.hpp>
@@ -19,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cstddef>
 #include <filesystem>
 #include <format>
@@ -142,6 +144,43 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                                               return output;
                                           }
                                           m_states.request(GameState::StartingIntegratedServer);
+                                          return output;
+                                      }});
+    // Presses a button of the UI by its text, so scripted runs can walk through
+    // real screens the way a player does.
+    context.commands.registerCommand({.name = "uiclick",
+                                      .usage = "uiclick <button text>",
+                                      .description = "Presses the button with this text.",
+                                      .handler = [this](std::span<const std::string> arguments) {
+                                          vxe::config::CommandOutput output;
+                                          std::string text;
+                                          for (const std::string& word : arguments) {
+                                              text += (text.empty() ? "" : " ") + word;
+                                          }
+                                          std::vector<vxe::ui::Widget*> stack;
+                                          if (m_uiContext) {
+                                              stack.push_back(&m_uiContext->topWidget());
+                                          }
+                                          // Last children first: what is drawn on top (a dialog) wins.
+                                          vxe::ui::Button* last = nullptr;
+                                          while (!stack.empty() && last == nullptr) {
+                                              vxe::ui::Widget* widget = stack.back();
+                                              stack.pop_back();
+                                              if (auto* button = dynamic_cast<vxe::ui::Button*>(widget);
+                                                  button != nullptr && button->text() == text &&
+                                                  button->enabled()) {
+                                                  last = button;
+                                              }
+                                              for (const auto& child : widget->children()) {
+                                                  stack.push_back(child.get());
+                                              }
+                                          }
+                                          if (last == nullptr) {
+                                              output.lines.emplace_back("No such button.");
+                                              output.success = false;
+                                              return output;
+                                          }
+                                          last->activate();
                                           return output;
                                       }});
     // Leaves the world like the pause menu's Quit to title does.
@@ -329,8 +368,32 @@ void VoxelRethinkedApp::onTransition(vxe::EngineContext& context, GameState from
     }
 }
 
+void VoxelRethinkedApp::playWorld(vxe::EngineContext& context, const WorldInfo& world) {
+    m_world = world;
+    m_world->lastPlayedSeconds =
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    VXE_LOG_INFO(gameLog, "Playing world '{}' (folder {}, seed {})", m_world->name, m_world->folder,
+                 m_world->seed);
+    // A small write, but disk work stays off the main thread all the same.
+    auto info = std::make_shared<WorldInfo>(*m_world);
+    const auto saves = menuServices(context).saves;
+    const auto save = [info, saves = std::make_shared<std::filesystem::path>(saves)] {
+        if (const auto saved = saveWorldInfo(*saves, *info); !saved) {
+            VXE_LOG_WARN(gameLog, "Could not save world '{}': {}", info->name, saved.error().describe());
+        }
+    };
+    static_cast<void>(context.jobs.schedule(save, {vxe::jobs::Priority::Normal, {}, vxe::jobs::Pool::Io}));
+    m_states.request(GameState::StartingIntegratedServer);
+}
+
 MenuServices VoxelRethinkedApp::menuServices(vxe::EngineContext& context) {
-    return {.settings = context.settings, .input = context.input, .ui = *m_uiContext};
+    auto saves = context.vfs.resolveForWrite("saves:/");
+    return {.settings = context.settings,
+            .input = context.input,
+            .ui = *m_uiContext,
+            .jobs = context.jobs,
+            .saves = saves ? saves.value() : std::filesystem::path()};
 }
 
 void VoxelRethinkedApp::rebuildScreens(vxe::EngineContext& context) {
@@ -340,7 +403,12 @@ void VoxelRethinkedApp::rebuildScreens(vxe::EngineContext& context) {
     m_screens->clear();
     if (m_states.current() == GameState::MainMenu) {
         m_screens->push(std::make_unique<MainMenuScreen>(
-            menuServices(context), [this] { m_states.request(GameState::StartingIntegratedServer); },
+            menuServices(context),
+            [this, &context] {
+                m_screens->push(std::make_unique<WorldSelectScreen>(
+                    menuServices(context),
+                    [this, &context](const WorldInfo& world) { playWorld(context, world); }));
+            },
             [this, &context] { onQuitRequested(context); }));
     }
     if (m_states.current() == GameState::LoadingWorld) {

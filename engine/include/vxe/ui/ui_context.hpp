@@ -80,6 +80,8 @@ public:
     // may close it from its click. Focus returns to where it was before.
     void closeLayer(const Widget& layer);
     [[nodiscard]] usize layerCount() const noexcept { return m_layers.size(); }
+    // What takes input now: the top layer, or the root without layers.
+    [[nodiscard]] Widget& topWidget() noexcept;
 
     // Lays the trees out if they, the window, the scale or the font changed,
     // then routes the pointer (hover, press, a release over the same widget

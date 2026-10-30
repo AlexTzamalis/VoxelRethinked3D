@@ -15,6 +15,9 @@ set(vrGameSources
     src/client/demo_world.hpp
     src/common/block_catalog.cpp
     src/common/block_catalog.hpp
+    src/server/world_store.cpp
+    src/server/world_store.hpp
+    src/ui/screens/background_task.hpp
     src/ui/screens/keybinds_screen.cpp
     src/ui/screens/keybinds_screen.hpp
     src/ui/screens/loading_screen.hpp
@@ -27,6 +30,8 @@ set(vrGameSources
     src/ui/screens/settings_screen.hpp
     src/ui/screens/widget_sample.cpp
     src/ui/screens/widget_sample.hpp
+    src/ui/screens/world_screens.cpp
+    src/ui/screens/world_screens.hpp
     src/worldgen/demo_lod_sampler.cpp
     src/worldgen/demo_lod_sampler.hpp
     src/worldgen/demo_terrain.cpp

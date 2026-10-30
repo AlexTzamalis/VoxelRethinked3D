@@ -1,0 +1,60 @@
+#pragma once
+
+#include <vxe/core/result.hpp>
+#include <vxe/core/types.hpp>
+
+#include <filesystem>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace vr {
+
+// What world.toml says about a world (Section 21), plus its size on disk.
+// Until world generation exists (G3), the seed, type and preset are stored
+// with the world and the demo terrain is what loads.
+struct WorldInfo {
+    std::string folder;   // Inside saves/, also the world's stable id.
+    std::string name;     // Shown to players; renaming keeps the folder.
+    std::string seedText; // As typed. The seed, except for text seeds.
+    vxe::u64 seed = 0;
+    std::string worldType = "Default";
+    std::string preset = "Default"; // The worldgen preset.
+    vxe::i32 minY = -1024;          // Multiples of 16 (Section 9.2).
+    vxe::i32 maxY = 3072;
+    bool structures = true;
+    vxe::i32 premapBlocks = 0; // Far terrain baked at creation, 0 for off.
+    std::string lodQuality = "High";
+    vxe::i64 createdSeconds = 0; // Seconds since 1970.
+    vxe::i64 lastPlayedSeconds = 0;
+    std::string gameVersion;
+    vxe::u64 sizeBytes = 0; // Not stored; measured when scanning.
+};
+
+// The seed of what a player typed: whole numbers are used as they are, any
+// other text is hashed, so "hello" is a seed like any number.
+[[nodiscard]] vxe::u64 seedFromText(std::string_view text) noexcept;
+// A random whole number for the seed field.
+[[nodiscard]] std::string randomSeedText();
+
+// An error when the heights are unusable: multiples of 16, with room between.
+[[nodiscard]] vxe::Result<void> validateWorldHeight(vxe::i32 minY, vxe::i32 maxY);
+
+// Every world in `saves`, last played first. Folders without a readable
+// world.toml are skipped: they are not worlds, or are too broken to offer.
+[[nodiscard]] std::vector<WorldInfo> scanWorlds(const std::filesystem::path& saves);
+
+[[nodiscard]] vxe::Result<WorldInfo> loadWorldInfo(const std::filesystem::path& saves,
+                                                   const std::string& folder);
+// Writes world.toml atomically, so a crash leaves the old file or the new one.
+[[nodiscard]] vxe::Result<void> saveWorldInfo(const std::filesystem::path& saves, const WorldInfo& info);
+
+// A folder name from a world's name that `saves` does not use yet: safe on
+// every system, with a number added when the name is taken.
+[[nodiscard]] std::string uniqueWorldFolder(const std::filesystem::path& saves, std::string_view name);
+
+// Deletes a world's folder for good. Refuses anything but a direct child of
+// `saves` that holds a world.toml, so a bad name can never reach other files.
+[[nodiscard]] vxe::Result<void> deleteWorld(const std::filesystem::path& saves, const std::string& folder);
+
+} // namespace vr
