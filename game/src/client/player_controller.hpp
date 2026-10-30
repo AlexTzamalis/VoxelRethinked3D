@@ -46,8 +46,9 @@ public:
     // Puts the camera where the eyes are, for frames without update().
     void applyTo(vxe::render::Camera& camera) const;
     // One frame of play. `bottom` and `top` are the world's height in blocks.
+    // Without `look` the mouse belongs to a screen, and the world still runs.
     void update(vxe::render::Camera& camera, const vxe::voxel::VoxelWorld& world, vxe::f64 deltaSeconds,
-                vxe::i64 bottom, vxe::i64 top);
+                vxe::i64 bottom, vxe::i64 top, bool look = true);
     // The field of view with the zoom applied.
     [[nodiscard]] vxe::f32 fieldOfView(vxe::f32 degrees) const noexcept { return degrees / m_zoom; }
     // The wheel zooms while this is true, so it must not also change slots.

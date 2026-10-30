@@ -1,5 +1,6 @@
 #pragma once
 
+#include "client/block_icons.hpp"
 #include "client/demo_world.hpp"
 #include "client/player_controller.hpp"
 #include "common/block_catalog.hpp"
@@ -58,6 +59,7 @@ private:
     void saveWorld(vxe::EngineContext& context, bool waitForDisk);
     [[nodiscard]] PlayerData playerData() const;
     void setFreeCamera(bool on);
+    void updateHotbar(vxe::EngineContext& context, vxe::f64 deltaSeconds);
     void updateTextures(vxe::EngineContext& context);
     void drawUi(vxe::EngineContext& context, const vxe::FrameTime& time);
     // Puts the screens the game state and the debug settings ask for on the stack.
@@ -83,6 +85,8 @@ private:
     std::unique_ptr<PlayerController> m_player;
     std::unique_ptr<BlockInteraction> m_interaction;
     Hotbar m_hotbar;
+    BlockIcons m_blockIcons;
+    bool m_inventoryOpen = false;
     bool m_freeCamera = false; // The debug camera (F6, autofly) instead of the player.
     std::vector<vxe::platform::PlatformEvent> m_inputUps; // Tapped by the input command, for the next frame.
     vxe::u64 m_inGameFrames = 0;

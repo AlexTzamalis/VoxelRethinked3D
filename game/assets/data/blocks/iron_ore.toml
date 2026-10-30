@@ -1,6 +1,7 @@
 # Ore of the middle depths. Format: see stone.toml.
 name = "iron_ore"
 display_name = "Iron Ore"
+category = "Ores"
 layer = "opaque"
 
 [textures]

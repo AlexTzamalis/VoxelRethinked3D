@@ -29,7 +29,7 @@ constexpr f32 kMinZoom = 1.5F;
 constexpr f32 kMaxZoom = 12.0F;
 constexpr f32 kZoomWheelStep = 1.2F;
 constexpr BlockStateId kUnloaded = 0xFFFF;
-constexpr vxe::u32 kOutlineColor = vxe::render::debugColor(20, 20, 20, 230);
+constexpr vxe::u32 kOutlineColor = vxe::render::debugColor(0, 0, 0, 255);
 
 } // namespace
 
@@ -64,9 +64,9 @@ bool PlayerController::isZooming() const {
 }
 
 void PlayerController::update(vxe::render::Camera& camera, const vxe::voxel::VoxelWorld& world,
-                              f64 deltaSeconds, i64 bottom, i64 top) {
+                              f64 deltaSeconds, i64 bottom, i64 top, bool look) {
     const auto frame = static_cast<f32>(deltaSeconds);
-    const vxe::Vec2 mouse = m_input.mouseDelta();
+    const vxe::Vec2 mouse = look ? m_input.mouseDelta() : vxe::Vec2(0.0F);
     const f32 turn = kRadiansPerPixel * m_settings.mouseSensitivity.get();
     m_yaw = std::remainder(m_yaw + (mouse.x * turn), 2.0F * std::numbers::pi_v<f32>);
     m_pitch += mouse.y * turn * (m_settings.invertY.get() ? 1.0F : -1.0F);

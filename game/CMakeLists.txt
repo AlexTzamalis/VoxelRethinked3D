@@ -10,6 +10,8 @@ set(vrGameSources
     src/app/game_state.hpp
     src/app/voxel_rethinked_app.cpp
     src/app/voxel_rethinked_app.hpp
+    src/client/block_icons.cpp
+    src/client/block_icons.hpp
     src/client/default_pack.hpp
     src/client/demo_world.cpp
     src/client/demo_world.hpp
@@ -23,6 +25,10 @@ set(vrGameSources
     src/server/world_store.cpp
     src/server/world_store.hpp
     src/ui/screens/background_task.hpp
+    src/ui/screens/hud_screen.cpp
+    src/ui/screens/hud_screen.hpp
+    src/ui/screens/inventory_screen.cpp
+    src/ui/screens/inventory_screen.hpp
     src/ui/screens/keybinds_screen.cpp
     src/ui/screens/keybinds_screen.hpp
     src/ui/screens/loading_screen.hpp

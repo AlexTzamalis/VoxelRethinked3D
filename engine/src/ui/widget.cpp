@@ -44,6 +44,10 @@ bool DrawContext::nineSlice(const UiRect& rect, std::string_view image, f32 bord
     return m_batch.nineSlice(toWindow(rect), image, border, static_cast<f32>(m_scale));
 }
 
+bool DrawContext::image(const UiRect& rect, std::string_view image, u32 tint) {
+    return m_batch.image(toWindow(rect), image, tint);
+}
+
 void DrawContext::pushClip(const UiRect& rect) {
     m_batch.pushClip(toWindow(rect));
 }

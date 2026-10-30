@@ -28,6 +28,7 @@ struct BlockDefinition {
     std::string name;        // Stable, for example "oak_log".
     std::string displayName; // "Oak Log".
     std::string file;        // The definition file it came from.
+    std::string category;    // Its tab in the creative inventory.
     vxe::voxel::BlockStateId firstState = 0;
     vxe::u16 stateCount = 1;
 };

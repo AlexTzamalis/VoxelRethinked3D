@@ -1,6 +1,7 @@
 # Beaches and deserts. Format: see stone.toml.
 name = "sand"
 display_name = "Sand"
+category = "Nature"
 layer = "opaque"
 
 [textures]

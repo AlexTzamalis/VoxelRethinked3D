@@ -94,6 +94,9 @@ public:
     [[nodiscard]] Screen* top() const noexcept {
         return m_stack.empty() ? nullptr : m_stack.back().screen.get();
     }
+    [[nodiscard]] Screen* bottom() const noexcept {
+        return m_stack.empty() ? nullptr : m_stack.front().screen.get();
+    }
     [[nodiscard]] usize size() const noexcept { return m_stack.size(); }
     [[nodiscard]] bool empty() const noexcept { return m_stack.empty(); }
     // True when a visible screen needs the mouse cursor.

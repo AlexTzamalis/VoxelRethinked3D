@@ -2,6 +2,7 @@
 # the rings (log_top) face the ends of the axis. Format: see stone.toml.
 name = "oak_log"
 display_name = "Oak Log"
+category = "Nature"
 layer = "opaque"
 
 [textures]

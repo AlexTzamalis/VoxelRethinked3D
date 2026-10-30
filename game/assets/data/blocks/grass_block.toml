@@ -2,6 +2,7 @@
 # The top is tinted by the biome. Format: see stone.toml.
 name = "grass_block"
 display_name = "Grass Block"
+category = "Nature"
 layer = "opaque"
 tint = 1
 tint_color = "#8DBB5A"

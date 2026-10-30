@@ -2,6 +2,7 @@
 # a lake is one surface. It dims light a little with depth. Format: see stone.toml.
 name = "water"
 display_name = "Water"
+category = "Nature"
 layer = "translucent"
 light_opacity = 2
 culls_same_type = true

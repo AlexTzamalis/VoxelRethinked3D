@@ -127,10 +127,10 @@ void BlockCatalogLoader::loadFile(const BlockSource& source) {
         return;
     }
     for (const auto& [key, node] : root) {
-        static constexpr std::array<std::string_view, 14> kKnown = {
+        static constexpr std::array<std::string_view, 15> kKnown = {
             "name",  "display_name", "layer",      "emitted_light", "light_opacity", "culls_same_type",
             "tint",  "tint_color",   "tint_faces", "textures",      "overlays",      "variants",
-            "solid", "liquid"};
+            "solid", "liquid",       "category"};
         if (std::ranges::find(kKnown, key.str()) == kKnown.end()) {
             problem(source.file, std::format("unknown field '{}'", key.str()));
         }
@@ -166,6 +166,7 @@ void BlockCatalogLoader::loadFile(const BlockSource& source) {
     BlockDefinition block{.name = *name,
                           .displayName = displayName.value_or(*name),
                           .file = source.file,
+                          .category = root["category"].value_or(std::string("Building")),
                           .firstState = static_cast<BlockStateId>(m_catalog.m_stateNames.size()),
                           .stateCount = 0};
     const toml::node* variantsNode = root.get("variants");

@@ -1,6 +1,8 @@
 #include "voxel_rethinked_app.hpp"
 
 #include "client/default_pack.hpp"
+#include "ui/screens/hud_screen.hpp"
+#include "ui/screens/inventory_screen.hpp"
 #include "ui/screens/keybinds_screen.hpp"
 #include "ui/screens/loading_screen.hpp"
 #include "ui/screens/main_menu_screen.hpp"
@@ -44,6 +46,8 @@ constexpr vxe::f32 kPanoramaTurnSpeed = 0.02F;
 // The UI font, panorama and theme inside the texture packs (Section 15.1).
 constexpr std::string_view kFontImage = "ui/font.png";
 constexpr std::string_view kPanoramaImage = "ui/panorama.jpg";
+// The HUD's pack images, in the atlas under their short names.
+constexpr std::array<std::string_view, 3> kHudImages = {"crosshair", "hotbar_slot", "hotbar_selected"};
 constexpr std::string_view kThemeFile = "ui/theme.toml";
 
 // Debug.Ui.FontSample: the UI font at every whole scale over a dark panel,
@@ -517,7 +521,8 @@ void VoxelRethinkedApp::onTransition(vxe::EngineContext& context, GameState from
         setMouseCaptured(context, false);
     }
     const auto hasScreens = [](GameState state) {
-        return state == GameState::MainMenu || state == GameState::LoadingWorld || state == GameState::Paused;
+        return state == GameState::MainMenu || state == GameState::LoadingWorld ||
+               state == GameState::Paused || state == GameState::InGame;
     };
     if (hasScreens(to) || hasScreens(from)) {
         rebuildScreens(context);
@@ -611,6 +616,9 @@ void VoxelRethinkedApp::rebuildScreens(vxe::EngineContext& context) {
     if (m_states.current() == GameState::LoadingWorld) {
         m_screens->push(std::make_unique<LoadingScreen>());
     }
+    if (m_states.current() == GameState::InGame) {
+        m_screens->push(std::make_unique<HudScreen>(m_hotbar, m_blockIcons, *m_blocks));
+    }
     if (m_settings->widgetSample.get()) {
         m_screens->push(std::make_unique<WidgetSampleScreen>(*m_uiContext));
     }
@@ -668,6 +676,13 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
         std::vector<std::string> images{std::string(kFontImage), std::string(kPanoramaImage)};
         for (const std::string_view name : vxe::ui::kThemeImages) {
             images.push_back(std::format("ui/{}.png", name));
+        }
+        for (const std::string_view name : kHudImages) {
+            images.push_back(std::format("ui/{}.png", name));
+        }
+        // Block textures too, as PNG files: the icons are baked from them.
+        for (const std::string& key : m_blocks->textureKeys()) {
+            images.push_back(std::format("blocks/{}.png", key));
         }
         m_texturePacks->setImages(std::move(images));
         m_texturePacks->setFiles({std::string(kThemeFile)});
@@ -767,17 +782,18 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
             // The mouse looks around whenever the world has the input; the
             // open console needs the cursor instead.
             const bool consoleOpen = context.console != nullptr && context.console->isOpen();
+            updateHotbar(context, time.deltaSeconds);
             const bool steering = !consoleOpen && !m_settings->freezeCamera.get();
-            setMouseCaptured(context, steering);
+            setMouseCaptured(context, steering && !m_inventoryOpen);
             if (m_input->isPressed(m_actions->freeCamera)) {
                 setFreeCamera(!m_freeCamera);
             }
-            if (steering && m_freeCamera) {
+            if (steering && m_freeCamera && !m_inventoryOpen) {
                 m_flight->update(m_camera, time.deltaSeconds);
-            } else if (steering && m_player && m_demo) {
+            } else if (steering && m_player && m_demo && !m_freeCamera) {
                 m_player->update(m_camera, m_demo->world(), time.deltaSeconds,
                                  vxe::i64{DemoWorld::kMinChunkY} * vxe::kChunkSize,
-                                 (vxe::i64{DemoWorld::kMaxChunkY} + 1) * vxe::kChunkSize);
+                                 (vxe::i64{DemoWorld::kMaxChunkY} + 1) * vxe::kChunkSize, !m_inventoryOpen);
             }
             if (m_autoFlySpeed > 0.0) {
                 // Level flight in the view direction, so looking down does
@@ -807,7 +823,7 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
             saveWorld(context, false);
         }
         m_demo->update(m_camera);
-        const bool playing = m_states.current() == GameState::InGame && !m_freeCamera &&
+        const bool playing = m_states.current() == GameState::InGame && !m_freeCamera && !m_inventoryOpen &&
                              !m_settings->freezeCamera.get() &&
                              (context.console == nullptr || !context.console->isOpen());
         if (playing && m_interaction) {
@@ -851,6 +867,48 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
     m_demo = std::move(demo).value();
     if (const vxe::render::BlockTextures* textures = m_texturePacks ? m_texturePacks->textures() : nullptr) {
         m_demo->setTextureColors(textures->averageColors);
+    }
+}
+
+// Slots, the HUD and the creative inventory while playing.
+void VoxelRethinkedApp::updateHotbar(vxe::EngineContext& context, vxe::f64 deltaSeconds) {
+    if (!m_screens) {
+        return;
+    }
+    // The inventory is any screen over the HUD; the menu context lets it use
+    // the keyboard and blocks gameplay keys until it closes.
+    const bool open = m_screens->size() > 1;
+    if (open != m_inventoryOpen) {
+        m_inventoryOpen = open;
+        if (open) {
+            m_input->pushContext(m_actions->menu);
+        } else {
+            m_input->popContext(m_actions->menu);
+        }
+    }
+    if (!open) {
+        for (vxe::usize slot = 0; slot < m_actions->hotbar.size(); ++slot) {
+            if (m_input->isPressed(m_actions->hotbar.at(slot))) {
+                m_hotbar.selected = slot;
+            }
+        }
+        if (m_player == nullptr || !m_player->isZooming()) {
+            const vxe::usize count = m_hotbar.slots.size();
+            if (m_input->isPressed(m_actions->hotbarNext)) {
+                m_hotbar.selected = (m_hotbar.selected + 1) % count;
+            }
+            if (m_input->isPressed(m_actions->hotbarPrevious)) {
+                m_hotbar.selected = (m_hotbar.selected + count - 1) % count;
+            }
+        }
+        if (m_input->isPressed(m_actions->inventory) && m_blocks) {
+            m_screens->push(
+                std::make_unique<InventoryScreen>(menuServices(context), *m_blocks, m_blockIcons, m_hotbar));
+        }
+    }
+    if (auto* hud = dynamic_cast<HudScreen*>(m_screens->bottom()); hud != nullptr && hud->hud() != nullptr) {
+        hud->hud()->sync(m_settings->showHud.get(), m_settings->hudOpacity.get(),
+                         static_cast<vxe::f32>(deltaSeconds));
     }
 }
 
@@ -912,13 +970,24 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
     if (const vxe::render::PackImage* font = m_texturePacks->image(kFontImage); font != nullptr && m_ui) {
         // The font and every theme image a pack provides share one atlas.
         std::vector<vxe::ui::AtlasImage> images;
-        for (const std::string_view name : vxe::ui::kThemeImages) {
+        const auto addImage = [&](std::string_view name) {
             if (const vxe::render::PackImage* image = m_texturePacks->image(std::format("ui/{}.png", name))) {
                 images.push_back({.name = std::string(name),
                                   .width = image->width,
                                   .height = image->height,
                                   .pixels = image->pixels});
             }
+        };
+        std::ranges::for_each(vxe::ui::kThemeImages, addImage);
+        std::ranges::for_each(kHudImages, addImage);
+        m_blockIcons.bake(*m_blocks, [this](std::string_view key) {
+            return m_texturePacks->image(std::format("blocks/{}.png", key));
+        });
+        for (const BlockIcons::Icon& icon : m_blockIcons.icons()) {
+            images.push_back({.name = icon.name,
+                              .width = BlockIcons::kSize,
+                              .height = BlockIcons::kSize,
+                              .pixels = icon.pixels});
         }
         const vxe::ui::AtlasImage sheet{.width = font->width, .height = font->height, .pixels = font->pixels};
         if (auto set = m_ui->setResources(sheet, images); !set) {

@@ -5,6 +5,7 @@ find_package(doctest CONFIG REQUIRED)
 add_executable(vr_tests
     test_main.cpp
     block_catalog_tests.cpp
+    block_icons_tests.cpp
     demo_world_tests.cpp
     game_settings_tests.cpp
     game_state_tests.cpp

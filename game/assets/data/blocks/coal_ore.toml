@@ -1,6 +1,7 @@
 # Common ore, found at most depths. Format: see stone.toml.
 name = "coal_ore"
 display_name = "Coal Ore"
+category = "Ores"
 layer = "opaque"
 
 [textures]

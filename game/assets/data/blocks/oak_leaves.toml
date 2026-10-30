@@ -4,6 +4,7 @@
 # Format: see stone.toml.
 name = "oak_leaves"
 display_name = "Oak Leaves"
+category = "Nature"
 layer = "cutout"
 light_opacity = 1
 culls_same_type = false

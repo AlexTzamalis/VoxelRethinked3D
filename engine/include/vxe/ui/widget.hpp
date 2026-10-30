@@ -136,6 +136,8 @@ public:
     // A theme image as a nine slice frame with corners `border` texels (UI
     // pixels) wide. False when no pack has the image: draw the flat look.
     bool nineSlice(const UiRect& rect, std::string_view image, f32 border);
+    // A theme or game image stretched over `rect`. False when no pack has it.
+    bool image(const UiRect& rect, std::string_view image, u32 tint = 0xFFFFFFFFU);
     // Clips everything until popClip() to the rectangle (scroll views).
     void pushClip(const UiRect& rect);
     void popClip();

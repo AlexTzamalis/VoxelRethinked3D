@@ -3,6 +3,7 @@
 #
 #   name             Stable id, saved in worlds. Lowercase letters, digits, underscores.
 #   display_name     Shown to players.
+#   category         Its tab in the creative inventory. Default Building.
 #   layer            opaque, cutout (alpha tested, like leaves), translucent (blended,
 #                    like water and glass) or invisible (never drawn).
 #   emitted_light    0 to 15. Light the block gives off. Default 0.

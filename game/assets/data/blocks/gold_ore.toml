@@ -1,6 +1,7 @@
 # Rare ore, deep underground. Format: see stone.toml.
 name = "gold_ore"
 display_name = "Gold Ore"
+category = "Ores"
 layer = "opaque"
 
 [textures]

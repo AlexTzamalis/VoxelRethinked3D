@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#099] 2026-10-30, G6.4 G6.4b G6.5 Hotbar, HUD and creative inventory
+### Added
+- HUD: crosshair and a nine slot hotbar drawn from pack images (ui/crosshair.png, ui/hotbar_slot.png, ui/hotbar_selected.png), with the block's name above the bar when it changes. Interface.ShowHud (F1) and Interface.HudOpacity work.
+- 3D block icons baked from the block textures with their tints and overlays, so they follow the texture pack.
+- Creative inventory on E: every block, a search box, category tabs (category in block files) and the hotbar. The world keeps running behind it. Closes with E or Escape.
+- Hotbar slots with 1 to 9 and the wheel; the hotbar saves with the player.
+- DrawContext::image, ScreenManager::bottom.
+
 ## [#098] 2026-10-30, G6.1 G6.2 G6.3 Player, collision, breaking and placing blocks
 ### Added
 - A real player (Section 20.4): walking with collision, gravity, jump, sprint, crouch that stops at edges, swimming, and flight with double Space. The physics is one function at a fixed step (game/src/common/player_physics.hpp), ready for the server to share. The camera sits between steps, so movement stays smooth at any frame rate.
