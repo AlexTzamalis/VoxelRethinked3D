@@ -10,6 +10,7 @@ add_executable(vxe_benchmarks
     lod_bench.cpp
     main.cpp
     meshing_bench.cpp
+    noise_bench.cpp
     region_bench.cpp
     storage_bench.cpp
     ui_bench.cpp

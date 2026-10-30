@@ -2,6 +2,18 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#103] 2026-10-30, G3.0 Noise core
+### Added
+- vxe::noise: gradient noise in 2D and 3D with exact derivatives, fractal and ridged noise, Worley cells, using only operations IEEE 754 fixes exactly, on doubles.
+- Golden test of exact bits, near the origin and 30 million blocks out.
+- Noise benchmarks and docs/perf/worldgen.md.
+
+### Changed
+- Clang and GCC build with -ffp-contract=off, because fused multiply and add changed the world on GCC.
+
+### Performance
+- One chunk's noise on the coarse grid: 17.9 us, 7% of the 0.25 ms budget.
+
 ## [#102] 2026-10-30, Turn bushy leaf planes per block
 ### Changed
 - Advanced leaves: each block turns its bushy planes by up to 28 degrees, from a hash of its position. Neighbors' planes no longer share one plane (they would flicker where they overlap), and a tree's planes no longer go edge on together as the view turns.

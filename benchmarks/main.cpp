@@ -29,6 +29,9 @@ int main(int argc, char** argv) {
         if (wanted("light")) {
             vxe::bench::runLightBenchmarks();
         }
+        if (wanted("noise")) {
+            vxe::bench::runNoiseBenchmarks();
+        }
         if (wanted("lod")) {
             vxe::bench::runLodBenchmarks();
         }

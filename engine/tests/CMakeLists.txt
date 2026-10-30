@@ -33,6 +33,7 @@ add_executable(vxe_tests
     jobs/job_system_tests.cpp
     math/coords_tests.cpp
     math/geometry_tests.cpp
+    math/noise_tests.cpp
     math/projection_tests.cpp
     platform/platform_tests.cpp
     render/camera_tests.cpp

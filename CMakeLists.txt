@@ -54,6 +54,13 @@ project(VoxelRethinked3D
     DESCRIPTION "Voxel Rethinked, a modern voxel sandbox game, and the vxe engine"
     LANGUAGES CXX)
 
+# Worlds must be the same on every machine, so a multiply and an add must stay
+# two rounded steps: fusing them changes results (measured on GCC with AVX2).
+# MSVC keeps them apart by default.
+if(NOT MSVC)
+    add_compile_options(-ffp-contract=off)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

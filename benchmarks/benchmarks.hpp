@@ -21,6 +21,9 @@ void runLightBenchmarks();
 // LOD tiles, their cache files and the clipmap (lod_bench.cpp, E11.1).
 void runLodBenchmarks();
 
+// Noise for world generation (noise_bench.cpp, G3.0).
+void runNoiseBenchmarks();
+
 // UI layout and drawing of a menu sized tree (ui_bench.cpp, E12.2).
 void runUiBenchmarks();
 
