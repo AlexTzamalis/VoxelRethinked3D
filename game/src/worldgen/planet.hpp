@@ -18,8 +18,11 @@ struct PlanetPreset {
     vxe::f64 oceanDepth = 80.0;
     vxe::f64 inlandHeight = 26.0; // How far land climbs by itself towards the interior.
     vxe::f64 riftDepth = 14.0;
-    vxe::f64 hillHeight = 34.0; // Of the roughest hills. Plains stay almost flat.
-    vxe::f64 hillSize = 520.0;
+    vxe::f64 hillHeight = 64.0; // Of the roughest hills. Plains stay almost flat.
+    vxe::f64 hillSize = 300.0;
+    vxe::f64 valleySize = 1100.0; // How far apart winding valleys run.
+    vxe::f64 valleyDepth = 26.0;
+    vxe::f64 terraceHeight = 22.0; // Of one step of a plateau.
     vxe::u32 ridgeOctaves = 6;
 
     // Continents of about 70 km divided by oceans hundreds of kilometers wide,
@@ -39,6 +42,9 @@ struct PlanetPreset {
                 .riftDepth = 46.0,
                 .hillHeight = 46.0,
                 .hillSize = 1500.0,
+                .valleySize = 6000.0,
+                .valleyDepth = 40.0,
+                .terraceHeight = 34.0,
                 .ridgeOctaves = 8};
     }
 };

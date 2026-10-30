@@ -172,21 +172,49 @@ PlanetSample Planet::sample(f64 x, f64 z) const noexcept {
     // ridges alone would make lone spikes.
     const f64 mountain = land.strength * land.reach * (0.34 + (ridge * (0.22 + (0.5 * land.strength))));
 
-    // Hills come and go: the rough parts of the land roll, and the rest stays
-    // nearly flat, which is what makes plains wide and open. Rifts sink the
-    // land along parting plates.
+    // Hills come and go: the rough parts of the land roll strongly, the rest
+    // stays almost flat, which is what makes plains wide and open. Smaller
+    // swells ride on the hills, so slopes are never one even ramp. Rifts sink
+    // the land along parting plates.
     const Fractal roughShape{.octaves = 3, .frequency = 0.3 / m_preset.hillSize};
     const f64 rough =
-        smooth(-0.22, 0.25, vxe::noise::fbm2(m_hills + 1, land.warpedX, land.warpedZ, roughShape).value);
-    const Fractal hillShape{.octaves = 5, .frequency = 1.0 / m_preset.hillSize};
+        smooth(-0.3, 0.12, vxe::noise::fbm2(m_hills + 1, land.warpedX, land.warpedZ, roughShape).value);
+    const Fractal hillShape{.octaves = 4, .frequency = 1.0 / m_preset.hillSize};
     const f64 hills = vxe::noise::fbm2(m_hills, land.warpedX, land.warpedZ, hillShape).value *
-                      m_preset.hillHeight * land.inland * (0.1 + (0.9 * rough * rough));
+                      m_preset.hillHeight * land.inland * (0.08 + (0.92 * rough * rough));
+    const Fractal swellShape{.octaves = 3, .frequency = 3.2 / m_preset.hillSize};
+    const f64 swells = vxe::noise::fbm2(m_hills + 4, land.warpedX, land.warpedZ, swellShape).value *
+                       m_preset.hillHeight * 0.16 * land.inland * (0.2 + (0.8 * rough));
     const f64 riftDrop = land.rift * m_preset.riftDepth * land.inland;
+
+    f64 elevation = base + (mountain * land.tall) + hills + swells - riftDrop;
+
+    // Plateaus: in parts of the rough country the land climbs in steps with
+    // cliffs between them, instead of rolling.
+    const Fractal plateauShape{.octaves = 2, .frequency = 0.45 / m_preset.hillSize};
+    const f64 stepped =
+        smooth(0.06, 0.2, vxe::noise::fbm2(m_hills + 3, land.warpedX, land.warpedZ, plateauShape).value) *
+        smooth(0.3, 0.7, rough) * land.inland * (1.0 - std::min(mountain * 3.0, 1.0));
+    if (stepped > 0.0 && elevation > 6.0) {
+        const f64 level = elevation / m_preset.terraceHeight;
+        const f64 whole = std::floor(level);
+        const f64 terraced = (whole + smooth(0.38, 0.62, level - whole)) * m_preset.terraceHeight;
+        elevation += (terraced - elevation) * stepped;
+    }
+
+    // Valleys: winding trenches where slow noise crosses zero, deepest in rough
+    // land and mountains, and always above the sea. Rivers can fill them later.
+    const Fractal valleyShape{.octaves = 3, .frequency = 1.0 / m_preset.valleySize, .gain = 0.45};
+    const f64 line = std::abs(vxe::noise::fbm2(m_hills + 2, land.warpedX, land.warpedZ, valleyShape).value);
+    const f64 cut = (1.0 - smooth(0.0, 0.075, line)) * m_preset.valleyDepth * land.inland *
+                    (0.3 + rough + (mountain * 2.5));
+    if (elevation > 4.0) {
+        elevation = std::max(elevation - cut, std::min(elevation, 4.0));
+    }
 
     // Heights past the knee are held back, more the higher they get, so even
     // giants stay under the ceiling. Below the knee nothing changes, and the
     // two parts meet without a crease.
-    f64 elevation = base + (mountain * land.tall) + hills - riftDrop;
     if (elevation > m_preset.peakKnee) {
         const f64 over = elevation - m_preset.peakKnee;
         elevation = m_preset.peakKnee + (over / (1.0 + (over / (m_preset.peakCeiling - m_preset.peakKnee))));

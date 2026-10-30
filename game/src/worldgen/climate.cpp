@@ -140,8 +140,10 @@ Biome Climate::biome(const PlanetSample& ground, const ClimateSample& climate) n
         }
         return heat > 23.0 ? Biome::WarmOcean : Biome::Ocean;
     }
-    if (ground.elevation < 4.0) {
-        if (ground.mountain > 0.03 || ground.rough > 0.8) {
+    // Shores belong to the coast. Low ground inland is just low ground, or a
+    // sand or stone plain would appear in the middle of a country.
+    if (ground.elevation < 4.0 && ground.continent < 0.035) {
+        if (ground.mountain > 0.05) {
             return Biome::StonyShore;
         }
         return heat < 0.0 ? Biome::SnowyBeach : Biome::Beach;
@@ -149,15 +151,15 @@ Biome Climate::biome(const PlanetSample& ground, const ClimateSample& climate) n
     // Up a mountain the climate gets colder by itself, so these bands follow
     // the height: wooded slopes or meadows, bare rock, then snow.
     if (ground.mountain > 0.12) {
-        if (heat < -2.0) {
+        if (heat < -2.0 && ground.elevation > 120.0) {
             return Biome::SnowyPeaks;
         }
-        if (heat < 4.0 || rain < 0.22) {
+        if (ground.elevation > 170.0 && (heat < 4.0 || rain < 0.22)) {
             return Biome::RockyPeaks;
         }
         return rain > 0.42 && variety > 0.35 ? Biome::WoodedSlopes : Biome::Meadow;
     }
-    if (ground.elevation < 14.0 && rain > 0.68 && heat > 8.0 && ground.rough < 0.5) {
+    if (ground.elevation < 18.0 && rain > 0.62 && heat > 8.0 && ground.rough < 0.5) {
         return Biome::Swamp;
     }
     if (heat < -1.0) {

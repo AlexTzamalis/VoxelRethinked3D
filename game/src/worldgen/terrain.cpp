@@ -416,7 +416,8 @@ Ground Terrain::ground(f64 x, f64 z, f64 shortest) const noexcept {
                .slope = std::sqrt((slopeX * slopeX) + (slopeZ * slopeZ)),
                .mountain = here.mountain,
                .rift = here.rift,
-               .rough = here.rough};
+               .rough = here.rough,
+               .continent = here.continent};
     // Water carves what stands above the sea and is steep enough to run.
     const f64 strength = smooth(0.06, 0.55, out.slope) * smooth(2.0, 50.0, here.elevation);
     if (strength > 0.0) {
@@ -433,7 +434,8 @@ Ground Terrain::farGround(f64 x, f64 z, f64 cell) const noexcept {
         return {.height = here.elevation + static_cast<f64>(kSeaLevel),
                 .mountain = here.mountain,
                 .rift = here.rift,
-                .rough = here.rough};
+                .rough = here.rough,
+                .continent = here.continent};
     }
     return ground(x, z, cell * 2.0);
 }
@@ -460,8 +462,12 @@ Terrain::FarCell Terrain::farCell(f64 x, f64 z, f64 cell, const Climate::Field& 
     const Ground at = farGround(x, z, cell);
     const f64 above = at.height - static_cast<f64>(kSeaLevel);
     const ClimateSample weather = Climate::fromField(field, above, m_climate.coolPerBlock());
-    const Biome biome = Climate::biome(
-        {.elevation = above, .mountain = at.mountain, .rift = at.rift, .rough = at.rough}, weather);
+    const Biome biome = Climate::biome({.elevation = above,
+                                        .continent = at.continent,
+                                        .mountain = at.mountain,
+                                        .rift = at.rift,
+                                        .rough = at.rough},
+                                       weather);
     return {.height = static_cast<i64>(std::floor(at.height)), .biome = biome, .top = topOf(x, z, at, biome)};
 }
 
@@ -507,7 +513,8 @@ void Terrain::buildColumn(i32 chunkX, i32 chunkZ, Column& column) const noexcept
                         .slope = blend(&Ground::slope),
                         .mountain = blend(&Ground::mountain),
                         .rift = blend(&Ground::rift),
-                        .rough = blend(&Ground::rough)};
+                        .rough = blend(&Ground::rough),
+                        .continent = blend(&Ground::continent)};
             // The grid is 4 blocks wide; this gives the ground its last grain.
             f64 above = here.height - static_cast<f64>(kSeaLevel);
             here.height +=
@@ -518,9 +525,12 @@ void Terrain::buildColumn(i32 chunkX, i32 chunkZ, Column& column) const noexcept
             const f64 fray = vxe::noise::gradient2(m_seed + 53, wx / 11.0, wz / 11.0).value;
             weather.temperature += fray * 1.6;
             weather.rainfall += fray * 0.045;
-            const Biome biome = Climate::biome(
-                {.elevation = above, .mountain = here.mountain, .rift = here.rift, .rough = here.rough},
-                weather);
+            const Biome biome = Climate::biome({.elevation = above,
+                                                .continent = here.continent,
+                                                .mountain = here.mountain,
+                                                .rift = here.rift,
+                                                .rough = here.rough},
+                                               weather);
             const auto height = static_cast<i32>(std::floor(here.height));
             const auto index = static_cast<usize>((z * vxe::kChunkSize) + x);
             column.heights[index] = height;
@@ -611,9 +621,13 @@ std::optional<vxe::BlockPos> Terrain::findBiome(Biome biome, i64 fromX, i64 from
             const i64 z = fromZ + dz;
             const Ground at = ground(static_cast<f64>(x), static_cast<f64>(z), kGullyWidest);
             const f64 above = at.height - static_cast<f64>(kSeaLevel);
-            const Biome here = Climate::biome(
-                {.elevation = above, .mountain = at.mountain, .rift = at.rift, .rough = at.rough},
-                m_climate.sample(static_cast<f64>(x), static_cast<f64>(z), above));
+            const Biome here =
+                Climate::biome({.elevation = above,
+                                .continent = at.continent,
+                                .mountain = at.mountain,
+                                .rift = at.rift,
+                                .rough = at.rough},
+                               m_climate.sample(static_cast<f64>(x), static_cast<f64>(z), above));
             if (here == biome && biomeAt(x, z) == biome) {
                 return vxe::BlockPos{.x = x, .y = surfaceHeight(x, z), .z = z};
             }
@@ -967,7 +981,7 @@ const PlantChoice* Terrain::plantAt(i64 x, i64 z, const BiomeLook& look) const n
     const f64 roll = unit(h);
     const auto wx = static_cast<f64>(x);
     const auto wz = static_cast<f64>(z);
-    if (look.flowers > 0.0F && roll < 0.42 && look.flowerCount > 0 &&
+    if (look.flowers > 0.0F && roll < 0.3 && look.flowerCount > 0 &&
         vxe::noise::gradient2(m_seed + 71, wx / 13.0, wz / 13.0).value >
             0.5 - (static_cast<f64>(look.flowers) * 1.05)) {
         // Each patch favors one kind, with a few others among it.
@@ -979,7 +993,7 @@ const PlantChoice* Terrain::plantAt(i64 x, i64 z, const BiomeLook& look) const n
         return nullptr;
     }
     // Grass grows in thick and thin stretches.
-    const f64 lush = 1.0 + (vxe::noise::gradient2(m_seed + 79, wx / 17.0, wz / 17.0).value * 1.1);
+    const f64 lush = 1.0 + (vxe::noise::gradient2(m_seed + 79, wx / 21.0, wz / 21.0).value * 2.2);
     if (unit(mix(h)) >= static_cast<f64>(look.grass) * lush) {
         return nullptr;
     }

@@ -2,6 +2,20 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#111] 2026-10-31, G3 Hills, valleys, plateaus and calmer biomes
+### Added
+- Strong hills in rough land, smaller swells on them, winding valleys, stepped plateaus with cliffs.
+
+### Changed
+- Beaches and stony shores only at real coasts, bare rock only high up, so no sand or stone plains appear inland.
+- About 40% less grass and flowers, with bare stretches, and fewer bushes and trees in the thickest woods.
+
+### Fixed
+- Placing a block on grass or a flower now replaces the plant instead of going beside it.
+
+### Docs
+- A test holds the time from an edit to its mesh while the world loads (47 ms).
+
 ## [#110] 2026-10-31, Fix the build of #109
 ### Fixed
 - A stray character at the end of biome_looks.cpp stopped #109 from compiling.

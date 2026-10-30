@@ -212,7 +212,13 @@ void BlockInteraction::update(const vxe::render::Camera& camera, const PlayerSta
     if (shouldAct(m_actions.placeBlock, m_placeWait)) {
         const BlockStateId state = hotbar.current();
         const vxe::IVec3 normal = vxe::normalOf(m_target->face);
-        const BlockPos place{.x = block.x + normal.x, .y = block.y + normal.y, .z = block.z + normal.z};
+        // Pointing at grass or a flower means the place it stands on: a block
+        // goes where the plant is, not beside it, so foliage never gets in the
+        // way of building.
+        const bool intoTarget = m_catalog.isReplaceable(world.getBlock(block, kAirState));
+        const BlockPos place =
+            intoTarget ? block
+                       : BlockPos{.x = block.x + normal.x, .y = block.y + normal.y, .z = block.z + normal.z};
         const BlockStateId there = world.getBlock(place, kUnloaded);
         const bool free =
             there == kAirState ||

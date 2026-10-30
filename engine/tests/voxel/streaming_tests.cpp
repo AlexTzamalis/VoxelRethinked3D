@@ -258,6 +258,40 @@ TEST_CASE("Edits remesh the chunk and the neighbors whose border they touch") {
     CHECK(rig.world.changedChunks().empty());
 }
 
+TEST_CASE("An edit is meshed right away, even while the world is still loading") {
+    Rig rig;
+    rig.settle();
+    // Plenty left to load keeps the queues full, as on a long walk at a large
+    // render distance.
+    rig.set("World.Streaming.RenderDistance", 24);
+    rig.set("World.Streaming.VerticalRenderDistance", 2);
+    const auto play = [&](int frames) {
+        // Real frames: streaming runs once per frame, with time between them.
+        for (int i = 0; i < frames; ++i) {
+            rig.step();
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    };
+    play(60);
+    REQUIRE_FALSE(rig.manager->isSettled());
+    const auto meshes = [&] {
+        const auto it = rig.sink.uploads.find(ChunkPos{});
+        return it == rig.sink.uploads.end() ? 0U : it->second;
+    };
+    const auto before = meshes();
+    const Stopwatch clock;
+    REQUIRE(rig.world.setBlock({.x = 8, .y = 10, .z = 8}, kStone));
+    while (meshes() == before && clock.elapsedMilliseconds() < 8000.0) {
+        play(1);
+    }
+    const f64 waited = clock.elapsedMilliseconds();
+    MESSAGE("The edit reached its mesh after " << waited << " ms, settled " << rig.manager->isSettled());
+    CHECK(meshes() > before);
+    if (test::timingIsReliable()) {
+        CHECK(waited < 150.0);
+    }
+}
+
 TEST_CASE("A mesh made from an outdated snapshot is thrown away") {
     Rig rig;
     rig.settle();

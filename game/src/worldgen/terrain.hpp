@@ -21,6 +21,7 @@ struct Ground {
     vxe::f64 mountain = 0.0;
     vxe::f64 rift = 0.0;
     vxe::f64 rough = 0.0;
+    vxe::f64 continent = 0.0;
 };
 
 // The world's terrain (G3.3, G3.4, G3.6): the planet's heights, carved by an
