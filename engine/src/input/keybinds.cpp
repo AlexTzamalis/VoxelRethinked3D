@@ -103,6 +103,26 @@ std::string tomlString(std::string_view text) {
 
 } // namespace
 
+std::string bindingLabel(const Binding& binding) {
+    if (binding.kind != BindingKind::Key) {
+        return bindingToString(binding);
+    }
+    const auto keyLabel = [](u16 scancode) {
+        const std::string label = platform::Platform::layoutKeyName(scancode);
+        return label.empty() ? keyToString(scancode, KeyNameMode::Physical) : label;
+    };
+    std::string text;
+    for (const NamedModifier& named : kModifierNames) {
+        if (platform::hasAll(binding.modifiers, named.modifier)) {
+            text += std::format("{}+", named.name);
+        }
+    }
+    if (binding.chordKey != 0) {
+        text += keyLabel(binding.chordKey) + "+";
+    }
+    return text + keyLabel(binding.code);
+}
+
 std::string bindingToString(const Binding& binding, KeyNameMode mode) {
     if (binding.isNone()) {
         return {};

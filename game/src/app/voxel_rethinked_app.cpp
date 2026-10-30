@@ -1,6 +1,7 @@
 #include "voxel_rethinked_app.hpp"
 
 #include "client/default_pack.hpp"
+#include "ui/screens/keybinds_screen.hpp"
 #include "ui/screens/pause_screen.hpp"
 #include "ui/screens/settings_screen.hpp"
 #include "ui/screens/widget_sample.hpp"
@@ -134,6 +135,21 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                                           m_states.request(GameState::Paused);
                                           return output;
                                       }});
+    // Opens the controls screen over the pause menu (captures, quick access).
+    context.commands.registerCommand(
+        {.name = "controls",
+         .usage = "controls",
+         .description = "Opens the controls screen (pause the game first).",
+         .handler = [this, &context](std::span<const std::string> /*arguments*/) {
+             vxe::config::CommandOutput output;
+             if (m_states.current() != GameState::Paused || !m_screens || m_screens->empty()) {
+                 output.lines.emplace_back("Pause the game first (pause).");
+                 output.success = false;
+                 return output;
+             }
+             m_screens->push(std::make_unique<KeybindsScreen>(menuServices(context)));
+             return output;
+         }});
     // Opens the settings screen over the pause menu (captures, quick access).
     context.commands.registerCommand(
         {.name = "settings",
@@ -147,28 +163,32 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                  return output;
              }
              m_screens->push(std::make_unique<SettingsScreen>(
-                 context.settings, arguments.empty() ? std::string() : arguments.front()));
+                 menuServices(context), arguments.empty() ? std::string() : arguments.front()));
              return output;
          }});
     // Opens the sample confirmation dialog, to look at dialogs while the
     // game holds the mouse (captures, theme work).
-    context.commands.registerCommand(
-        {.name = "uidialog",
-         .usage = "uidialog",
-         .description = "Opens a sample dialog of the game UI.",
-         .handler = [this](std::span<const std::string> /*arguments*/) {
-             vxe::config::CommandOutput output;
-             if (!m_uiContext) {
-                 output.lines.emplace_back("The game UI is not running.");
-                 output.success = false;
-                 return output;
-             }
-             vxe::ui::showDialog(
-                 *m_uiContext, {.title = "Delete world?",
-                                .message = "\"New World\" and everything built in it will be gone for good.",
-                                .buttons = {{.text = "Delete"}, {.text = "Cancel", .cancel = true}}});
-             return output;
-         }});
+    context.commands.registerCommand({.name = "uidialog",
+                                      .usage = "uidialog",
+                                      .description = "Opens a sample dialog of the game UI.",
+                                      .handler = [this](std::span<const std::string> /*arguments*/) {
+                                          vxe::config::CommandOutput output;
+                                          if (!m_uiContext) {
+                                              output.lines.emplace_back("The game UI is not running.");
+                                              output.success = false;
+                                              return output;
+                                          }
+                                          // The widest dialog there is: four buttons.
+                                          vxe::ui::showDialog(
+                                              *m_uiContext, {.title = "Key already used",
+                                                             .message = "Left Shift is used by Crouch.",
+                                                             .buttons = {{.text = "Swap"},
+                                                                         {.text = "Unbind other"},
+                                                                         {.text = "Keep both"},
+                                                                         {.text = "Cancel", .cancel = true}},
+                                                             .width = 320.0F});
+                                          return output;
+                                      }});
     // Puts the camera somewhere exact, for repeatable captures and measurements.
     context.commands.registerCommand(
         {.name = "camera",
@@ -258,6 +278,10 @@ void VoxelRethinkedApp::onTransition(vxe::EngineContext& context, GameState from
     }
 }
 
+MenuServices VoxelRethinkedApp::menuServices(vxe::EngineContext& context) {
+    return {.settings = context.settings, .input = context.input, .ui = *m_uiContext};
+}
+
 void VoxelRethinkedApp::rebuildScreens(vxe::EngineContext& context) {
     if (!m_screens) {
         return;
@@ -268,7 +292,7 @@ void VoxelRethinkedApp::rebuildScreens(vxe::EngineContext& context) {
     }
     if (m_states.current() == GameState::Paused) {
         m_screens->push(std::make_unique<PauseScreen>(
-            context.settings, [this] { m_states.request(GameState::InGame); },
+            menuServices(context), [this] { m_states.request(GameState::InGame); },
             [this, &context] { onQuitRequested(context); }));
     }
 }
@@ -527,12 +551,17 @@ void VoxelRethinkedApp::drawUi(vxe::EngineContext& context, const vxe::FrameTime
         // The pointer and keys belong to the UI only while the game does not
         // use them for playing (mouse look captures the pointer, the menu
         // context carries the navigation actions).
-        vxe::ui::UiInput input{.pointer = {.available = !m_mouseCaptured},
+        // While a key is being rebound, the next click is the new binding,
+        // not a click on the UI.
+        const bool capturing = m_input != nullptr && m_input->isCapturing();
+        vxe::ui::UiInput input{.pointer = {.available = !m_mouseCaptured && !capturing},
                                .deltaSeconds = static_cast<vxe::f32>(time.deltaSeconds)};
         if (m_input != nullptr) {
             input.pointer.x = m_input->mousePosition().x;
             input.pointer.y = m_input->mousePosition().y;
-            input.pointer.primaryDown = m_input->isMouseButtonDown(vxe::platform::MouseButton::Left);
+            // A button that just became a binding is not a click until released.
+            input.pointer.primaryDown = m_input->isMouseButtonDown(vxe::platform::MouseButton::Left) &&
+                                        !m_input->isMouseButtonSuppressed(vxe::platform::MouseButton::Left);
             input.pointer.wheel = m_input->wheelDelta().y;
             input.navigation = m_uiActions->navigation(*m_input);
             input.text = vxe::ui::UiActions::textEditing(*m_input);

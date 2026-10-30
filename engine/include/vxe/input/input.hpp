@@ -195,6 +195,9 @@ public:
     [[nodiscard]] bool wasKeyTyped(u16 scancode) const noexcept;
     [[nodiscard]] bool wasKeyPressed(u16 scancode) const noexcept;
     [[nodiscard]] bool isMouseButtonDown(platform::MouseButton button) const noexcept;
+    // The button finished a capture and is still held: it belongs to the
+    // keybind it became, so the UI must not read it as a click.
+    [[nodiscard]] bool isMouseButtonSuppressed(platform::MouseButton button) const noexcept;
     [[nodiscard]] Vec2 mousePosition() const noexcept { return m_mousePosition; }
     [[nodiscard]] Vec2 mouseDelta() const noexcept { return m_mouseDelta; } // Sum of this frame's motion.
     [[nodiscard]] Vec2 wheelDelta() const noexcept { return m_wheel; }

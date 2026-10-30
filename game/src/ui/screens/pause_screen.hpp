@@ -1,6 +1,7 @@
 #pragma once
 
-#include <vxe/config/settings.hpp>
+#include "menu_services.hpp"
+
 #include <vxe/ui/screen.hpp>
 
 #include <functional>
@@ -13,9 +14,8 @@ namespace vr {
 // (G5.4); for now Quit closes the game.
 class PauseScreen final : public vxe::ui::Screen {
 public:
-    PauseScreen(vxe::config::SettingsRegistry& settings, std::function<void()> resume,
-                std::function<void()> quit)
-        : m_settings(settings)
+    PauseScreen(const MenuServices& services, std::function<void()> resume, std::function<void()> quit)
+        : m_services(services)
         , m_resume(std::move(resume))
         , m_quit(std::move(quit)) {}
 
@@ -24,7 +24,7 @@ public:
     bool onBack() override;
 
 private:
-    vxe::config::SettingsRegistry& m_settings;
+    MenuServices m_services;
     std::function<void()> m_resume;
     std::function<void()> m_quit;
 };

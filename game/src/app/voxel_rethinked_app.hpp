@@ -4,6 +4,7 @@
 #include "common/block_catalog.hpp"
 #include "game_settings.hpp"
 #include "game_state.hpp"
+#include "ui/screens/menu_services.hpp"
 
 #include <vxe/app/application.hpp>
 #include <vxe/render/camera.hpp>
@@ -51,6 +52,7 @@ private:
     void drawUi(vxe::EngineContext& context, const vxe::FrameTime& time);
     // Puts the screens the game state and the debug settings ask for on the stack.
     void rebuildScreens(vxe::EngineContext& context);
+    [[nodiscard]] MenuServices menuServices(vxe::EngineContext& context);
 
     GameStateMachine m_states;
     std::optional<BlockCatalog> m_blocks;

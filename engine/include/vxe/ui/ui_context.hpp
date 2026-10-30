@@ -110,12 +110,19 @@ public:
     // The tooltip shown now, or empty.
     [[nodiscard]] std::string_view visibleTooltip() const noexcept;
 
+    // Where a remembered widget is: removed, there but unable to take input
+    // (hidden, inert, under a modal layer), or usable.
+    enum class Presence : u8 {
+        Gone,
+        Hidden,
+        Live
+    };
+
 private:
     struct Layer {
         std::unique_ptr<Widget> root;
         LayerOptions options;
         Widget* focusBefore = nullptr;
-        u64 generationBefore = 0;
         bool closing = false;
     };
 
@@ -132,7 +139,8 @@ private:
                                  bool textFocus);
     void updateTooltip(const UiInput& input);
     void drawTooltip(DrawContext& context) const;
-    void forgetWidgets() noexcept;
+    [[nodiscard]] Presence presenceOf(const Widget* widget);
+    void dropLostWidgets();
 
     stats::StatRegistry* m_stats;
     config::Setting<i32> m_scaleSetting;
@@ -143,9 +151,6 @@ private:
     u32 m_width = 0;
     u32 m_height = 0;
     u64 m_fontVersion = 0;
-    // Goes up whenever widgets may have been removed, so a remembered focus
-    // from before a dialog is only restored while it surely still exists.
-    u64 m_generation = 0;
     QuadBatch m_cache;
     u64 m_cacheVersion = 0;
     bool m_cacheValid = false;

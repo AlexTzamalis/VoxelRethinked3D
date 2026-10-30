@@ -239,6 +239,7 @@ vxe_add_module(ui
     SOURCES
         src/ui/controls.cpp
         src/ui/dialog.cpp
+        src/ui/keybinds_view.cpp
         src/ui/pixel_font.cpp
         src/ui/quad_batch.cpp
         src/ui/screen.cpp

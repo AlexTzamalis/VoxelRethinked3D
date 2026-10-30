@@ -36,6 +36,23 @@ Widget* findAt(Widget& widget, f32 x, f32 y, Accept accept) {
     return accept(widget) ? &widget : nullptr;
 }
 
+// Finds a widget by address in a tree; `usable` says whether the tree itself
+// takes input. Hidden and inert subtrees make what is in them Hidden.
+// NOLINTNEXTLINE(misc-no-recursion): bounded by the depth of the widget tree.
+UiContext::Presence locate(const Widget& widget, const Widget* target, bool usable) noexcept {
+    const bool here = usable && widget.visible() && widget.interactive();
+    if (&widget == target) {
+        return here ? UiContext::Presence::Live : UiContext::Presence::Hidden;
+    }
+    for (const auto& child : widget.children()) {
+        const UiContext::Presence found = locate(*child, target, here);
+        if (found != UiContext::Presence::Gone) {
+            return found;
+        }
+    }
+    return UiContext::Presence::Gone;
+}
+
 // Every visible focusable widget, in tree order (the Tab order).
 // NOLINTNEXTLINE(misc-no-recursion): bounded by the depth of the widget tree.
 void collectFocusable(Widget& widget, std::vector<Widget*>& out) {
@@ -133,14 +150,10 @@ u32 UiContext::autoScale(u32 windowWidth, u32 windowHeight) noexcept {
 
 Widget& UiContext::pushLayer(std::unique_ptr<Widget> layer, LayerOptions options) {
     Widget& result = *layer;
-    m_layers.push_back({.root = std::move(layer),
-                        .options = std::move(options),
-                        .focusBefore = m_focused,
-                        .generationBefore = m_generation});
-    // The new layer starts without focus; the dialog code may set one.
-    setFocus(nullptr);
-    m_hovered = nullptr;
-    m_pressed = nullptr;
+    m_layers.push_back({.root = std::move(layer), .options = std::move(options), .focusBefore = m_focused});
+    // What a modal layer covers no longer has the pointer or the focus; the
+    // dialog code may focus one of its own widgets.
+    dropLostWidgets();
     m_cacheValid = false;
     result.invalidateLayout();
     return result;
@@ -161,22 +174,58 @@ void UiContext::closePendingLayers() {
         }
         const Layer closed = std::move(m_layers[index]);
         m_layers.erase(m_layers.begin() + static_cast<std::ptrdiff_t>(index));
-        forgetWidgets();
-        // Back to the widget focused before the layer opened, if nothing was
-        // removed since (it might be gone otherwise).
-        if (closed.generationBefore == m_generation && closed.focusBefore != nullptr) {
+        dropLostWidgets();
+        // Back to the widget focused before the layer opened, if it still exists.
+        if (closed.focusBefore != nullptr && presenceOf(closed.focusBefore) == Presence::Live) {
             setFocus(closed.focusBefore);
         }
         m_cacheValid = false;
     }
 }
 
-void UiContext::forgetWidgets() noexcept {
-    m_hovered = nullptr;
-    m_pressed = nullptr;
-    m_focused = nullptr;
-    m_tipWidget = nullptr;
-    m_tipTime = 0.0F;
+// Whether a remembered widget still exists and can take input. The address
+// is only compared here: the widget may be gone.
+UiContext::Presence UiContext::presenceOf(const Widget* widget) {
+    const Widget& active = activeRoot();
+    Presence found = locate(m_root, widget, &active == &m_root);
+    for (const Layer& layer : m_layers) {
+        if (found == Presence::Gone) {
+            found = locate(*layer.root, widget, layer.root.get() == &active);
+        }
+    }
+    return found;
+}
+
+// Lets go of hovered, pressed and focused widgets that were removed or can
+// no longer take input, and keeps the others: rebuilding a list must not take
+// the focus from the search box above it. Widgets still alive hear about it,
+// so none stays highlighted.
+void UiContext::dropLostWidgets() {
+    const auto lost = [this](Widget*& widget) -> Widget* {
+        if (widget == nullptr) {
+            return nullptr;
+        }
+        const Presence presence = presenceOf(widget);
+        if (presence == Presence::Live) {
+            return nullptr;
+        }
+        Widget* alive = presence == Presence::Hidden ? widget : nullptr;
+        widget = nullptr;
+        return alive;
+    };
+    if (Widget* widget = lost(m_hovered)) {
+        widget->onHover(false);
+    }
+    if (Widget* widget = lost(m_pressed)) {
+        widget->onRelease(false);
+    }
+    if (Widget* widget = lost(m_focused)) {
+        widget->onFocus(false);
+    }
+    if (m_tipWidget != nullptr && presenceOf(m_tipWidget) != Presence::Live) {
+        m_tipWidget = nullptr;
+        m_tipTime = 0.0F;
+    }
 }
 
 void UiContext::setFocus(Widget* widget) {
@@ -333,8 +382,7 @@ void UiContext::checkStructure() {
         changed = layer.root->takeStructureChange() || changed;
     }
     if (changed) {
-        forgetWidgets();
-        ++m_generation;
+        dropLostWidgets();
     }
 }
 

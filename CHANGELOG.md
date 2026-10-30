@@ -2,6 +2,17 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#089] 2026-10-30, E12.7 Keybind widget and rebinding flow
+### Added
+- ui::KeybindField: one binding slot; click or Enter listens for the next key or mouse button, Escape cancels, Backspace clears, and leaving the screen stops listening.
+- ui::KeybindsView (Section 17.3): every action by category with two binding slots, a warning with the other actions' names when a binding clashes, Reset per action, per group and for all (with a confirmation), and a search box by action, category or key. A key another action uses asks Swap, Unbind other, Keep both or Cancel; Cancel starts focused and Escape means Cancel.
+- input::bindingLabel: a binding as the player reads it, with keys named by the current keyboard layout; InputSystem::isMouseButtonSuppressed.
+- Game: a controls screen from the Settings screen's Controls button; console command controls. MenuServices passes the settings, input and UI context between menu screens. uidialog now shows the widest dialog.
+- Tests: capture, cancel and clear, every conflict answer, no conflict across contexts, the warning, every reset, search keeping the focus, leaving during a capture, and widgets surviving tree changes.
+### Fixed
+- UiContext no longer forgets the hovered and focused widgets on every tree change: it checks which still exist, so rebuilding a list keeps the focus in the search box above it, and widgets hidden or covered by a dialog are told they lost hover and focus instead of staying highlighted.
+- A mouse button that just became a binding no longer also clicks the UI under it.
+
 ## [#088] 2026-10-30, E12.6 Settings UI generated from the registry
 ### Added
 - ui::SettingsView: the settings UI built from the SettingsRegistry (Section 16.1): top level groups in a list (Video, Graphics, World, ... in a fixed order), the chosen group's settings in a scroll view under sub category headers; each row has the name (ending in "..." when long, the whole name and description in its tooltip), an (i) badge with the description, a Reload or Restart tag for settings that do not apply live, the control for its type and a Reset button enabled while the value differs from the default. Changes are written at once (text on Enter or focus loss); refresh() follows changes made elsewhere; a filter searches names, descriptions and ids across groups; developer settings show only on request.

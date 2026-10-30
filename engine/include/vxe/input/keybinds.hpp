@@ -33,6 +33,10 @@ enum class KeyNameMode : u8 {
 
 [[nodiscard]] std::string bindingToString(const Binding& binding, KeyNameMode mode = KeyNameMode::Physical);
 [[nodiscard]] Result<Binding> bindingFromString(std::string_view input);
+// A binding as the player reads it in the keybind screen: keys by their label
+// in the current keyboard layout ("Ctrl+Z"), empty for no binding. For display
+// only; files use bindingToString.
+[[nodiscard]] std::string bindingLabel(const Binding& binding);
 
 struct KeybindLoadReport {
     usize applied = 0; // Actions whose bindings were set.

@@ -489,6 +489,11 @@ bool InputSystem::isKeyDown(u16 scancode) const noexcept {
     return inRange(scancode) && m_keys[scancode];
 }
 
+bool InputSystem::isMouseButtonSuppressed(platform::MouseButton button) const noexcept {
+    const auto index = static_cast<usize>(button);
+    return index < m_suppressedButtons.size() && m_suppressedButtons[index];
+}
+
 bool InputSystem::wasKeyTyped(u16 scancode) const noexcept {
     return inRange(scancode) && m_keysTypedThisFrame[scancode];
 }
