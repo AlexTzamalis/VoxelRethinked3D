@@ -546,4 +546,4 @@ vxe::Result<TerrainBlocks> TerrainBlocks::fromCatalog(const BlockCatalog& catalo
 }
 
 } // namespace vr
-n// NOLINTEND(modernize-use-designated-initializers, readability-redundant-member-init)
+// NOLINTEND(modernize-use-designated-initializers, readability-redundant-member-init)

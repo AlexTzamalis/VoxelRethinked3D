@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#110] 2026-10-31, Fix the build of #109
+### Fixed
+- A stray character at the end of biome_looks.cpp stopped #109 from compiling.
+
 ## [#109] 2026-10-31, G3.4 G3.6 Biomes with their own ground, trees and plants
 ### Added
 - Every biome has its own look (biome_looks): top and under blocks, patches, sea floor, tree mix, plants, boulders, fallen logs.
