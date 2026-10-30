@@ -71,3 +71,6 @@ Entering the world, no frame cap, render distance 16 by 8, 2026-10-30:
 Not met. Streaming refills its job slots once per frame, so a frame limit caps
 its rate (60 FPS gave 2,600 chunks per second), and hidden rock is still meshed
 and lit. Both are worth a look in G9.3.
+
+After the continent rework (#107): 2.2 s cold, 1253 FPS average on arrival, since
+gentler ground and more ocean make cheaper chunks.

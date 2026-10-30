@@ -286,9 +286,10 @@ Surface Terrain::surfaceAt(i64 x, i64 z) const {
 }
 
 vxe::BlockPos Terrain::spawnColumn() const {
-    // Rings around the origin, each 96 blocks further out.
-    constexpr i64 kRingStep = 96;
-    constexpr i64 kRings = 300;
+    // Rings around the origin, each 640 blocks further out: the origin can lie
+    // in the middle of an ocean, so this reaches about 150 km.
+    constexpr i64 kRingStep = 640;
+    constexpr i64 kRings = 240;
     for (i64 ring = 0; ring < kRings; ++ring) {
         const i64 reach = ring * kRingStep;
         const i64 count = ring == 0 ? 1 : ring * 8;
@@ -299,6 +300,9 @@ vxe::BlockPos Terrain::spawnColumn() const {
             const std::array<std::pair<i64, i64>, 4> corners = {
                 {{along, -reach}, {reach, along}, {-along, reach}, {-reach, -along}}};
             const auto [x, z] = corners.at(static_cast<usize>(side));
+            if (m_planet.landMass(static_cast<f64>(x), static_cast<f64>(z)) < 0.03) {
+                continue; // Open sea, by far the most common answer.
+            }
             const Ground at = ground(static_cast<f64>(x), static_cast<f64>(z), kGullyWidest);
             const f64 above = at.height - static_cast<f64>(kSeaLevel);
             if (above > 6.0 && above < 70.0 && at.slope < 0.3) {

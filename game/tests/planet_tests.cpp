@@ -17,20 +17,30 @@ namespace {
 struct Survey {
     f64 land = 0.0;
     f64 highest = -1.0e30;
+    f64 peakX = 0.0;
+    f64 peakZ = 0.0;
     f64 deepest = 1.0e30;
+    f64 longestSea = 0.0; // Blocks of unbroken water along a straight line.
 };
 
-// A sample of the planet on a coarse grid around the origin.
+// A sample of the planet on a coarse grid, 550 km across.
 Survey survey(u64 seed) {
     const Planet planet(seed, PlanetPreset{});
     Survey result;
     constexpr int kSteps = 220;
-    constexpr f64 kSpacing = 400.0;
+    constexpr f64 kSpacing = 2500.0;
     for (int z = -kSteps / 2; z < kSteps / 2; ++z) {
+        f64 sea = 0.0;
         for (int x = -kSteps / 2; x < kSteps / 2; ++x) {
             const f64 height = planet.sample(x * kSpacing, z * kSpacing).elevation;
             result.land += height > 0.0 ? 1.0 : 0.0;
-            result.highest = std::max(result.highest, height);
+            sea = height > 0.0 ? 0.0 : sea + kSpacing;
+            result.longestSea = std::max(result.longestSea, sea);
+            if (height > result.highest) {
+                result.highest = height;
+                result.peakX = x * kSpacing;
+                result.peakZ = z * kSpacing;
+            }
             result.deepest = std::min(result.deepest, height);
         }
     }
@@ -54,17 +64,36 @@ TEST_CASE("A planet is the same for the same seed, whatever the order") {
     CHECK(different > 490);
 }
 
-TEST_CASE("Every seed has oceans, land and real mountains") {
+TEST_CASE("Every seed has vast oceans, whole continents and ranges below the ceiling") {
     for (const u64 seed : {1ULL, 2ULL, 3ULL, 12345ULL, 987654321ULL, 18446744073709551557ULL}) {
         const Survey world = survey(seed);
         MESSAGE("seed " << seed << ": land " << world.land << ", highest " << world.highest << ", deepest "
-                        << world.deepest);
+                        << world.deepest << ", longest sea " << world.longestSea / 1000.0 << " km");
         CHECK(world.land > 0.2);
-        CHECK(world.land < 0.85);
-        CHECK(world.highest > 350.0);
-        CHECK(world.highest < 2400.0);
-        CHECK(world.deepest < -100.0);
+        CHECK(world.land < 0.6);
+        CHECK(world.highest > 450.0);
+        CHECK(world.highest < 1100.0);
+        CHECK(world.deepest < -200.0);
+        CHECK(world.longestSea > 40000.0);
     }
+}
+
+TEST_CASE("Heights near 1000 are rare") {
+    usize mountains = 0;
+    usize towering = 0;
+    for (const u64 seed : {1ULL, 2ULL, 3ULL}) {
+        const Planet planet(seed, PlanetPreset{});
+        for (int z = -250; z < 250; ++z) {
+            for (int x = -250; x < 250; ++x) {
+                const f64 height = planet.sample(x * 907.0, z * 907.0).elevation;
+                mountains += height > 300.0 ? 1U : 0U;
+                towering += height > 900.0 ? 1U : 0U;
+            }
+        }
+    }
+    MESSAGE(mountains << " samples above 300, " << towering << " above 900");
+    REQUIRE(mountains > 500);
+    CHECK(towering * 25 < mountains);
 }
 
 TEST_CASE("The planet has no cuts, only slopes") {
@@ -75,17 +104,20 @@ TEST_CASE("The planet has no cuts, only slopes") {
         const Planet planet(seed, PlanetPreset{});
         constexpr f64 kStep = 16.0;
         constexpr int kSize = 1400;
-        constexpr f64 kStart = -11200.0;
+        // Around the highest peak, where a cut would hurt most.
+        const Survey world = survey(seed);
+        const f64 startX = world.peakX - 11200.0;
+        const f64 startZ = world.peakZ - 11200.0;
         f64 worst = 0.0;
         f64 worstX = 0.0;
         f64 worstZ = 0.0;
         bool worstAlongX = true;
         std::vector<f64> row(kSize + 1, 0.0);
         for (int z = 0; z < kSize; ++z) {
-            const f64 wz = (z * kStep) + kStart;
-            f64 left = planet.sample(kStart, wz).elevation;
+            const f64 wz = (z * kStep) + startZ;
+            f64 left = planet.sample(startX, wz).elevation;
             for (int x = 1; x <= kSize; ++x) {
-                const f64 wx = (x * kStep) + kStart;
+                const f64 wx = (x * kStep) + startX;
                 const f64 height = planet.sample(wx, wz).elevation;
                 if (std::abs(height - left) > worst) {
                     worst = std::abs(height - left);
@@ -115,8 +147,8 @@ TEST_CASE("The planet has no cuts, only slopes") {
         }
         MESSAGE("seed " << seed << ": steepest over 16 blocks " << worst << ", over 1 block there "
                         << worstBlock);
-        CHECK(worst < 220.0);
-        CHECK(worstBlock < 24.0);
+        CHECK(worst < 120.0);
+        CHECK(worstBlock < 16.0);
     }
 }
 

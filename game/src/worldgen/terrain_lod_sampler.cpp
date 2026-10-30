@@ -20,7 +20,7 @@ namespace {
 
 // Bumped whenever the terrain or this sampler changes what it makes, so cached
 // tiles of older versions are thrown away.
-constexpr vxe::u32 kGeneratorVersion = 3;
+constexpr vxe::u32 kGeneratorVersion = 4;
 constexpr i32 kNoCrown = std::numeric_limits<i32>::min();
 // Leaf blocks of one crown seen from above: 5 x 5 without the 4 corners.
 constexpr f64 kCrownArea = 21.0;

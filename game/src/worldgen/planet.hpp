@@ -7,14 +7,16 @@ namespace vr {
 // What decides a world's large shapes. World types are presets of these
 // (G3.8). Lengths and heights are in blocks.
 struct PlanetPreset {
-    vxe::f64 continentSize = 14000.0; // Across a typical landmass.
-    vxe::f64 landBias = 0.02;         // More land above 0, more ocean below.
-    vxe::f64 plateSize = 7000.0;      // Across a tectonic plate.
-    vxe::f64 rangeWidth = 1300.0;     // A mountain range's reach from its plate border.
-    vxe::f64 rangeHeight = 760.0;     // Peaks of a normal range.
-    vxe::f64 giantFactor = 2.0;       // How much higher the rare giants stand.
-    vxe::f64 oceanDepth = 170.0;
-    vxe::f64 hillHeight = 42.0;
+    vxe::f64 continentSize = 70000.0; // Across a typical continent.
+    vxe::f64 landBias = -0.1;         // More land above 0, more ocean below.
+    vxe::f64 plateSize = 24000.0;     // Across a tectonic plate.
+    vxe::f64 rangeWidth = 3400.0;     // A mountain range's reach from its plate border.
+    vxe::f64 rangeHeight = 620.0;     // The crests of a normal range.
+    vxe::f64 giantFactor = 1.8;       // How much higher the rare giants stand.
+    vxe::f64 peakKnee = 760.0;        // Heights above this are held back more and more...
+    vxe::f64 peakCeiling = 1100.0;    // ...so nothing passes this.
+    vxe::f64 oceanDepth = 300.0;
+    vxe::f64 hillHeight = 46.0;
 };
 
 // One position of the world, seen from far above. Everything further down
@@ -28,8 +30,13 @@ struct PlanetSample {
 
 // The planet layer (G3.1): continents, tectonic plates, and mountain ranges
 // where plates collide. Ranges come from plate borders, so they run long and
-// purposeful instead of sitting around as noise blobs, and where plates meet
-// under the sea they raise island arcs.
+// purposeful instead of sitting around as noise blobs, and near the coasts
+// the same collisions raise island arcs. The open ocean stays open.
+//
+// Direction from Alex (2026-10-31): long, wide, steady ranges rather than tall
+// lone spikes, below 1,000 blocks with the 1,000 mark a rare event, and whole
+// continents divided by vast oceans. Land climbs gently from the coast to the
+// interior, so the rivers of G3.5 always find a way down to the sea.
 //
 // Plates are cells of a jittered grid, each moving its own way. Two plates
 // that meet head on raise a range along their border, and two that part open
@@ -68,6 +75,7 @@ private:
         vxe::f64 warpedZ = 0.0;
         vxe::f64 continent = 0.0;
         vxe::f64 inland = 0.0;   // 0 at sea, 1 on land.
+        vxe::f64 reach = 0.0;    // How much of a range can stand here, 0 to 1.
         vxe::f64 strength = 0.0; // 0 to 1: how hard plates push here.
         vxe::f64 tall = 0.0;     // The tallest a range stands here, in blocks.
         vxe::f64 rift = 0.0;

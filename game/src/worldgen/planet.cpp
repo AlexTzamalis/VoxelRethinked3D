@@ -18,17 +18,17 @@ using vxe::noise::smooth;
 using vxe::noise::unit;
 
 constexpr f64 kPlateJitter = 0.9;
-constexpr f64 kWarpReach = 900.0;   // Blocks that coasts and borders wander.
-constexpr f64 kBorderReach = 420.0; // Blocks that plate borders also wander, more finely.
-constexpr f64 kCoastShelf = 0.14;   // Continent values from the shelf edge to the beach.
-constexpr f64 kLowland = 0.45;      // Continent value where the land stops rising by itself.
-constexpr f64 kCoastRise = 16.0;    // Blocks the land climbs right behind the beach.
-constexpr f64 kInlandHeight = 62.0;
+constexpr f64 kWarpReach = 2600.0;   // Blocks that coasts and borders wander.
+constexpr f64 kBorderReach = 1400.0; // Blocks that plate borders also wander, more finely.
+constexpr f64 kCoastShelf = 0.05;    // Continent values from the beach to the shelf's edge.
+constexpr f64 kLowland = 0.45;       // Continent value where the land stops rising by itself.
+constexpr f64 kCoastRise = 16.0;     // Blocks the land climbs right behind the beach.
+constexpr f64 kInlandHeight = 90.0;
 constexpr f64 kRiftDepth = 46.0;
-constexpr f64 kSeaReach = 0.42; // How much of a range survives out at sea.
-constexpr f64 kMeanCrest = 0.6; // A range's usual height, as a part of its tallest.
-constexpr vxe::u32 kContinentOctaves = 6;
-constexpr vxe::u32 kBarrierOctaves = 3;
+constexpr f64 kSeaReach = 0.5;  // How much of a range survives near a coast, at sea.
+constexpr f64 kMeanCrest = 0.7; // A range's usual height, as a part of its tallest.
+constexpr vxe::u32 kContinentOctaves = 8;
+constexpr vxe::u32 kBarrierOctaves = 4;
 
 // Named streams of randomness out of one seed, so that each field is
 // independent of the others.
@@ -116,7 +116,7 @@ Planet::Tectonics Planet::tectonics(f64 x, f64 z) const noexcept {
 Planet::Mass Planet::mass(f64 x, f64 z, vxe::u32 continentOctaves) const noexcept {
     // Warping bends coasts and plate borders, which would otherwise be
     // smooth noise contours and straight lines.
-    const Fractal warpShape{.octaves = 3, .frequency = 1.0 / 5200.0};
+    const Fractal warpShape{.octaves = 3, .frequency = 1.0 / 14000.0};
     const f64 wx = x + (vxe::noise::fbm2(m_warpX, x, z, warpShape).value * kWarpReach);
     const f64 wz = z + (vxe::noise::fbm2(m_warpZ, x, z, warpShape).value * kWarpReach);
 
@@ -126,22 +126,26 @@ Planet::Mass Planet::mass(f64 x, f64 z, vxe::u32 continentOctaves) const noexcep
         (vxe::noise::fbm2(m_continent, wx, wz, continentShape).value * 1.25) + m_preset.landBias;
 
     // Plate borders wander at a finer scale than coasts, so none run straight.
-    const Fractal borderShape{.octaves = 3, .frequency = 1.0 / 1700.0};
+    const Fractal borderShape{.octaves = 3, .frequency = 1.0 / 6000.0};
     const Tectonics plates =
         tectonics(wx + (vxe::noise::fbm2(m_warpZ + 1, x, z, borderShape).value * kBorderReach),
                   wz + (vxe::noise::fbm2(m_warpX + 1, x, z, borderShape).value * kBorderReach));
 
-    // Ranges are as strong as the plates push, and come and go along a border,
-    // which leaves passes and natural ends.
+    // Ranges are as strong as the plates push and fade only over long
+    // distances, so they run on for tens of kilometers. Giants are rare.
     const f64 giant = smooth(
-        0.12, 0.42, vxe::noise::fbm2(m_giants, wx, wz, {.octaves = 3, .frequency = 1.0 / 9000.0}).value);
-    const f64 along = smooth(
-        -0.5, -0.05, vxe::noise::fbm2(m_giants + 1, wx, wz, {.octaves = 3, .frequency = 1.0 / 3400.0}).value);
+        0.28, 0.5, vxe::noise::fbm2(m_giants, wx, wz, {.octaves = 3, .frequency = 1.0 / 30000.0}).value);
+    const f64 along =
+        smooth(-0.55, -0.1,
+               vxe::noise::fbm2(m_giants + 1, wx, wz, {.octaves = 3, .frequency = 1.0 / 14000.0}).value);
     const f64 pushed = plates.range * along;
+    const f64 inland = smooth(-0.02, 0.1, continent);
     return {.warpedX = wx,
             .warpedZ = wz,
             .continent = continent,
-            .inland = smooth(-0.02, 0.1, continent),
+            .inland = inland,
+            // Island arcs need shallow water: out in the deep, ranges die away.
+            .reach = inland + ((1.0 - inland) * kSeaReach * smooth(-0.22, -0.02, continent)),
             .strength = pushed * pushed * (3.0 - (2.0 * pushed)),
             .tall = m_preset.rangeHeight * (1.0 + (giant * (m_preset.giantFactor - 1.0))),
             .rift = plates.rift};
@@ -155,28 +159,35 @@ PlanetSample Planet::sample(f64 x, f64 z) const noexcept {
     // coast, then ground that climbs from the beach and slowly on inland.
     f64 base = 0.0;
     if (continent < 0.0) {
-        base = (-m_preset.oceanDepth * (1.0 - smooth(-0.38, 0.0, continent))) -
+        base = (-m_preset.oceanDepth * (1.0 - smooth(-0.3, -0.03, continent))) -
                (8.0 * smooth(0.0, kCoastShelf, -continent));
     } else {
         base = (2.0 * smooth(0.0, 0.015, continent)) + (kCoastRise * smooth(0.0, 0.07, continent)) +
                (kInlandHeight * smooth(0.1, kLowland, continent));
     }
 
-    const Fractal ridgeShape{.octaves = 7, .frequency = 1.0 / 1500.0, .gain = 0.52};
+    const Fractal ridgeShape{.octaves = 8, .frequency = 1.0 / 2800.0};
     const f64 ridge = vxe::noise::ridged2(m_ridges, land.warpedX, land.warpedZ, ridgeShape).value;
-    // At sea, the same collisions break the surface now and then: island arcs.
-    const f64 reach = kSeaReach + ((1.0 - kSeaReach) * land.inland);
-    // Crests grow with the push, so a range rises out of foothills instead of
-    // standing on the plain as a slab.
-    const f64 mountain = land.strength * reach * (0.06 + (ridge * (0.35 + (0.75 * land.strength))));
+    // Most of a range is its broad body, highest along the plate border, so it
+    // reads as one long massif with a spine. Crests only ride on top: stronger
+    // ridges alone would make lone spikes.
+    const f64 mountain = land.strength * land.reach * (0.34 + (ridge * (0.22 + (0.5 * land.strength))));
 
     // Rolling hills inland, and rifts that sink the land along parting plates.
-    const Fractal hillShape{.octaves = 5, .frequency = 1.0 / 1100.0};
+    const Fractal hillShape{.octaves = 5, .frequency = 1.0 / 1500.0};
     const f64 hills = vxe::noise::fbm2(m_hills, land.warpedX, land.warpedZ, hillShape).value *
                       m_preset.hillHeight * land.inland;
     const f64 riftDrop = land.rift * kRiftDepth * land.inland;
 
-    return {.elevation = base + (mountain * land.tall) + hills - riftDrop,
+    // Heights past the knee are held back, more the higher they get, so even
+    // giants stay under the ceiling. Below the knee nothing changes, and the
+    // two parts meet without a crease.
+    f64 elevation = base + (mountain * land.tall) + hills - riftDrop;
+    if (elevation > m_preset.peakKnee) {
+        const f64 over = elevation - m_preset.peakKnee;
+        elevation = m_preset.peakKnee + (over / (1.0 + (over / (m_preset.peakCeiling - m_preset.peakKnee))));
+    }
+    return {.elevation = elevation,
             .continent = continent,
             .mountain = std::min(mountain, 1.0),
             .rift = land.rift};
@@ -184,7 +195,7 @@ PlanetSample Planet::sample(f64 x, f64 z) const noexcept {
 
 f64 Planet::barrier(f64 x, f64 z) const noexcept {
     const Mass land = mass(x, z, kBarrierOctaves);
-    return land.strength * (kSeaReach + ((1.0 - kSeaReach) * land.inland)) * land.tall * kMeanCrest;
+    return land.strength * land.reach * land.tall * kMeanCrest;
 }
 
 f64 Planet::landMass(f64 x, f64 z) const noexcept {

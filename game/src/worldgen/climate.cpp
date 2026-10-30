@@ -18,8 +18,8 @@ constexpr f64 kMeanWarmth = 15.0;  // Degrees at sea level, on average.
 constexpr f64 kWarmthSwing = 46.0; // Reach of the noise around it, about 18 either way.
 constexpr f64 kCoolPerBlock = 0.022;
 constexpr int kWindSteps = 9;    // Samples upwind.
-constexpr f64 kWindStep = 450.0; // Blocks between them, so wind sees about 4 km.
-constexpr f64 kFacingReach = 500.0;
+constexpr f64 kWindStep = 900.0; // Blocks between them, so wind sees about 8 km.
+constexpr f64 kFacingReach = 1200.0;
 
 u64 stream(u64 seed, u64 salt) noexcept {
     return vxe::noise::hash2(seed, static_cast<i64>(salt), 0xC11A);
@@ -36,14 +36,14 @@ Climate::Climate(u64 seed, const Planet& planet) noexcept
     , m_windZ(stream(seed, 5)) {}
 
 Climate::Field Climate::field(f64 x, f64 z) const noexcept {
-    const Fractal warmthShape{.octaves = 3, .frequency = 1.0 / 26000.0};
+    const Fractal warmthShape{.octaves = 3, .frequency = 1.0 / 60000.0};
     const f64 temperature =
         kMeanWarmth + (vxe::noise::fbm2(m_warmth, x, z, warmthShape).value * kWarmthSwing) +
         (vxe::noise::fbm2(m_detail, x, z, {.octaves = 2, .frequency = 1.0 / 3000.0}).value * 3.0);
 
     // The wind turns slowly across the world. The steady part keeps it from
     // ever dying, which would have no direction.
-    const Fractal windShape{.octaves = 2, .frequency = 1.0 / 32000.0};
+    const Fractal windShape{.octaves = 2, .frequency = 1.0 / 90000.0};
     const f64 rawX = (vxe::noise::fbm2(m_windX, x, z, windShape).value * 2.0) + 0.45;
     const f64 rawZ = vxe::noise::fbm2(m_windZ, x, z, windShape).value * 2.0;
     const f64 speed = std::sqrt((rawX * rawX) + (rawZ * rawZ));
@@ -63,7 +63,7 @@ Climate::Field Climate::field(f64 x, f64 z) const noexcept {
     const f64 facing =
         smooth(50.0, 420.0, m_planet->barrier(x + (windX * kFacingReach), z + (windZ * kFacingReach)));
 
-    const Fractal rainShape{.octaves = 5, .frequency = 1.0 / 7000.0, .gain = 0.55};
+    const Fractal rainShape{.octaves = 5, .frequency = 1.0 / 16000.0, .gain = 0.55};
     const f64 wet = 0.47 + (vxe::noise::fbm2(m_rain, x, z, rainShape).value * 0.85);
     const f64 coast = 1.0 - smooth(0.0, 0.3, m_planet->landMass(x, z));
     // Hot air sinks and dries the land, as around the tropics on Earth, which

@@ -89,8 +89,8 @@ TEST_CASE("Gullies carve the land: slopes are rougher than the planet alone") {
     f64 lowered = 0.0;
     for (i64 z = 0; z < 300; ++z) {
         for (i64 x = 0; x < 300; ++x) {
-            const auto wx = static_cast<f64>(x * 40);
-            const auto wz = static_cast<f64>(z * 40);
+            const auto wx = static_cast<f64>(x * 700);
+            const auto wz = static_cast<f64>(z * 700);
             const f64 plain =
                 terrain.planet().sample(wx, wz).elevation + static_cast<f64>(Terrain::kSeaLevel);
             const f64 carved = terrain.farGround(wx, wz, 1.0).height;

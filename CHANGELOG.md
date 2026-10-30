@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#107] 2026-10-31, G3.1 Continents, vast oceans and steady ranges
+### Changed
+- Continents about 70 km across, 32 to 36% land, oceans of 230 to 390 km between them, sea floor 300 blocks deep. Island arcs stay near coasts.
+- Ranges are long and wide: bigger plates, a broad body with a spine along the plate border, crests on top. Peaks reach 760 to 900, and a soft ceiling holds everything below 1,100.
+- Land climbs gently from the coast inland, so rivers will find their way to the sea.
+- Climate, wind and rain scaled to the larger world. The player search reaches 150 km.
+
+### Performance
+- Playable after 2.2 s cold (target 2.0 s), 1253 FPS on arrival.
+
 ## [#106] 2026-10-31, G3.3 Real terrain in the game
 ### Added
 - vr::Terrain replaces the demo terrain: the planet's heights, an erosion filter that carves branching gullies per point, rock overhangs on steep faces, a column cache per thread.
