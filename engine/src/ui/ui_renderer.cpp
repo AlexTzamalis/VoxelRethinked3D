@@ -7,12 +7,11 @@
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <format>
 #include <thread>
 
 namespace vxe::ui {
 namespace {
-
-constexpr u32 kFlagTextured = 1;
 
 // Must match the UiProjection block in ui/quad.vert.
 struct Projection {
@@ -20,12 +19,77 @@ struct Projection {
     f32 translate[2];
 };
 
-// The drop shadow color: the text color at a quarter brightness, same alpha.
-constexpr u32 shadowOf(u32 color) noexcept {
-    return ((color & 0x00FCFCFCU) >> 2U) | (color & 0xFF000000U);
+// The atlas starts this wide and doubles until the images fit.
+constexpr u32 kAtlasStartWidth = 256;
+constexpr u32 kAtlasMaxWidth = 4096;
+
+// Shelf packing at a given width: images sorted by height go left to right,
+// a new shelf starts when a row is full. Returns false when an image is
+// wider than the atlas.
+bool tryPack(std::span<const AtlasImage> images, std::span<const usize> order, u32 width, AtlasPixels& out) {
+    u32 x = 0;
+    u32 y = 0;
+    u32 shelf = 0;
+    out.regions.assign(images.size(), {});
+    std::vector<std::pair<u32, u32>> positions(images.size());
+    for (const usize index : order) {
+        const AtlasImage& image = images[index];
+        if (image.width + 1 > width) {
+            return false;
+        }
+        if (x + image.width + 1 > width) {
+            x = 0;
+            y += shelf + 1;
+            shelf = 0;
+        }
+        positions[index] = {x, y};
+        x += image.width + 1;
+        shelf = std::max(shelf, image.height);
+    }
+    const u32 height = std::bit_ceil(std::max(1U, y + shelf + 1));
+    out.width = width;
+    out.height = height;
+    out.pixels.assign(usize{width} * height, 0U);
+    for (usize index = 0; index < images.size(); ++index) {
+        const AtlasImage& image = images[index];
+        const auto [left, top] = positions[index];
+        for (u32 row = 0; row < image.height; ++row) {
+            std::copy_n(image.pixels.begin() + static_cast<std::ptrdiff_t>(usize{row} * image.width),
+                        image.width,
+                        out.pixels.begin() + static_cast<std::ptrdiff_t>(usize{top + row} * width + left));
+        }
+        const auto w = static_cast<f32>(width);
+        const auto h = static_cast<f32>(height);
+        out.regions[index] = {image.name,
+                              {.u0 = static_cast<f32>(left) / w,
+                               .v0 = static_cast<f32>(top) / h,
+                               .u1 = static_cast<f32>(left + image.width) / w,
+                               .v1 = static_cast<f32>(top + image.height) / h,
+                               .width = image.width,
+                               .height = image.height}};
+    }
+    return true;
 }
 
 } // namespace
+
+AtlasPixels packAtlas(std::span<const AtlasImage> images) {
+    std::vector<usize> order(images.size());
+    for (usize i = 0; i < order.size(); ++i) {
+        order[i] = i;
+    }
+    std::ranges::stable_sort(order, [&](usize a, usize b) { return images[a].height > images[b].height; });
+    AtlasPixels atlas;
+    for (u32 width = kAtlasStartWidth; width <= kAtlasMaxWidth; width *= 2) {
+        // A square atlas is the goal: grow the width while the shelves
+        // stack higher than wide.
+        if (tryPack(images, order, width, atlas) && atlas.height <= width) {
+            return atlas;
+        }
+    }
+    static_cast<void>(tryPack(images, order, kAtlasMaxWidth, atlas));
+    return atlas;
+}
 
 Result<std::unique_ptr<UiRenderer>> UiRenderer::create(const UiRendererDesc& desc) {
     rhi::Device& device = *desc.device;
@@ -82,6 +146,7 @@ Result<std::unique_ptr<UiRenderer>> UiRenderer::create(const UiRendererDesc& des
         };
         renderer->m_quadsStat = gauge("Ui.Quads", "Rectangles and glyphs the game UI drew last frame.");
         renderer->m_drawCallsStat = gauge("Ui.DrawCalls", "Draw calls of the game UI last frame.");
+        renderer->m_atlasBytesStat = gauge("Ui.AtlasBytes", "GPU memory of the UI atlas (font and images).");
     }
     return renderer;
 }
@@ -92,84 +157,74 @@ UiRenderer::~UiRenderer() {
         m_device.destroy(set.uniforms);
         m_device.destroy(set.fence);
     }
-    m_device.destroy(m_fontTexture);
+    m_device.destroy(m_atlas);
     m_device.destroy(m_pipeline);
     m_device.destroy(m_sampler);
 }
 
-Result<void> UiRenderer::setFont(std::span<const u32> pixels, u32 width, u32 height) {
-    auto font = PixelFont::fromSheet(pixels, width, height);
+Result<void> UiRenderer::setResources(const AtlasImage& fontSheet, std::span<const AtlasImage> images) {
+    auto font = PixelFont::fromSheet(fontSheet.pixels, fontSheet.width, fontSheet.height);
     if (!font) {
         return font.error();
     }
+    std::vector<AtlasImage> all;
+    all.reserve(images.size() + 1);
+    all.push_back(
+        {.name = {}, .width = fontSheet.width, .height = fontSheet.height, .pixels = fontSheet.pixels});
+    for (const AtlasImage& image : images) {
+        if (image.width == 0 || image.height == 0 ||
+            image.pixels.size() != usize{image.width} * image.height) {
+            return Error(ErrorCode::InvalidArgument,
+                         std::format("UI image '{}' has {} pixels for {} x {}", image.name,
+                                     image.pixels.size(), image.width, image.height));
+        }
+        all.push_back(image);
+    }
+    AtlasPixels atlas = packAtlas(all);
     auto texture =
         m_device.createTexture({.format = rhi::Format::RGBA8Unorm,
-                                .width = width,
-                                .height = height,
+                                .width = atlas.width,
+                                .height = atlas.height,
                                 .usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
-                                .debugName = "UI font"});
+                                .debugName = "UI atlas"});
     if (!texture) {
         return texture.error();
     }
     // Uploaded top row first (not ADR-016's bottom row first), so a v
-    // coordinate counts from the sheet's top, as PixelFont computes them.
-    if (auto uploaded = m_device.uploadTexture(texture.value(),
-                                               {.mipLevel = 0, .layer = 0, .data = std::as_bytes(pixels)});
+    // coordinate counts from the atlas's top, like the regions.
+    if (auto uploaded = m_device.uploadTexture(
+            texture.value(), {.mipLevel = 0, .layer = 0, .data = std::as_bytes(std::span(atlas.pixels))});
         !uploaded) {
         m_device.destroy(texture.value());
         return uploaded.error();
     }
-    m_device.destroy(m_fontTexture); // Deferred until the GPU is done with it (E6.6).
-    m_fontTexture = texture.value();
-    m_font = std::move(font).value();
-    ++m_fontVersion;
+    m_device.destroy(m_atlas); // Deferred until the GPU is done with it (E6.6).
+    m_atlas = texture.value();
+    m_resources.font = std::move(font).value();
+    m_resources.fontRegion = atlas.regions.front().second;
+    m_resources.images.assign(atlas.regions.begin() + 1, atlas.regions.end());
+    ++m_resources.version;
+    if (m_stats != nullptr && m_atlasBytesStat.isValid()) {
+        m_stats->set(m_atlasBytesStat, static_cast<f64>(atlas.pixels.size() * sizeof(u32)));
+    }
     return {};
+}
+
+Result<void> UiRenderer::setFont(std::span<const u32> pixels, u32 width, u32 height) {
+    return setResources({.name = {}, .width = width, .height = height, .pixels = pixels}, {});
 }
 
 void UiRenderer::begin(u32 width, u32 height) {
     m_width = std::max(width, 1U);
     m_height = std::max(height, 1U);
-    m_quads.clear();
-}
-
-void UiRenderer::fillRect(const Rect& rect, u32 color) {
-    m_quads.push_back(
-        {.rect = {std::round(rect.x), std::round(rect.y), std::round(rect.width), std::round(rect.height)},
-         .color = color});
-}
-
-void UiRenderer::addGlyphs(const PixelFont& font, std::string_view text, f32 x, f32 y, u32 scale, u32 color) {
-    m_glyphs.clear();
-    font.layout(text, m_glyphs);
-    const auto size = static_cast<f32>(scale);
-    for (const GlyphQuad& glyph : m_glyphs) {
-        m_quads.push_back(
-            {.rect = {x + glyph.x * size, y + glyph.y * size, glyph.width * size, glyph.height * size},
-             .uv = {glyph.glyph->u0, glyph.glyph->v0, glyph.glyph->u1, glyph.glyph->v1},
-             .color = color,
-             .flags = kFlagTextured});
-    }
-}
-
-void UiRenderer::drawText(std::string_view text, f32 x, f32 y, const TextStyle& style) {
-    if (!m_font || text.empty()) {
-        return;
-    }
-    const u32 scale = std::max(style.scale, 1U);
-    const f32 left = std::round(x);
-    const f32 top = std::round(y);
-    if (style.shadow) {
-        addGlyphs(*m_font, text, left + static_cast<f32>(scale), top + static_cast<f32>(scale), scale,
-                  shadowOf(style.color));
-    }
-    addGlyphs(*m_font, text, left, top, scale, style.color);
+    m_frame.reset(&m_resources);
 }
 
 TextSize UiRenderer::measureText(std::string_view text, u32 scale) const noexcept {
-    if (!m_font) {
+    if (!m_resources.font) {
         return {};
     }
-    const TextSize size = m_font->measure(text);
+    const TextSize size = m_resources.font->measure(text);
     const auto factor = static_cast<f32>(std::max(scale, 1U));
     return {.width = size.width * factor, .height = size.height * factor};
 }
@@ -204,7 +259,7 @@ bool UiRenderer::prepareSet(FrameBuffers& set, usize bytes) {
 
 void UiRenderer::record(rhi::CommandList& commands) {
     VXE_PROFILE_FUNCTION();
-    const usize quadCount = m_quads.size();
+    const usize quadCount = m_frame.size();
     if (m_stats != nullptr) {
         if (m_quadsStat.isValid()) {
             m_stats->set(m_quadsStat, static_cast<f64>(quadCount));
@@ -219,18 +274,18 @@ void UiRenderer::record(rhi::CommandList& commands) {
     // The previous frame's set gets its fence now, after that frame was
     // submitted, so the fence signals once the GPU has finished it.
     if (m_recordedOnce) {
-        FrameBuffers& previous = m_frames[m_frame];
+        FrameBuffers& previous = m_frames[m_frameIndex];
         m_device.destroy(previous.fence);
         previous.fence = m_device.insertFence();
-        m_frame = (m_frame + 1) % kFramesInFlight;
+        m_frameIndex = (m_frameIndex + 1) % kFramesInFlight;
     }
     m_recordedOnce = true;
-    FrameBuffers& set = m_frames[m_frame];
-    const usize bytes = quadCount * sizeof(Quad);
+    FrameBuffers& set = m_frames[m_frameIndex];
+    const usize bytes = quadCount * sizeof(UiQuad);
     if (!prepareSet(set, bytes)) {
         return;
     }
-    std::memcpy(m_device.mappedRange(set.quads).data(), m_quads.data(), bytes);
+    std::memcpy(m_device.mappedRange(set.quads).data(), m_frame.quads().data(), bytes);
     // Window pixels (origin top left, y down) to clip space (y up).
     const auto width = static_cast<f32>(m_width);
     const auto height = static_cast<f32>(m_height);
@@ -242,8 +297,8 @@ void UiRenderer::record(rhi::CommandList& commands) {
     commands.bindPipeline(m_pipeline);
     commands.bindUniformBuffer(1, 0, set.uniforms, 0, sizeof(Projection));
     commands.bindStorageBuffer(2, 0, set.quads, 0, bytes);
-    if (m_fontTexture.isValid()) {
-        commands.bindTexture(2, 1, m_fontTexture, m_sampler);
+    if (m_atlas.isValid()) {
+        commands.bindTexture(2, 1, m_atlas, m_sampler);
     }
     commands.draw(static_cast<u32>(quadCount * 6));
     commands.endDebugGroup();

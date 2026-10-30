@@ -2,6 +2,19 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#085] 2026-10-30, E12.3 UI batching renderer
+### Added
+- ui::QuadBatch: rectangles, atlas images, nine slice frames and text in window pixels, clipped on the CPU (texture coordinates cut to match) with a clip stack, so scroll views need no scissor changes and the UI stays one draw call.
+- The UI atlas: the font sheet and the packs' ui/*.png images packed into one texture (shelf packer, ui::packAtlas); UiRenderer::setResources builds it, stat Ui.AtlasBytes.
+- Nine slice looks for panels and buttons from the packs: ui/panel.png, ui/button.png, button_hover.png, button_pressed.png and button_disabled.png (ui::kThemeImages), corner sizes in the theme's new [slices] table. Without an image a widget keeps the theme's flat colors, so packs can restyle widgets one at a time.
+- Default UI images in textures/default/ui (16 x 16, 3 texel corners, matching the flat look: dark frame, one pixel bevel, gold hover border, rounded corners); Alex can edit them in Aseprite.
+- UiContext keeps the tree's quads and rebuilds them only when something changed (layout, hover, press, text, theme, scale or atlas); Widget::invalidateVisual for look only changes; counter Ui.Rebuilds and rebuildCount().
+- Tests: atlas packing, clipping of rectangles and texture coordinates, nested clips, nine slice corners and small targets, theme slices, kept quads across frames and rebuilds on hover, text and new resources.
+### Changed
+- DrawContext draws into a QuadBatch instead of the renderer; UiRenderer draws its frame batch (frame(), append()).
+### Performance
+- 162 widget menu: a still screen costs 0.0022 ms per frame (kept quads), a rebuild 0.050 ms on changes only (docs/perf/ui.md).
+
 ## [#084] 2026-10-30, E12.2 Widget tree, layout, styling and theme files
 ### Added
 - ui::Widget: the retained widget tree with a flexbox subset (row or column, justify, align and alignSelf, gap, padding, grow, shrink, fixed sizes, min and max), laid out in UI pixels and snapped to whole pixels; changes flag the root, so layout runs only when the tree, window, scale or font changed.

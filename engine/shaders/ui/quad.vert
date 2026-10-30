@@ -1,6 +1,6 @@
 // Game UI quads (E12.1), pulled from a storage buffer: six vertices per
 // quad, two triangles, no index buffer. Positions are window pixels with the
-// origin at the top left (vxe/ui/ui_renderer.hpp has the Quad layout).
+// origin at the top left (vxe/ui/quad_batch.hpp has the UiQuad layout).
 #include "include/bindings.glsl"
 
 struct Quad {

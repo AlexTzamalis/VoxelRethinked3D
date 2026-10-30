@@ -1,7 +1,5 @@
 #include "vxe/ui/widget.hpp"
 
-#include <vxe/ui/ui_renderer.hpp>
-
 #include <algorithm>
 #include <cmath>
 
@@ -29,16 +27,29 @@ f32 snap(f32 value) noexcept {
 
 } // namespace
 
+Rect DrawContext::toWindow(const UiRect& rect) const noexcept {
+    const auto scale = static_cast<f32>(m_scale);
+    return {
+        .x = rect.x * scale, .y = rect.y * scale, .width = rect.width * scale, .height = rect.height * scale};
+}
+
 void DrawContext::fillRect(const UiRect& rect, u32 color) {
     if ((color >> 24U) == 0 || rect.width <= 0.0F || rect.height <= 0.0F) {
         return;
     }
-    const auto scale = static_cast<f32>(m_scale);
-    m_renderer.fillRect({.x = rect.x * scale,
-                         .y = rect.y * scale,
-                         .width = rect.width * scale,
-                         .height = rect.height * scale},
-                        color);
+    m_batch.fillRect(toWindow(rect), color);
+}
+
+bool DrawContext::nineSlice(const UiRect& rect, std::string_view image, f32 border) {
+    return m_batch.nineSlice(toWindow(rect), image, border, static_cast<f32>(m_scale));
+}
+
+void DrawContext::pushClip(const UiRect& rect) {
+    m_batch.pushClip(toWindow(rect));
+}
+
+void DrawContext::popClip() {
+    m_batch.popClip();
 }
 
 void DrawContext::frameRect(const UiRect& rect, u32 color, f32 thickness) {
@@ -51,7 +62,7 @@ void DrawContext::frameRect(const UiRect& rect, u32 color, f32 thickness) {
 
 void DrawContext::text(std::string_view text, f32 x, f32 y, u32 color, bool shadow) {
     const auto scale = static_cast<f32>(m_scale);
-    m_renderer.drawText(text, x * scale, y * scale, {.scale = m_scale, .color = color, .shadow = shadow});
+    m_batch.text(text, x * scale, y * scale, {.scale = m_scale, .color = color, .shadow = shadow});
 }
 
 Widget& Widget::addChild(std::unique_ptr<Widget> child) {
@@ -87,7 +98,13 @@ Widget& Widget::root() noexcept {
 }
 
 void Widget::invalidateLayout() noexcept {
-    root().m_layoutRequested = true;
+    Widget& top = root();
+    top.m_layoutRequested = true;
+    top.m_redrawRequested = true;
+}
+
+void Widget::invalidateVisual() noexcept {
+    root().m_redrawRequested = true;
 }
 
 Size Widget::measureContent(const UiEnvironment& /*environment*/, f32 /*availableWidth*/) const {

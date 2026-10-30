@@ -12,14 +12,22 @@
 // them. Their look comes from the Theme, so packs restyle them.
 namespace vxe::ui {
 
-// A box with the theme's panel background and border, padding and gap: the
-// frame of a menu or a dialog. It blocks the pointer, so clicks on it never
-// reach the world behind.
+// A box with the theme's panel look (the pack's ui/panel.png as a nine
+// slice frame, else the panel colors), padding and gap: the frame of a menu
+// or a dialog. It blocks the pointer, so clicks on it never reach the world
+// behind.
 class Panel : public Widget {
 public:
-    // Overrides the theme's panel color (a transparent one draws nothing).
-    void setBackground(std::optional<u32> color) { m_background = color; }
-    void setBorder(bool border) { m_border = border; }
+    // A flat color instead of the theme's panel look (a transparent one
+    // draws nothing, for invisible layout boxes that still block the pointer).
+    void setBackground(std::optional<u32> color) {
+        m_background = color;
+        invalidateVisual();
+    }
+    void setBorder(bool border) {
+        m_border = border;
+        invalidateVisual();
+    }
 
     [[nodiscard]] Edges themePadding(const Theme& theme) const noexcept override;
     [[nodiscard]] f32 themeGap(const Theme& theme) const noexcept override;
@@ -51,11 +59,24 @@ public:
 
     void setText(std::string text);
     [[nodiscard]] const std::string& text() const noexcept { return m_text; }
-    void setRole(TextRole role) { m_role = role; }
-    void setColor(std::optional<u32> color) { m_color = color; } // Overrides the role's color.
-    void setAlign(TextAlign align) { m_align = align; }
+    void setRole(TextRole role) {
+        m_role = role;
+        invalidateVisual();
+    }
+    // Overrides the role's color.
+    void setColor(std::optional<u32> color) {
+        m_color = color;
+        invalidateVisual();
+    }
+    void setAlign(TextAlign align) {
+        m_align = align;
+        invalidateVisual();
+    }
     void setWrap(bool wrap);
-    void setShadow(bool shadow) { m_shadow = shadow; }
+    void setShadow(bool shadow) {
+        m_shadow = shadow;
+        invalidateVisual();
+    }
 
     [[nodiscard]] Size measureContent(const UiEnvironment& environment, f32 availableWidth) const override;
     void draw(DrawContext& context) const override;
@@ -73,7 +94,9 @@ private:
 };
 
 // A clickable button with a centered label. Its height and minimum width
-// come from the theme; it grows with its label otherwise. A click is a press
+// come from the theme; it grows with its label otherwise. Its look is the
+// pack's ui/button.png, button_hover.png, button_pressed.png and
+// button_disabled.png as nine slice frames, else the theme's button colors. A click is a press
 // and a release over the button; disabled buttons ignore the pointer and
 // gray out.
 class Button : public Widget {
@@ -83,7 +106,10 @@ public:
     void setText(std::string text);
     [[nodiscard]] const std::string& text() const noexcept { return m_text; }
     void setOnClick(std::function<void()> onClick) { m_onClick = std::move(onClick); }
-    void setEnabled(bool enabled) { m_enabled = enabled; }
+    void setEnabled(bool enabled) {
+        m_enabled = enabled;
+        invalidateVisual();
+    }
     [[nodiscard]] bool enabled() const noexcept { return m_enabled; }
     [[nodiscard]] bool hovered() const noexcept { return m_hovered; }
     [[nodiscard]] bool pressed() const noexcept { return m_pressed; }
@@ -92,11 +118,19 @@ public:
     void draw(DrawContext& context) const override;
     [[nodiscard]] bool takesPointer() const noexcept override { return m_enabled; }
     [[nodiscard]] bool blocksPointer() const noexcept override { return true; }
-    void onHover(bool hovered) override { m_hovered = hovered; }
-    void onPress() override { m_pressed = true; }
+    void onHover(bool hovered) override {
+        m_hovered = hovered;
+        invalidateVisual();
+    }
+    void onPress() override {
+        m_pressed = true;
+        invalidateVisual();
+    }
     void onRelease(bool inside) override;
 
 private:
+    void drawFlat(DrawContext& context) const;
+
     std::string m_text;
     std::function<void()> m_onClick;
     // The label's width at the last layout, for centering without measuring

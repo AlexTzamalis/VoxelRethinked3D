@@ -23,7 +23,7 @@ ui::PixelFont blockFont() {
     for (u32 code = 0; code < 256; ++code) {
         for (u32 y = 0; y < 8; ++y) {
             for (u32 x = 0; x < 5; ++x) {
-                pixels[usize{(code / 16) * 8 + y} * 128 + (code % 16) * 8 + x] = 0xFFFFFFFFU;
+                pixels[(usize{(code / 16) * 8 + y} * 128) + usize{(code % 16) * 8 + x}] = 0xFFFFFFFFU;
             }
         }
     }
@@ -83,8 +83,18 @@ void runUiBenchmarks() {
     }
     bench.run("draw into quads (scale 3)", [&] {
         renderer.value()->begin(1440, 3600);
-        ui::DrawContext context(*renderer.value(), theme, 3);
+        ui::DrawContext context(renderer.value()->frame(), theme, 3);
         root.drawTree(context);
+        ankerl::nanobench::doNotOptimizeAway(renderer.value()->quadCount());
+    });
+    // A still screen: UiContext keeps the quads and only appends them.
+    ui::QuadBatch kept;
+    kept.reset(&renderer.value()->resources());
+    ui::DrawContext keptContext(kept, theme, 3);
+    root.drawTree(keptContext);
+    bench.run("append kept quads (still screen)", [&] {
+        renderer.value()->begin(1440, 3600);
+        renderer.value()->frame().append(kept);
         ankerl::nanobench::doNotOptimizeAway(renderer.value()->quadCount());
     });
 }

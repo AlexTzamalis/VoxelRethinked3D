@@ -16,6 +16,9 @@ f32 Panel::themeGap(const Theme& theme) const noexcept {
 
 void Panel::draw(DrawContext& context) const {
     const Theme& theme = context.theme();
+    if (!m_background && m_border && context.nineSlice(rect(), "panel", theme.slices.panel)) {
+        return;
+    }
     context.fillRect(rect(), m_background.value_or(theme.colors.panel));
     if (m_border && theme.metrics.border > 0.0F) {
         context.frameRect(rect(), theme.colors.panelBorder, theme.metrics.border);
@@ -100,6 +103,28 @@ Size Button::measureContent(const UiEnvironment& environment, f32 /*availableWid
 void Button::draw(DrawContext& context) const {
     const Theme& theme = context.theme();
     const UiRect& box = rect();
+    const bool down = m_enabled && m_pressed && m_hovered;
+    std::string_view image = "button";
+    if (!m_enabled) {
+        image = "button_disabled";
+    } else if (down) {
+        image = "button_pressed";
+    } else if (m_hovered) {
+        image = "button_hover";
+    }
+    if (!context.nineSlice(box, image, theme.slices.button)) {
+        drawFlat(context);
+    }
+    const f32 x = box.x + std::floor((box.width - m_textWidth) / 2.0F);
+    const f32 y = box.y + std::floor((box.height - kFontCellPixels) / 2.0F) + (down ? 1.0F : 0.0F);
+    context.text(m_text, x, y, m_enabled ? theme.colors.text : theme.colors.textDisabled, m_enabled);
+}
+
+// The look without pack images: a frame, a face by state and a one pixel
+// bevel.
+void Button::drawFlat(DrawContext& context) const {
+    const Theme& theme = context.theme();
+    const UiRect& box = rect();
     const f32 border = theme.metrics.border;
     u32 fill = theme.colors.button;
     if (!m_enabled) {
@@ -124,13 +149,11 @@ void Button::draw(DrawContext& context) const {
     if (m_hovered && m_enabled) {
         context.frameRect(box, theme.colors.focus, border);
     }
-    const f32 x = box.x + std::floor((box.width - m_textWidth) / 2.0F);
-    const f32 y = box.y + std::floor((box.height - kFontCellPixels) / 2.0F) + (down ? 1.0F : 0.0F);
-    context.text(m_text, x, y, m_enabled ? theme.colors.text : theme.colors.textDisabled, m_enabled);
 }
 
 void Button::onRelease(bool inside) {
     m_pressed = false;
+    invalidateVisual();
     if (inside && m_enabled && m_onClick) {
         // A copy: the click may remove this button (closing its screen).
         const std::function<void()> click = m_onClick;

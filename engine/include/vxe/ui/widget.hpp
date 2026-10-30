@@ -2,6 +2,7 @@
 
 #include <vxe/core/types.hpp>
 #include <vxe/ui/pixel_font.hpp>
+#include <vxe/ui/quad_batch.hpp>
 #include <vxe/ui/theme.hpp>
 
 #include <limits>
@@ -13,8 +14,6 @@
 #include <vector>
 
 namespace vxe::ui {
-
-class UiRenderer;
 
 // Layout runs in UI pixels; the UI scale (a whole number) turns them into
 // window pixels when drawing, so every UI pixel covers the same square of
@@ -115,11 +114,11 @@ struct UiEnvironment {
     const PixelFont* font = nullptr; // Nothing before the first font loaded: text measures as empty.
 };
 
-// Draws in UI pixels; converts to window pixels with the scale.
+// Draws in UI pixels into a QuadBatch; converts to window pixels with the scale.
 class DrawContext {
 public:
-    DrawContext(UiRenderer& renderer, const Theme& theme, u32 scale) noexcept
-        : m_renderer(renderer)
+    DrawContext(QuadBatch& batch, const Theme& theme, u32 scale) noexcept
+        : m_batch(batch)
         , m_theme(theme)
         , m_scale(scale) {}
     void fillRect(const UiRect& rect, u32 color);
@@ -127,10 +126,18 @@ public:
     void frameRect(const UiRect& rect, u32 color, f32 thickness = 1.0F);
     // Text with its top left corner at (x, y): one font pixel per UI pixel.
     void text(std::string_view text, f32 x, f32 y, u32 color, bool shadow = true);
+    // A theme image as a nine slice frame with corners `border` texels (UI
+    // pixels) wide. False when no pack has the image: draw the flat look.
+    bool nineSlice(const UiRect& rect, std::string_view image, f32 border);
+    // Clips everything until popClip() to the rectangle (scroll views).
+    void pushClip(const UiRect& rect);
+    void popClip();
     [[nodiscard]] const Theme& theme() const noexcept { return m_theme; }
 
 private:
-    UiRenderer& m_renderer;
+    [[nodiscard]] Rect toWindow(const UiRect& rect) const noexcept;
+
+    QuadBatch& m_batch;
     const Theme& m_theme;
     u32 m_scale;
 };
@@ -142,7 +149,9 @@ private:
 //
 // Changing anything that affects sizes (text, style, children) calls
 // invalidateLayout(), which flags the root, so the next UiContext::update()
-// lays the tree out again. Nothing is laid out per frame otherwise.
+// lays the tree out again; a change of looks only (hover) calls
+// invalidateVisual(), so the next draw rebuilds the kept quads. Nothing is
+// laid out or rebuilt per frame otherwise.
 //
 // Thread safety: main thread only.
 class Widget {
@@ -179,8 +188,12 @@ public:
     // Where the last layout put the widget, in UI pixels.
     [[nodiscard]] const UiRect& rect() const noexcept { return m_rect; }
 
-    // Flags the tree for a new layout.
+    // Flags the tree for a new layout (and a redraw).
     void invalidateLayout() noexcept;
+    // Flags the tree for a redraw only.
+    void invalidateVisual() noexcept;
+    // On the root: true when the tree must be drawn again; clears the flag.
+    [[nodiscard]] bool takeRedrawRequest() noexcept { return std::exchange(m_redrawRequested, false); }
     // On the root: true when the layout must run again; clears the flag.
     [[nodiscard]] bool takeLayoutRequest() noexcept { return std::exchange(m_layoutRequested, false); }
     // On the root: true when widgets were removed since the last call
@@ -224,6 +237,7 @@ private:
     UiRect m_rect{};
     bool m_visible = true;
     bool m_layoutRequested = true;
+    bool m_redrawRequested = true;
     bool m_structureChanged = false;
 };
 

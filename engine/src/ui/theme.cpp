@@ -39,6 +39,11 @@ const std::array<std::pair<std::string_view, f32 Theme::Metrics::*>, 6> kMetricK
     {"border", &Theme::Metrics::border},
 }};
 
+const std::array<std::pair<std::string_view, f32 Theme::Slices::*>, 2> kSliceKeys = {{
+    {"panel", &Theme::Slices::panel},
+    {"button", &Theme::Slices::button},
+}};
+
 constexpr f64 kMaxMetric = 512.0;
 
 void readColors(const toml::table& table, Theme::Colors& colors, std::vector<std::string>& warnings) {
@@ -60,21 +65,24 @@ void readColors(const toml::table& table, Theme::Colors& colors, std::vector<std
     }
 }
 
-void readMetrics(const toml::table& table, Theme::Metrics& metrics, std::vector<std::string>& warnings) {
+// Numbers from 0 to kMaxMetric, for [metrics] and [slices].
+template <typename Fields, typename Target>
+void readNumbers(const toml::table& table, const Fields& fields, Target& target, std::string_view kind,
+                 std::vector<std::string>& warnings) {
     for (const auto& [key, node] : table) {
         const auto found =
-            std::ranges::find(kMetricKeys, key.str(), [](const auto& entry) { return entry.first; });
-        if (found == kMetricKeys.end()) {
-            warnings.push_back(std::format("Theme: unknown metric '{}'", key.str()));
+            std::ranges::find(fields, key.str(), [](const auto& entry) { return entry.first; });
+        if (found == fields.end()) {
+            warnings.push_back(std::format("Theme: unknown {} '{}'", kind, key.str()));
             continue;
         }
-        const std::optional<f64> value = node.value<f64>();
+        const std::optional<f64> value = node.template value<f64>();
         if (!value || *value < 0.0 || *value > kMaxMetric) {
             warnings.push_back(
-                std::format("Theme: metric '{}' must be a number from 0 to {}", key.str(), kMaxMetric));
+                std::format("Theme: {} '{}' must be a number from 0 to {}", kind, key.str(), kMaxMetric));
             continue;
         }
-        metrics.*(found->second) = static_cast<f32>(*value);
+        target.*(found->second) = static_cast<f32>(*value);
     }
 }
 
@@ -116,10 +124,12 @@ Result<Theme> Theme::parse(std::string_view text, std::vector<std::string>& warn
         if (key.str() == "colors" && table != nullptr) {
             readColors(*table, theme.colors, warnings);
         } else if (key.str() == "metrics" && table != nullptr) {
-            readMetrics(*table, theme.metrics, warnings);
+            readNumbers(*table, kMetricKeys, theme.metrics, "metric", warnings);
+        } else if (key.str() == "slices" && table != nullptr) {
+            readNumbers(*table, kSliceKeys, theme.slices, "slice", warnings);
         } else {
-            warnings.push_back(
-                std::format("Theme: unknown entry '{}' (expected [colors] and [metrics])", key.str()));
+            warnings.push_back(std::format(
+                "Theme: unknown entry '{}' (expected [colors], [metrics] and [slices])", key.str()));
         }
     }
     return theme;

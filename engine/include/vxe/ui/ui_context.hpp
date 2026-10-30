@@ -36,7 +36,7 @@ struct UiContextDesc {
 //
 // Settings: Interface.UiScale (0 Auto, 1 to 8), live.
 // Stats: Ui.Widgets (visible widgets), Ui.Scale, Ui.LayoutMs (the last
-// layout) and Ui.Layouts (counter).
+// layout), Ui.Layouts and Ui.Rebuilds (counters).
 //
 // Thread safety: main thread only.
 class UiContext {
@@ -61,8 +61,12 @@ public:
     // under it, and a release over the same widget is a click (which may
     // change the tree; nothing touches the clicked widget afterwards).
     void update(u32 windowWidth, u32 windowHeight, const PointerInput& pointer, const UiRenderer& renderer);
-    // Adds the tree's rectangles and text to the renderer's frame.
-    void draw(UiRenderer& renderer) const;
+    // Adds the tree's quads to the renderer's frame. They are kept and
+    // rebuilt only when something changed (layout, hover, text, the theme,
+    // the scale or the atlas), so a still screen costs one copy per frame.
+    void draw(UiRenderer& renderer);
+    // How many times draw() rebuilt the kept quads.
+    [[nodiscard]] u64 rebuildCount() const noexcept { return m_rebuilds; }
     // True while the pointer is over a widget that blocks it (a panel, a
     // button): the game should not act on that click itself.
     [[nodiscard]] bool wantsPointer() const noexcept { return m_overBlocking; }
@@ -82,6 +86,10 @@ private:
     u32 m_width = 0;
     u32 m_height = 0;
     u64 m_fontVersion = 0;
+    QuadBatch m_cache;
+    u64 m_cacheVersion = 0;
+    bool m_cacheValid = false;
+    u64 m_rebuilds = 0;
     Widget* m_hovered = nullptr;
     Widget* m_pressed = nullptr;
     bool m_wasDown = false;
@@ -92,6 +100,7 @@ private:
         stats::StatId scale;
         stats::StatId layoutMs;
         stats::StatId layouts;
+        stats::StatId rebuilds;
     } m_statIds{};
 };
 

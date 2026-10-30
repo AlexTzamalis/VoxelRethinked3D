@@ -55,7 +55,10 @@ UiContext::UiContext(const UiContextDesc& desc)
                  .layoutMs = stat("Ui.LayoutMs", "Time of the last UI layout.", stats::StatType::Gauge,
                                   stats::StatUnit::Milliseconds),
                  .layouts = stat("Ui.Layouts", "UI layouts (only when the tree, window or scale changed).",
-                                 stats::StatType::Counter)};
+                                 stats::StatType::Counter),
+                 .rebuilds =
+                     stat("Ui.Rebuilds", "Rebuilds of the kept UI quads (only when something changed).",
+                          stats::StatType::Counter)};
 }
 
 std::unique_ptr<UiContext> UiContext::create(const UiContextDesc& desc) {
@@ -64,6 +67,7 @@ std::unique_ptr<UiContext> UiContext::create(const UiContextDesc& desc) {
 
 void UiContext::setTheme(Theme theme) {
     m_theme = theme;
+    m_cacheValid = false;
     m_root.invalidateLayout(); // Sizes and paddings come from the theme.
 }
 
@@ -82,6 +86,7 @@ void UiContext::layout(u32 windowWidth, u32 windowHeight, const UiRenderer& rend
     const f32 width = std::floor(static_cast<f32>(windowWidth) / scale);
     const f32 height = std::floor(static_cast<f32>(windowHeight) / scale);
     m_root.arrange(environment, {0.0F, 0.0F, width, height});
+    m_cacheValid = false;
     if (m_stats != nullptr) {
         if (m_statIds.layoutMs.isValid()) {
             m_stats->set(m_statIds.layoutMs, stopwatch.elapsedMilliseconds());
@@ -104,11 +109,11 @@ void UiContext::update(u32 windowWidth, u32 windowHeight, const PointerInput& po
         m_pressed = nullptr;
     }
     if (requested || scale != m_scale || windowWidth != m_width || windowHeight != m_height ||
-        renderer.fontVersion() != m_fontVersion) {
+        renderer.resourceVersion() != m_fontVersion) {
         m_scale = scale;
         m_width = windowWidth;
         m_height = windowHeight;
-        m_fontVersion = renderer.fontVersion();
+        m_fontVersion = renderer.resourceVersion();
         layout(windowWidth, windowHeight, renderer);
     }
     routePointer(pointer);
@@ -153,10 +158,21 @@ void UiContext::routePointer(const PointerInput& pointer) {
     m_wasDown = down;
 }
 
-void UiContext::draw(UiRenderer& renderer) const {
+void UiContext::draw(UiRenderer& renderer) {
     VXE_PROFILE_FUNCTION();
-    DrawContext context(renderer, m_theme, m_scale);
-    m_root.drawTree(context);
+    const bool redraw = m_root.takeRedrawRequest();
+    if (redraw || !m_cacheValid || m_cacheVersion != renderer.resourceVersion()) {
+        m_cache.reset(&renderer.resources());
+        DrawContext context(m_cache, m_theme, m_scale);
+        m_root.drawTree(context);
+        m_cacheVersion = renderer.resourceVersion();
+        m_cacheValid = true;
+        ++m_rebuilds;
+        if (m_stats != nullptr && m_statIds.rebuilds.isValid()) {
+            m_stats->add(m_statIds.rebuilds);
+        }
+    }
+    renderer.frame().append(m_cache);
 }
 
 } // namespace vxe::ui

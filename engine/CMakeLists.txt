@@ -238,6 +238,7 @@ vxe_add_shader_check(vxe_engine_shaders ROOT "${CMAKE_CURRENT_SOURCE_DIR}/shader
 vxe_add_module(ui
     SOURCES
         src/ui/pixel_font.cpp
+        src/ui/quad_batch.cpp
         src/ui/theme.cpp
         src/ui/ui_context.cpp
         src/ui/ui_renderer.cpp

@@ -242,7 +242,12 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
         }
         m_texturePacks = std::move(packs).value();
         // The UI font comes from the packs too, so packs can replace it.
-        m_texturePacks->setImages({std::string(kFontImage)});
+        // The UI font and images come from the packs too, so packs restyle them.
+        std::vector<std::string> images{std::string(kFontImage)};
+        for (const std::string_view name : vxe::ui::kThemeImages) {
+            images.push_back(std::format("ui/{}.png", name));
+        }
+        m_texturePacks->setImages(std::move(images));
         m_texturePacks->setFiles({std::string(kThemeFile)});
         const auto keys = m_blocks->textureKeys();
         m_texturePacks->setKeys(std::vector<std::string>(keys.begin(), keys.end()));
@@ -403,7 +408,18 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
         m_demo->setTextureColors(textures->averageColors);
     }
     if (const vxe::render::PackImage* font = m_texturePacks->image(kFontImage); font != nullptr && m_ui) {
-        if (auto set = m_ui->setFont(font->pixels, font->width, font->height); !set) {
+        // The font and every theme image a pack provides share one atlas.
+        std::vector<vxe::ui::AtlasImage> images;
+        for (const std::string_view name : vxe::ui::kThemeImages) {
+            if (const vxe::render::PackImage* image = m_texturePacks->image(std::format("ui/{}.png", name))) {
+                images.push_back({.name = std::string(name),
+                                  .width = image->width,
+                                  .height = image->height,
+                                  .pixels = image->pixels});
+            }
+        }
+        const vxe::ui::AtlasImage sheet{.width = font->width, .height = font->height, .pixels = font->pixels};
+        if (auto set = m_ui->setResources(sheet, images); !set) {
             VXE_LOG_WARN(gameLog, "UI font from pack '{}': {}", font->source, set.error().describe());
         }
     }

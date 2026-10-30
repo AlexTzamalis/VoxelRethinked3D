@@ -4,11 +4,18 @@
 #include <vxe/core/types.hpp>
 #include <vxe/ui/color.hpp>
 
+#include <array>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace vxe::ui {
+
+// The images a theme may use, as ui/<name>.png in the texture packs (Section
+// 15.1). Each is drawn as a nine slice frame; a missing image falls back to
+// the theme's flat colors, so a pack can restyle widgets one at a time.
+inline constexpr std::array<std::string_view, 5> kThemeImages = {"panel", "button", "button_hover",
+                                                                 "button_pressed", "button_disabled"};
 
 // The look of the game UI (Section 19.1): colors and sizes every widget
 // reads, so a texture pack restyles all menus with one file. Sizes are in UI
@@ -46,7 +53,14 @@ struct Theme {
         f32 border = 1.0F;
     } metrics;
 
-    // Reads a theme from TOML text: tables [colors] and [metrics] with the
+    // Corner sizes of the nine slice images, in texels (one texel is one UI
+    // pixel): the corners keep their size, edges and centers stretch.
+    struct Slices {
+        f32 panel = 3.0F;
+        f32 button = 3.0F; // Every button state.
+    } slices;
+
+    // Reads a theme from TOML text: tables [colors], [metrics] and [slices] with the
     // keys of the structs above in snake case ("button_hover"). Colors are
     // "#RRGGBB" or "#RRGGBBAA" strings. Unknown keys and wrong values are
     // reported in `warnings` and skipped, so a pack's typo never breaks the
