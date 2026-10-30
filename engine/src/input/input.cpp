@@ -118,6 +118,7 @@ void InputSystem::applyEvent(const platform::PlatformEvent& event) {
                            return;
                        }
                        if (key.down) {
+                           m_keysTypedThisFrame.set(key.scancode);
                            // Repeats keep the key down but are not new presses.
                            if (!key.repeat && !m_keys[key.scancode]) {
                                m_keysPressedThisFrame.set(key.scancode);
@@ -235,6 +236,7 @@ f32 InputSystem::bindingAxisValue(const Binding& binding) const noexcept {
 void InputSystem::update(std::span<const platform::PlatformEvent> events) {
     VXE_PROFILE_FUNCTION();
     m_keysPressedThisFrame.reset();
+    m_keysTypedThisFrame.reset();
     m_mouseButtonsPressedThisFrame.reset();
     m_mouseDelta = Vec2(0.0F);
     m_wheel = Vec2(0.0F);
@@ -485,6 +487,10 @@ f32 InputSystem::axis(ActionId action) const noexcept {
 
 bool InputSystem::isKeyDown(u16 scancode) const noexcept {
     return inRange(scancode) && m_keys[scancode];
+}
+
+bool InputSystem::wasKeyTyped(u16 scancode) const noexcept {
+    return inRange(scancode) && m_keysTypedThisFrame[scancode];
 }
 
 bool InputSystem::wasKeyPressed(u16 scancode) const noexcept {

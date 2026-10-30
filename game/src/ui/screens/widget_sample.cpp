@@ -1,5 +1,6 @@
 #include "widget_sample.hpp"
 
+#include <vxe/ui/dialog.hpp>
 #include <vxe/ui/widgets.hpp>
 
 #include <format>
@@ -7,8 +8,9 @@
 
 namespace vr {
 
-void buildWidgetSample(vxe::ui::Widget& root) {
+void buildWidgetSample(vxe::ui::UiContext& context) {
     using namespace vxe::ui;
+    Widget& root = context.root();
     LayoutStyle& rootStyle = root.style();
     rootStyle.justify = Justify::Center;
     rootStyle.align = Align::Center;
@@ -23,6 +25,8 @@ void buildWidgetSample(vxe::ui::Widget& root) {
                          "buttons that react to the mouse.",
                          TextRole::Muted);
     text.setWrap(true);
+    auto& name = panel.add<TextField>("", "World name");
+    name.setMaxLength(32);
 
     auto& row = panel.add<Widget>();
     row.style().direction = Direction::Row;
@@ -44,9 +48,18 @@ void buildWidgetSample(vxe::ui::Widget& root) {
         counter.setText("Clicked 0 times");
     });
 
-    auto& multiplayer = panel.add<Button>("Multiplayer (coming later)");
+    auto& multiplayer = panel.add<Button>("Multiplayer");
     multiplayer.setEnabled(false);
-    panel.add<Button>("Settings");
+    multiplayer.setTooltip("Coming later. Worlds are singleplayer for now.");
+    auto& remove = panel.add<Button>("Delete world");
+    remove.setOnClick([&context, &name, &counter] {
+        const std::string world = name.text().empty() ? std::string("this world") : name.text();
+        showDialog(context,
+                   {.title = "Delete world?",
+                    .message = std::format("{} will be gone for good.", world),
+                    .buttons = {{.text = "Delete", .onClick = [&counter] { counter.setText("Deleted"); }},
+                                {.text = "Cancel", .cancel = true}}});
+    });
 }
 
 } // namespace vr

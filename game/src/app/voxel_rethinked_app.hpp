@@ -9,6 +9,7 @@
 #include <vxe/render/camera.hpp>
 #include <vxe/render/texture_pack_manager.hpp>
 #include <vxe/ui/ui_context.hpp>
+#include <vxe/ui/ui_input.hpp>
 #include <vxe/ui/ui_renderer.hpp>
 #include <vxe/voxel/block_registry.hpp>
 
@@ -46,7 +47,7 @@ private:
     void registerCommands(vxe::EngineContext& context);
     void startDemoWorld(vxe::EngineContext& context);
     void updateTextures(vxe::EngineContext& context);
-    void drawUi(vxe::EngineContext& context);
+    void drawUi(vxe::EngineContext& context, const vxe::FrameTime& time);
 
     GameStateMachine m_states;
     std::optional<BlockCatalog> m_blocks;
@@ -57,6 +58,8 @@ private:
     // The game UI (E12); with a renderer only.
     std::unique_ptr<vxe::ui::UiRenderer> m_ui;
     std::unique_ptr<vxe::ui::UiContext> m_uiContext;
+    // Menu navigation (Tab, arrows, Enter, Escape) in the menu context.
+    std::unique_ptr<vxe::ui::UiActions> m_uiActions;
     bool m_widgetSampleShown = false;
     std::unique_ptr<GameSettings> m_settings;
     std::unique_ptr<GameActions> m_actions;

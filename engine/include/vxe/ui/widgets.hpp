@@ -122,11 +122,19 @@ public:
         m_hovered = hovered;
         invalidateVisual();
     }
-    void onPress() override {
+    void onPress(f32 /*x*/, f32 /*y*/) override {
         m_pressed = true;
         invalidateVisual();
     }
     void onRelease(bool inside) override;
+    [[nodiscard]] bool focusable() const noexcept override { return m_enabled; }
+    void onFocus(bool focused) override {
+        m_focused = focused;
+        invalidateVisual();
+    }
+    // Enter clicks the focused button.
+    void activate() override;
+    [[nodiscard]] bool focused() const noexcept { return m_focused; }
 
 private:
     void drawFlat(DrawContext& context) const;
@@ -139,6 +147,59 @@ private:
     bool m_enabled = true;
     bool m_hovered = false;
     bool m_pressed = false;
+    bool m_focused = false;
+};
+
+// A one line text input (world names, seeds): click or Tab to focus, type,
+// Backspace and Delete erase, Left, Right, Home and End move the caret,
+// Enter submits. Text is UTF-8; the caret always sits between code points.
+// Long text scrolls so the caret stays visible.
+class TextField : public Widget {
+public:
+    explicit TextField(std::string text = {}, std::string placeholder = {});
+
+    void setText(std::string text);
+    [[nodiscard]] const std::string& text() const noexcept { return m_text; }
+    // Shown in the muted color while the field is empty.
+    void setPlaceholder(std::string placeholder);
+    // The most code points the field takes; 0 for no limit.
+    void setMaxLength(usize codePoints) { m_maxLength = codePoints; }
+    // Which characters the field accepts (for example digits only).
+    void setFilter(std::function<bool(char32_t)> accepts) { m_accepts = std::move(accepts); }
+    void setOnChange(std::function<void(const std::string&)> onChange) { m_onChange = std::move(onChange); }
+    void setOnSubmit(std::function<void(const std::string&)> onSubmit) { m_onSubmit = std::move(onSubmit); }
+    // The caret as a byte offset into text().
+    [[nodiscard]] usize caret() const noexcept { return m_caret; }
+    [[nodiscard]] bool focused() const noexcept { return m_focused; }
+
+    [[nodiscard]] Size measureContent(const UiEnvironment& environment, f32 availableWidth) const override;
+    void draw(DrawContext& context) const override;
+    [[nodiscard]] bool takesPointer() const noexcept override { return true; }
+    [[nodiscard]] bool focusable() const noexcept override { return true; }
+    [[nodiscard]] bool capturesText() const noexcept override { return true; }
+    void onPress(f32 x, f32 y) override;
+    void onFocus(bool focused) override;
+    void activate() override;
+    void onTextInput(const TextEditInput& text) override;
+    void onFocusedFrame(f32 deltaSeconds) override;
+
+private:
+    void changed();
+    [[nodiscard]] f32 caretOffset(usize bytes) const;
+
+    std::string m_text;
+    std::string m_placeholder;
+    usize m_caret = 0;
+    usize m_maxLength = 0;
+    std::function<bool(char32_t)> m_accepts;
+    std::function<void(const std::string&)> m_onChange;
+    std::function<void(const std::string&)> m_onSubmit;
+    // The font of the last layout, to place the caret from a click.
+    mutable const PixelFont* m_font = nullptr;
+    // How far the text is scrolled left so the caret stays inside.
+    mutable f32 m_scroll = 0.0F;
+    f32 m_blink = 0.0F;
+    bool m_focused = false;
 };
 
 } // namespace vxe::ui

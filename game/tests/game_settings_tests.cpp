@@ -41,7 +41,6 @@ TEST_CASE("Default actions follow Section 17.5 without conflicts") {
     CHECK(binding(actions.crouch) == Binding::key(scancode::kLeftShift));
     CHECK(binding(actions.sprint) == Binding::key(scancode::kLeftCtrl));
     CHECK(binding(actions.pause) == Binding::key(scancode::kEscape));
-    CHECK(binding(actions.menuBack) == Binding::key(scancode::kEscape));
     CHECK(binding(actions.fullscreen) == Binding::key(scancode::kF11));
     CHECK(binding(actions.hotbar[0]) == Binding::key(30)); // The 1 key.
     CHECK(binding(actions.hotbar[8]) == Binding::key(38)); // The 9 key.
@@ -55,8 +54,7 @@ TEST_CASE("Default actions follow Section 17.5 without conflicts") {
           actions.jump,        actions.crouch,     actions.sprint,     actions.breakBlock,
           actions.placeBlock,  actions.pickBlock,  actions.hotbarNext, actions.hotbarPrevious,
           actions.inventory,   actions.pause,      actions.toggleHud,  actions.freeCamera,
-          actions.menuBack,    actions.screenshot, actions.fullscreen, actions.hotbar[0],
-          actions.hotbar[8]}) {
+          actions.screenshot,  actions.fullscreen, actions.hotbar[0],  actions.hotbar[8]}) {
         const auto& info = input.action(action);
         INFO(info.id);
         CHECK(input.findConflicts(info.bindings[0], info.context, action).empty());

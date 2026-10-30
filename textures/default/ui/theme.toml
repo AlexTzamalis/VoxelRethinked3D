@@ -19,6 +19,10 @@ button_highlight = "#FFFFFF40"
 button_shadow = "#00000060"
 focus = "#E8C860"
 backdrop = "#00000090"
+field = "#101114"
+field_border = "#464850"
+tooltip = "#101016F0"
+tooltip_border = "#5A5470"
 
 [metrics]
 button_height = 20
@@ -27,3 +31,9 @@ button_padding = 8
 panel_padding = 8
 gap = 4
 border = 1
+tooltip_max_width = 200
+
+# Corner sizes in texels of the nine slice images ui/panel.png and ui/button*.png.
+[slices]
+panel = 3
+button = 3

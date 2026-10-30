@@ -142,7 +142,7 @@ TEST_CASE("The UI keeps its quads until something changes") {
     auto& button = context->root().add<Button>("Hi");
     button.style().alignSelf = Align::Start;
     const auto frame = [&](f32 x, f32 y) {
-        context->update(640, 480, {.x = x, .y = y}, ui);
+        context->update(640, 480, {.pointer = {.x = x, .y = y}}, ui);
         ui.begin(640, 480);
         context->draw(ui);
     };

@@ -43,8 +43,14 @@ inline constexpr u16 kF2 = 59;
 inline constexpr u16 kF3 = 60;
 inline constexpr u16 kF6 = 63;
 inline constexpr u16 kF11 = 68;
+inline constexpr u16 kHome = 74;
+inline constexpr u16 kDelete = 76;
+inline constexpr u16 kEnd = 77;
 inline constexpr u16 kRight = 79;
 inline constexpr u16 kLeft = 80;
+inline constexpr u16 kDown = 81;
+inline constexpr u16 kUp = 82;
+inline constexpr u16 kKeypadEnter = 88;
 inline constexpr u16 kLeftCtrl = 224;
 inline constexpr u16 kLeftShift = 225;
 inline constexpr u16 kLeftAlt = 226;
@@ -184,6 +190,9 @@ public:
     // Raw state, for code that genuinely needs devices (UI text fields,
     // mouse look). Not filtered by contexts.
     [[nodiscard]] bool isKeyDown(u16 scancode) const noexcept;
+    // Went down this frame or repeated while held (the OS key repeat): for
+    // text editing, where holding Backspace keeps deleting.
+    [[nodiscard]] bool wasKeyTyped(u16 scancode) const noexcept;
     [[nodiscard]] bool wasKeyPressed(u16 scancode) const noexcept;
     [[nodiscard]] bool isMouseButtonDown(platform::MouseButton button) const noexcept;
     [[nodiscard]] Vec2 mousePosition() const noexcept { return m_mousePosition; }
@@ -278,6 +287,7 @@ private:
 
     std::bitset<scancode::kCount> m_keys;
     std::bitset<scancode::kCount> m_keysPressedThisFrame;
+    std::bitset<scancode::kCount> m_keysTypedThisFrame;
     std::bitset<8> m_mouseButtons;
     std::bitset<8> m_mouseButtonsPressedThisFrame;
     Vec2 m_mousePosition{0.0F};

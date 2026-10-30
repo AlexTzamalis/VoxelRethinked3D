@@ -2,6 +2,19 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#086] 2026-10-30, E12.4 Focus, keyboard navigation, text fields, dialogs and tooltips
+### Added
+- Keyboard focus in ui::UiContext: Tab and Shift+Tab walk the focusable widgets in tree order, the arrows move to the nearest one in that direction, Enter activates, Escape closes the top dialog or is handed to the screen (takeBack). Hover moves the focus (a text field keeps it until something else is clicked); clicks focus what they hit.
+- ui::UiActions: the rebindable menu actions ui.next, ui.previous, ui.up, ui.down, ui.left, ui.right, ui.activate and ui.back in the caller's menu context, plus the fixed text editing keys with the system key repeat (InputSystem::wasKeyTyped); ui::UiInput carries pointer, navigation, text and frame time.
+- ui::TextField: UTF-8 text with a caret between code points, typing, Backspace, Delete, Left, Right, Home, End, click to place the caret, scrolling, blinking caret, placeholder, length limit, character filter, change and submit handlers; UiContext::wantsTextInput turns on the window's text input.
+- Layers above the screen (UiContext::pushLayer, closeLayer): modal layers dim the screen with the theme backdrop and take the pointer and focus; focus returns when they close. ui::showDialog builds a dialog with a title, a wrapped message and buttons; the cancel button starts focused and answers Escape.
+- Tooltips (Widget::setTooltip): after the pointer rests for 0.5 s, also on disabled buttons and on widgets focused with the keyboard, wrapped and kept inside the window.
+- Theme colors field, field_border, tooltip, tooltip_border and metric tooltip_max_width; the default theme lists every value including [slices].
+- Game: menu navigation and text input reach the UI; the widget sample has a text field, a disabled Multiplayer button with a tooltip and a delete confirmation dialog; console command uidialog opens a sample dialog.
+- Tests: Tab order, wrap around, spatial arrows, Enter, hover and click focus, text field editing with multi byte text, limits, filters and caret clicks, dialogs with Back, Enter and focus return, and tooltips.
+### Changed
+- The game's menu.back action is now the engine's ui.back (Escape, menu context).
+
 ## [#085] 2026-10-30, E12.3 UI batching renderer
 ### Added
 - ui::QuadBatch: rectangles, atlas images, nine slice frames and text in window pixels, clipped on the CPU (texture coordinates cut to match) with a clip stack, so scroll views need no scissor changes and the UI stays one draw call.

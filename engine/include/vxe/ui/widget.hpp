@@ -9,11 +9,14 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 namespace vxe::ui {
+
+struct TextEditInput;
 
 // Layout runs in UI pixels; the UI scale (a whole number) turns them into
 // window pixels when drawing, so every UI pixel covers the same square of
@@ -133,6 +136,10 @@ public:
     void pushClip(const UiRect& rect);
     void popClip();
     [[nodiscard]] const Theme& theme() const noexcept { return m_theme; }
+    [[nodiscard]] const PixelFont* font() const noexcept {
+        return m_batch.resources() != nullptr && m_batch.resources()->font ? &*m_batch.resources()->font
+                                                                           : nullptr;
+    }
 
 private:
     [[nodiscard]] Rect toWindow(const UiRect& rect) const noexcept;
@@ -184,6 +191,10 @@ public:
     [[nodiscard]] Widget* parent() const noexcept { return m_parent; }
 
     [[nodiscard]] bool visible() const noexcept { return m_visible; }
+    // Shown after the pointer rests on the widget (or the keyboard focuses
+    // it); details belong here instead of long labels.
+    void setTooltip(std::string tooltip) { m_tooltip = std::move(tooltip); }
+    [[nodiscard]] const std::string& tooltip() const noexcept { return m_tooltip; }
     void setVisible(bool visible);
     // Where the last layout put the widget, in UI pixels.
     [[nodiscard]] const UiRect& rect() const noexcept { return m_rect; }
@@ -216,9 +227,24 @@ public:
     [[nodiscard]] virtual bool takesPointer() const noexcept { return false; }
     [[nodiscard]] virtual bool blocksPointer() const noexcept { return takesPointer(); }
     virtual void onHover(bool /*hovered*/) {}
-    virtual void onPress() {}
+    // The pointer went down over the widget at (x, y) in UI pixels.
+    virtual void onPress(f32 /*x*/, f32 /*y*/) {}
     // `inside`: the pointer went up over the widget, which makes it a click.
     virtual void onRelease(bool /*inside*/) {}
+
+    // Keyboard focus (E12.4). UiContext moves focus with Tab, the arrows,
+    // clicks and hovering; the focused widget gets Enter and, if it captures
+    // text, the typed text and editing keys.
+    [[nodiscard]] virtual bool focusable() const noexcept { return false; }
+    // A text field: typing goes to it, and Left and Right move its caret
+    // instead of the focus. Hovering other widgets does not take focus away.
+    [[nodiscard]] virtual bool capturesText() const noexcept { return false; }
+    virtual void onFocus(bool /*focused*/) {}
+    // Enter on the focused widget.
+    virtual void activate() {}
+    virtual void onTextInput(const TextEditInput& /*text*/) {}
+    // Every frame while focused, for animations like a blinking caret.
+    virtual void onFocusedFrame(f32 /*deltaSeconds*/) {}
 
     // The layout pass (widget.cpp); UiContext calls them on the root.
     [[nodiscard]] Size measure(const UiEnvironment& environment, f32 availableWidth) const;
@@ -235,6 +261,7 @@ private:
     std::vector<std::unique_ptr<Widget>> m_children;
     Widget* m_parent = nullptr;
     UiRect m_rect{};
+    std::string m_tooltip;
     bool m_visible = true;
     bool m_layoutRequested = true;
     bool m_redrawRequested = true;

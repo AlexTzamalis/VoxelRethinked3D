@@ -42,6 +42,10 @@ struct Theme {
         u32 buttonShadow = rgba(0, 0, 0, 96);          // And along the bottom.
         u32 focus = rgba(232, 200, 96);                // The border of a hovered or focused widget.
         u32 backdrop = rgba(0, 0, 0, 144);             // Darkens what is behind a screen.
+        u32 field = rgba(16, 17, 20);                  // The inside of a text field.
+        u32 fieldBorder = rgba(70, 72, 80);
+        u32 tooltip = rgba(16, 16, 22, 240);
+        u32 tooltipBorder = rgba(90, 84, 112);
     } colors;
 
     struct Metrics {
@@ -51,6 +55,7 @@ struct Theme {
         f32 panelPadding = 8.0F;
         f32 gap = 4.0F; // Between widgets of a layout.
         f32 border = 1.0F;
+        f32 tooltipMaxWidth = 200.0F; // Longer tooltips wrap.
     } metrics;
 
     // Corner sizes of the nine slice images, in texels (one texel is one UI

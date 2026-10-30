@@ -12,7 +12,7 @@ namespace {
 
 // The keys of a theme file and the fields they set. One table each, so
 // adding a field is one line here.
-const std::array<std::pair<std::string_view, u32 Theme::Colors::*>, 15> kColorKeys = {{
+const std::array<std::pair<std::string_view, u32 Theme::Colors::*>, 19> kColorKeys = {{
     {"text", &Theme::Colors::text},
     {"text_muted", &Theme::Colors::textMuted},
     {"text_disabled", &Theme::Colors::textDisabled},
@@ -28,15 +28,20 @@ const std::array<std::pair<std::string_view, u32 Theme::Colors::*>, 15> kColorKe
     {"button_shadow", &Theme::Colors::buttonShadow},
     {"focus", &Theme::Colors::focus},
     {"backdrop", &Theme::Colors::backdrop},
+    {"field", &Theme::Colors::field},
+    {"field_border", &Theme::Colors::fieldBorder},
+    {"tooltip", &Theme::Colors::tooltip},
+    {"tooltip_border", &Theme::Colors::tooltipBorder},
 }};
 
-const std::array<std::pair<std::string_view, f32 Theme::Metrics::*>, 6> kMetricKeys = {{
+const std::array<std::pair<std::string_view, f32 Theme::Metrics::*>, 7> kMetricKeys = {{
     {"button_height", &Theme::Metrics::buttonHeight},
     {"button_min_width", &Theme::Metrics::buttonMinWidth},
     {"button_padding", &Theme::Metrics::buttonPadding},
     {"panel_padding", &Theme::Metrics::panelPadding},
     {"gap", &Theme::Metrics::gap},
     {"border", &Theme::Metrics::border},
+    {"tooltip_max_width", &Theme::Metrics::tooltipMaxWidth},
 }};
 
 const std::array<std::pair<std::string_view, f32 Theme::Slices::*>, 2> kSliceKeys = {{

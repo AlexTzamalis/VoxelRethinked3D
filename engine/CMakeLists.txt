@@ -237,16 +237,20 @@ vxe_add_shader_check(vxe_engine_shaders ROOT "${CMAKE_CURRENT_SOURCE_DIR}/shader
 # the batching renderer, drawn through the RHI in the renderer's Ui pass.
 vxe_add_module(ui
     SOURCES
+        src/ui/dialog.cpp
         src/ui/pixel_font.cpp
         src/ui/quad_batch.cpp
         src/ui/theme.cpp
         src/ui/ui_context.cpp
+        src/ui/ui_input.cpp
         src/ui/ui_renderer.cpp
         src/ui/widget.cpp
         src/ui/widgets.cpp
     DEPENDS
         core
+        platform
         config
+        input
         rhi
     PRIVATE_LIBS
         tomlplusplus::tomlplusplus

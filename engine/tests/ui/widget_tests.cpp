@@ -263,7 +263,7 @@ TEST_CASE("The pointer hovers, presses and clicks buttons") {
     disabled.setEnabled(false);
 
     const auto frame = [&](f32 x, f32 y, bool down, bool available = true) {
-        context->update(640, 480, {.x = x, .y = y, .primaryDown = down, .available = available},
+        context->update(640, 480, {.pointer = {.x = x, .y = y, .primaryDown = down, .available = available}},
                         *renderer.value());
     };
     frame(0.0F, 0.0F, false);

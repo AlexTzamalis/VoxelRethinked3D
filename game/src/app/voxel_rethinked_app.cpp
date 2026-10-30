@@ -8,6 +8,7 @@
 #include <vxe/debug/overlay.hpp>
 #include <vxe/render/debug_draw.hpp>
 #include <vxe/render/renderer.hpp>
+#include <vxe/ui/dialog.hpp>
 
 #include <algorithm>
 #include <array>
@@ -86,6 +87,7 @@ vxe::Result<void> VoxelRethinkedApp::onInit(vxe::EngineContext& context) {
     m_input = &context.input;
     m_settings = std::make_unique<GameSettings>(context.settings);
     m_actions = std::make_unique<GameActions>(context.input);
+    m_uiActions = std::make_unique<vxe::ui::UiActions>(context.input, m_actions->menu);
     m_input->pushContext(m_actions->global);
     m_flight = std::make_unique<vxe::render::FreeCameraController>(
         vxe::render::FreeCameraDesc{.input = &context.input, .settings = &context.settings});
@@ -114,6 +116,25 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
              return vxe::config::CommandOutput{
                  .lines = {
                      std::format("{} ({} transitions)", nameOf(m_states.current()), m_states.transitions())}};
+         }});
+    // Opens the sample confirmation dialog, to look at dialogs while the
+    // game holds the mouse (captures, theme work).
+    context.commands.registerCommand(
+        {.name = "uidialog",
+         .usage = "uidialog",
+         .description = "Opens a sample dialog of the game UI.",
+         .handler = [this](std::span<const std::string> /*arguments*/) {
+             vxe::config::CommandOutput output;
+             if (!m_uiContext) {
+                 output.lines.emplace_back("The game UI is not running.");
+                 output.success = false;
+                 return output;
+             }
+             vxe::ui::showDialog(
+                 *m_uiContext, {.title = "Delete world?",
+                                .message = "\"New World\" and everything built in it will be gone for good.",
+                                .buttons = {{.text = "Delete"}, {.text = "Cancel", .cancel = true}}});
+             return output;
          }});
     // Puts the camera somewhere exact, for repeatable captures and measurements.
     context.commands.registerCommand(
@@ -342,7 +363,7 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
                 }
             }
         }
-    } else if (m_states.current() == GameState::Paused && m_input->isPressed(m_actions->menuBack)) {
+    } else if (m_states.current() == GameState::Paused && m_input->isPressed(m_uiActions->back)) {
         m_states.request(GameState::InGame);
     }
     // The free camera has its own field of view setting for debugging; in the
@@ -441,7 +462,7 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
 
 // The game UI of this frame. Screens and the HUD arrive with E12.5 and G4
 // to G6; for now only the developer font sample.
-void VoxelRethinkedApp::drawUi(vxe::EngineContext& context) {
+void VoxelRethinkedApp::drawUi(vxe::EngineContext& context, const vxe::FrameTime& time) {
     if (!m_ui || context.device == nullptr) {
         return;
     }
@@ -451,21 +472,28 @@ void VoxelRethinkedApp::drawUi(vxe::EngineContext& context) {
         m_widgetSampleShown = m_settings->widgetSample.get();
         m_uiContext->root().clearChildren();
         if (m_widgetSampleShown) {
-            buildWidgetSample(m_uiContext->root());
+            buildWidgetSample(*m_uiContext);
         }
     }
     m_ui->begin(width, height);
     if (m_uiContext) {
-        // The pointer belongs to the UI only while the game does not use the
-        // mouse for looking around.
-        vxe::ui::PointerInput pointer{.available = !m_mouseCaptured};
+        // The pointer and keys belong to the UI only while the game does not
+        // use them for playing (mouse look captures the pointer, the menu
+        // context carries the navigation actions).
+        vxe::ui::UiInput input{.pointer = {.available = !m_mouseCaptured},
+                               .deltaSeconds = static_cast<vxe::f32>(time.deltaSeconds)};
         if (m_input != nullptr) {
-            pointer.x = m_input->mousePosition().x;
-            pointer.y = m_input->mousePosition().y;
-            pointer.primaryDown = m_input->isMouseButtonDown(vxe::platform::MouseButton::Left);
+            input.pointer.x = m_input->mousePosition().x;
+            input.pointer.y = m_input->mousePosition().y;
+            input.pointer.primaryDown = m_input->isMouseButtonDown(vxe::platform::MouseButton::Left);
+            input.navigation = m_uiActions->navigation(*m_input);
+            input.text = vxe::ui::UiActions::textEditing(*m_input);
         }
-        m_uiContext->update(width, height, pointer, *m_ui);
+        m_uiContext->update(width, height, input, *m_ui);
         m_uiContext->draw(*m_ui);
+        if (context.window != nullptr) {
+            context.window->setTextInputEnabled(m_uiContext->wantsTextInput());
+        }
     }
     if (m_settings->fontSample.get()) {
         drawFontSample(*m_ui);
@@ -476,7 +504,7 @@ void VoxelRethinkedApp::onFrame(vxe::EngineContext& context, const vxe::FrameTim
     handleGlobalActions(context);
     advanceStartup(context);
     updateTextures(context);
-    drawUi(context);
+    drawUi(context, time);
     // The world streams in while loading (no loading screen before G5.3).
     if (isWorldState(m_states.current()) || m_states.current() == GameState::LoadingWorld) {
         updateWorld(context, time);
