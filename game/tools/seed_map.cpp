@@ -136,7 +136,28 @@ int main(int argc, char** argv) {
 
     const vr::Planet planet(seed, vr::PlanetPreset{});
     const vr::Climate climate(seed, planet);
-    const vr::Terrain terrain(vr::TerrainBlocks{}, seed);
+    auto catalog = vr::BlockCatalog::loadFolder(VR_BLOCKS_DIR);
+    if (!catalog) {
+        std::puts("could not load the block files");
+        return 1;
+    }
+    auto blocks = vr::TerrainBlocks::fromCatalog(catalog.value());
+    if (!blocks) {
+        std::puts("the block files lack a block world generation needs");
+        return 1;
+    }
+    const vr::Terrain terrain(blocks.value(), seed);
+    if (view == "locate") {
+        // Where to look at each biome on foot.
+        for (usize i = 0; i < vr::kBiomeCount; ++i) {
+            const auto found = terrain.findBiome(static_cast<vr::Biome>(i), 0, 0);
+            std::printf("%-14.*s %lld %lld %lld\n", static_cast<int>(vr::kBiomeNames[i].size()),
+                        vr::kBiomeNames[i].data(), found ? static_cast<long long>(found->x) : 0,
+                        found ? static_cast<long long>(found->y) : 0,
+                        found ? static_cast<long long>(found->z) : 0);
+        }
+        return 0;
+    }
     if (view == "chunks") {
         // Whole columns from far below ground to high above it, as streaming
         // asks for them around a player, along a line across the world.

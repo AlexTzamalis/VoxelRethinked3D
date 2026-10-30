@@ -14,17 +14,16 @@ namespace vr {
 // Far terrain. It has to look like the real chunks from far away (Section
 // 13.4, features in LOD), so it samples the same terrain and the same trees:
 //
-//   Ground   Terrain's height at the middle of each cell, colored like the
-//            blocks on top (Terrain::surfaceOf, or water over ground below
-//            sea level). Cells of up to 4 blocks read the very columns chunks
-//            use; wider ones ask farGround, which skips what they cannot show.
-//   Trees    the same tree spots as the chunks (Terrain::treeSpot). In
-//            levels 1 and 2 (cells of 2 and 4 blocks) every crown is placed
-//            block by block: a cell at least half under leaves gets a crown
-//            span, floating above the ground or joined to it. In coarser
-//            levels a tree is smaller than a cell, so the share of the cell
-//            under crowns tints the grass towards leaves (in eighths), and
-//            dense forest raises the cell to the crowns' height.
+//   Ground   Terrain's height and top block at the middle of each cell (or water
+//            over ground below sea level), so biomes show from far away. Cells
+//            of up to 4 blocks read the very columns chunks use; wider ones ask
+//            farCell, with climate blended across the tile.
+//   Trees    in levels 1 and 2 (cells of 2 and 4 blocks) every tree is placed:
+//            a cell at least half under a crown gets a crown span, floating
+//            above the ground or joined to it, in that tree's leaves. In
+//            coarser levels a tree is smaller than a cell, so the biome's tree
+//            cover tints the grass towards leaves (in eighths), and dense
+//            forest raises the cell to the crowns' height.
 //
 // Materials are texture layers (the LOD material convention), followed by
 // LOD only materials: water as it looks over its dim floor, and grass mixed
@@ -34,8 +33,8 @@ namespace vr {
 // Thread safety: sampleTile only reads; any number of workers at once.
 class TerrainLodSampler final : public vxe::voxel::LodTileSampler {
 public:
-    TerrainLodSampler(const Terrain& terrain, const TerrainBlocks& blocks,
-                      const vxe::voxel::BlockRegistryView& view, vxe::u16 layerCount, vxe::u64 seed) noexcept;
+    TerrainLodSampler(const Terrain& terrain, const vxe::voxel::BlockRegistryView& view, vxe::u16 layerCount,
+                      vxe::u64 seed) noexcept;
 
     bool sampleTile(const vxe::voxel::LodTileKey& key, const vxe::voxel::LodSampleOptions& options,
                     vxe::voxel::LodTileBuilder& builder, const std::atomic<bool>& cancelled) override;
@@ -52,11 +51,8 @@ private:
 
     struct Materials {
         vxe::u16 grass = 0;
-        vxe::u16 grassSide = 0;
         vxe::u16 sand = 0;
-        vxe::u16 snow = 0;
         vxe::u16 water = 0;
-        vxe::u16 stone = 0;
         vxe::u16 leaves = 0;
         vxe::u16 waterOverFloor = 0;                         // LOD only.
         std::array<vxe::u16, kBlendSteps - 1> grassLeaves{}; // LOD only.
@@ -65,19 +61,19 @@ private:
     struct Crowns {
         std::vector<vxe::i32> top;
         std::vector<vxe::i32> bottom;
+        std::vector<vxe::u16> material;
     };
 
-    [[nodiscard]] vxe::voxel::LodSpan ground(vxe::i64 height, Surface surface) const noexcept;
+    [[nodiscard]] vxe::voxel::LodSpan ground(vxe::i64 height, vxe::voxel::BlockStateId top) const noexcept;
     void placeCrowns(const vxe::voxel::LodTileKey& key, Crowns& crowns) const;
-    void countTrees(const vxe::voxel::LodTileKey& key, std::span<const Surface> surfaces,
-                    std::span<vxe::u32> counts) const;
     void addFineCell(vxe::voxel::LodSpan base, const Crowns& crowns, vxe::u32 cx, vxe::u32 cz, vxe::i64 cell,
                      vxe::u32 maxSpans, std::vector<vxe::voxel::LodSpan>& spans) const;
-    void addCoarseCell(vxe::voxel::LodSpan base, vxe::i64 height, vxe::u32 trees, vxe::i64 cell,
+    void addCoarseCell(vxe::voxel::LodSpan base, vxe::i64 height, vxe::f64 cover,
                        std::vector<vxe::voxel::LodSpan>& spans) const;
     [[nodiscard]] vxe::u16 grassWithLeaves(vxe::u32 eighths) const noexcept;
 
     const Terrain& m_terrain;
+    const vxe::voxel::BlockRegistryView* m_view;
     Materials m_materials;
     vxe::u64 m_hash = 0;
 };

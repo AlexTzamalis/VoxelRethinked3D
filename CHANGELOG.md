@@ -2,6 +2,20 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#109] 2026-10-31, G3.4 G3.6 Biomes with their own ground, trees and plants
+### Added
+- Every biome has its own look (biome_looks): top and under blocks, patches, sea floor, tree mix, plants, boulders, fallen logs.
+- 13 tree shapes from all wood types, with mixed leaves, groves and clearings.
+- All 25 plants grow in patches, tall ones included. Boulders, fallen logs, driftwood.
+- Rock is mixed: granite, andesite, tuff, calcite and basalt in blobs, layers on exposed faces, colored bands in badlands, sandstone under deserts.
+- Console: locate <biome> jumps to the nearest place of a biome. vr_seed_map view locate lists them.
+
+### Changed
+- Far terrain shows the real top blocks and tree cover of each biome, with climate blended across a tile.
+
+### Performance
+- 375 us per chunk through the surface band, over the 250 us budget until an optimization pass.
+
 ## [#108] 2026-10-31, G3 World at Minecraft scale
 ### Changed
 - The default world keeps things close: a new biome every few hundred blocks, mountains and oceans a short walk away, peaks of 400 to 460 blocks, rare ones higher.

@@ -129,6 +129,7 @@ public:
     // The spawn area is ready (or loading took too long).
     [[nodiscard]] bool isLoaded() const noexcept { return m_loaded; }
     [[nodiscard]] std::string progressText() const;
+    [[nodiscard]] const Terrain& terrain() const noexcept { return m_terrain; }
     // A spot above dry land near the origin, looking across the terrain.
     [[nodiscard]] vxe::DVec3 spawnPosition() const;
     // Where a new player's feet stand: on the ground or the water at the spawn.

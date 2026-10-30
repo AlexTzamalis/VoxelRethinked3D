@@ -107,12 +107,18 @@ public:
     // The same for one position alone, computing its cell.
     [[nodiscard]] ClimateSample sample(vxe::f64 x, vxe::f64 z, vxe::f64 elevation) const noexcept;
 
+    // The slow fields at one point. Far terrain blends these across a tile
+    // instead of paying for each of its cells.
+    [[nodiscard]] Field field(vxe::f64 x, vxe::f64 z) const noexcept;
+    [[nodiscard]] vxe::f64 coolPerBlock() const noexcept;
+    // The climate from such a field, with ground at `elevation`.
+    [[nodiscard]] static ClimateSample fromField(const Field& field, vxe::f64 elevation,
+                                                 vxe::f64 coolPerBlock) noexcept;
+
     // The biome that climate and ground make together.
     [[nodiscard]] static Biome biome(const PlanetSample& ground, const ClimateSample& climate) noexcept;
 
 private:
-    [[nodiscard]] Field field(vxe::f64 x, vxe::f64 z) const noexcept;
-
     const Planet* m_planet;
     vxe::u64 m_warmth;
     vxe::u64 m_detail;

@@ -38,8 +38,7 @@ DemoWorld::DemoWorld(const DemoWorldDesc& desc, const TerrainBlocks& blocks)
     , m_lodRenderer(desc.lod)
     , m_debugDraw(desc.debugDraw)
     , m_view(desc.blocks->current())
-    , m_lodSampler(m_terrain, blocks, *m_view, static_cast<vxe::u16>(desc.catalog->textureKeys().size()),
-                   desc.seed) {
+    , m_lodSampler(m_terrain, *m_view, static_cast<vxe::u16>(desc.catalog->textureKeys().size()), desc.seed) {
     if (!desc.saveFolder.empty()) {
         m_saver.emplace(WorldSaverDesc{.folder = desc.saveFolder,
                                        .jobs = desc.jobs,

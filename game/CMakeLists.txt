@@ -43,6 +43,8 @@ set(vrGameSources
     src/ui/screens/widget_sample.hpp
     src/ui/screens/world_screens.cpp
     src/ui/screens/world_screens.hpp
+    src/worldgen/biome_looks.cpp
+    src/worldgen/biome_looks.hpp
     src/worldgen/climate.cpp
     src/worldgen/climate.hpp
     src/worldgen/planet.cpp
@@ -81,6 +83,7 @@ vxe_set_warnings(vr_game)
 find_package(Stb REQUIRED)
 add_executable(vr_seed_map tools/seed_map.cpp)
 target_link_libraries(vr_seed_map PRIVATE vr_game)
+target_compile_definitions(vr_seed_map PRIVATE "VR_BLOCKS_DIR=\"${PROJECT_SOURCE_DIR}/game/assets/data/blocks\"")
 target_include_directories(vr_seed_map SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 
 add_executable(voxel_rethinked src/app/main.cpp)

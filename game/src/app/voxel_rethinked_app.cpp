@@ -500,6 +500,48 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
              output.lines.emplace_back("Camera moved");
              return output;
          }});
+    // Jumps to a biome, for looking at world generation on foot.
+    context.commands.registerCommand(
+        {.name = "locate",
+         .usage = "locate <biome>",
+         .description = "Moves the camera to the nearest column of a biome, such as locate birch forest.",
+         .handler = [this, &context](std::span<const std::string> arguments) {
+             vxe::config::CommandOutput output;
+             std::string wanted;
+             for (const std::string& word : arguments) {
+                 wanted += (wanted.empty() ? "" : " ") + word;
+             }
+             const auto same = [](std::string_view a, std::string_view b) {
+                 return std::ranges::equal(a, b, [](char l, char r) {
+                     return std::tolower(static_cast<unsigned char>(l)) ==
+                            std::tolower(static_cast<unsigned char>(r));
+                 });
+             };
+             const auto named =
+                 std::ranges::find_if(kBiomeNames, [&](std::string_view name) { return same(name, wanted); });
+             if (!m_demo || named == kBiomeNames.end()) {
+                 output.lines.emplace_back("Usage: locate <biome>, while in a world. Biomes:");
+                 for (const std::string_view name : kBiomeNames) {
+                     output.lines.emplace_back(name);
+                 }
+                 output.success = false;
+                 return output;
+             }
+             const auto biome = static_cast<Biome>(named - kBiomeNames.begin());
+             const vxe::BlockPos from{.x = static_cast<vxe::i64>(std::floor(m_camera.position.x)),
+                                      .y = static_cast<vxe::i64>(std::floor(m_camera.position.y)),
+                                      .z = static_cast<vxe::i64>(std::floor(m_camera.position.z))};
+             const auto found = m_demo->terrain().findBiome(biome, from.x, from.z);
+             if (!found) {
+                 output.lines.emplace_back("Not found within 12 km");
+                 output.success = false;
+                 return output;
+             }
+             output.lines.push_back(std::format("{} at {} {} {}", wanted, found->x, found->y, found->z));
+             static_cast<void>(
+                 context.commands.execute(std::format("camera {} {} {}", found->x, found->y + 6, found->z)));
+             return output;
+         }});
     // A debug autopilot until the benchmark flight (G9.2): measurement runs
     // pass it with --exec, for example "autofly 300" for a fast flight.
     context.commands.registerCommand(

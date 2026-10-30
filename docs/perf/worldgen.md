@@ -74,3 +74,9 @@ and lit. Both are worth a look in G9.3.
 
 After the continent rework (#107): 2.2 s cold, 1253 FPS average on arrival, since
 gentler ground and more ocean make cheaper chunks.
+
+## Biome content (#109)
+
+375 us per chunk, same measure as above, over the 250 us budget. Trees look at
+36 cells per chunk with a noise lookup each, and every column now picks a biome
+and a top block. To be optimized once the look is settled.

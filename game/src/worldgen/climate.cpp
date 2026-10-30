@@ -87,7 +87,7 @@ Climate::Cell Climate::cell(f64 x, f64 z) const noexcept {
     const auto size = static_cast<f64>(kGridSize);
     const f64 cornerX = std::floor(x / size) * size;
     const f64 cornerZ = std::floor(z / size) * size;
-    return {.coolPerBlock = 13.6 / m_planet->preset().rangeHeight,
+    return {.coolPerBlock = coolPerBlock(),
             .cornerX = cornerX,
             .cornerZ = cornerZ,
             .a = field(cornerX, cornerZ),
@@ -110,6 +110,17 @@ ClimateSample Climate::sample(const Cell& cell, f64 x, f64 z, f64 elevation) noe
             .rainfall = blend(&Field::rainfall),
             .shadow = blend(&Field::shadow),
             .variety = blend(&Field::variety)};
+}
+
+f64 Climate::coolPerBlock() const noexcept {
+    return 13.6 / m_planet->preset().rangeHeight;
+}
+
+ClimateSample Climate::fromField(const Field& field, f64 elevation, f64 coolPerBlock) noexcept {
+    return {.temperature = field.temperature - (std::max(elevation, 0.0) * coolPerBlock),
+            .rainfall = field.rainfall,
+            .shadow = field.shadow,
+            .variety = field.variety};
 }
 
 ClimateSample Climate::sample(f64 x, f64 z, f64 elevation) const noexcept {
