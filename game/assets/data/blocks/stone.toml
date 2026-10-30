@@ -5,7 +5,7 @@
 #   display_name     Shown to players.
 #   category         Its tab in the creative inventory. Default Building.
 #   layer            opaque, cutout (alpha tested, like leaves), translucent (blended,
-#                    like water and glass) or invisible (never drawn).
+#                    like water and glass), plant (two crossed planes) or invisible.
 #   emitted_light    0 to 15. Light the block gives off. Default 0.
 #   light_opacity    0 to 15. Light lost passing through. Default 15 for opaque
 #                    blocks, 0 for the others.
@@ -22,6 +22,15 @@
 #                    north (-Z). The most specific one wins.
 #   [overlays]       Optional, by face like [textures]: a texture drawn over the
 #                    block's texture. With one, the tint colors only the overlay.
+#   overlay_tint     false keeps the overlay's own colors and tints the block below it.
+#   variations       Plants: a list of textures. The position picks one, so a spot
+#                    always looks the same. Keys may name a folder ("foliage/fern2").
+#   variation_overlays  Plants: an overlay per variation, in its own colors.
+#   bushy            Leaves: the large texture of Advanced leaves.
+#   replaceable      Placing a block replaces it. Default true for plants.
+#   needs_support    It goes when the block below goes. Default true for plants.
+#   tall_top         A tall plant: the block of its upper half.
+#   hidden           Not in the creative inventory (the upper half of a tall plant).
 #   [[variants]]     Optional. Each variant is one block state with its own
 #                    properties and texture overrides (see oak_log.toml).
 

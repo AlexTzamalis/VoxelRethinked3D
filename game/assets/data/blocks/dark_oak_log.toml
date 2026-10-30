@@ -1,0 +1,19 @@
+name = "dark_oak_log"
+display_name = "Dark Oak Log"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "dark_oak_log"
+
+[[variants]]
+properties = { axis = "y" }
+textures = { top = "dark_oak_log_top", bottom = "dark_oak_log_top" }
+
+[[variants]]
+properties = { axis = "x" }
+textures = { east = "dark_oak_log_top", west = "dark_oak_log_top" }
+
+[[variants]]
+properties = { axis = "z" }
+textures = { south = "dark_oak_log_top", north = "dark_oak_log_top" }

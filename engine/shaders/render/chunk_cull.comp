@@ -22,9 +22,9 @@ VXE_BINDING_STD140(1, 0) uniform CullParams {
     ivec4 occlusionChunk;
     vec4 occlusionFraction;
     uvec4 occlusionSize;   // xy: depth buffer pixels, z: pyramid levels.
-    uvec4 passFirst;       // Region start of opaque, cutout, translucent; w: threads to run.
+    uvec4 passFirst;       // Region start of opaque, cutout, plants, translucent.
     uvec4 passCount;       // Candidates in each region (the rest of a region is unused room).
-    uvec4 flags;           // x: tests, bit 0 frustum, 1 direction, 2 cave, 3 occlusion.
+    uvec4 flags;           // x: tests, bit 0 frustum, 1 direction, 2 cave, 3 occlusion; y: threads.
     vec4 tuning;           // x: frustum padding in blocks, y: near plane of the occlusion camera.
 } cull;
 
@@ -56,7 +56,7 @@ VXE_BINDING_STD430(2, 4) writeonly buffer Survivors {
     DrawCommand survivors[];
 };
 VXE_BINDING_STD430(2, 5) buffer Counts {
-    uint drawCounts[4]; // Survivors of opaque and cutout.
+    uint drawCounts[4]; // Survivors of opaque, cutout and plants.
     uint reasons[8];    // Visible, then culled by frustum, direction, cave, occlusion.
 } counts;
 VXE_BINDING(2, 6) uniform sampler2D depthPyramid;
@@ -145,7 +145,7 @@ uint cullReason(uint index, uint pass) {
         return kFrustum;
     }
     // Translucent faces are drawn from both sides (water seen from below).
-    if ((tests & 2u) != 0u && pass != 2u && !facesCamera(faces[index], boxMin, boxMax)) {
+    if ((tests & 2u) != 0u && pass < 2u && !facesCamera(faces[index], boxMin, boxMax)) {
         return kDirection;
     }
     const uint slot = draw.baseInstance;
@@ -166,12 +166,15 @@ void main() {
     barrier();
 
     const uint index = gl_GlobalInvocationID.x;
-    const uint pass = index >= cull.passFirst.z ? 2u : (index >= cull.passFirst.y ? 1u : 0u);
-    if (index < cull.passFirst.w && index - cull.passFirst[pass] < cull.passCount[pass]) {
+    const uint pass = index >= cull.passFirst.w ? 3u
+                      : index >= cull.passFirst.z ? 2u
+                      : index >= cull.passFirst.y ? 1u
+                                                  : 0u;
+    if (index < cull.flags.y && index - cull.passFirst[pass] < cull.passCount[pass]) {
         const uint reason = cullReason(index, pass);
         atomicAdd(groupReasons[reason], 1u);
         DrawCommand draw = candidates[index];
-        if (pass == 2u) {
+        if (pass == 3u) {
             draw.instanceCount = reason == kVisible ? 1u : 0u;
             survivors[index] = draw;
         } else if (reason == kVisible) {

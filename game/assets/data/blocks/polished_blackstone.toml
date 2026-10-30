@@ -1,0 +1,7 @@
+name = "polished_blackstone"
+display_name = "Polished Blackstone"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "polished_blackstone"

@@ -1,0 +1,7 @@
+name = "pale_oak_planks"
+display_name = "Pale Oak Planks"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "pale_oak_planks"

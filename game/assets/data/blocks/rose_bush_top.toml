@@ -1,0 +1,6 @@
+name = "rose_bush_top"
+display_name = "Rose Bush"
+category = "Plants"
+layer = "plant"
+hidden = true
+variations = ["foliage/rose_bush_top"]

@@ -28,6 +28,7 @@ enum class RenderLayer : u8 {
     Opaque,      // Fully solid, hides every neighbor face behind it.
     Cutout,      // Alpha tested (leaves, plants). Drawn in the cutout pass.
     Translucent, // Alpha blended (water, glass). Drawn last, sorted.
+    Plant,       // Two crossed planes (grass, flowers). Hides nothing.
 };
 
 // Face order everywhere in the engine: +X, -X, +Y, -Y, +Z, -Z.
@@ -43,8 +44,8 @@ inline constexpr usize kBlockFaceCount = 6;
 
 inline constexpr u8 kMaxLightLevel = 15;
 
-// Tint kinds: 0 none, then what the game means by them (grass, foliage, water).
-inline constexpr usize kTintCount = 4;
+// Tint kinds: 0 none, then what the game means by them (grass, foliage, water, ...).
+inline constexpr usize kTintCount = 16;
 
 // How one texture layer is colored, one u32 per layer in the renderer's table
 // (ChunkRenderer::setTextureLooks). A tint belongs to a texture and not to a
@@ -52,9 +53,9 @@ inline constexpr usize kTintCount = 4;
 // before and quads stay 8 bytes. `overlayLayer` is the layer drawn over this
 // one on the same face, plus 1 (0 for none); with one, usually only the
 // overlay is tinted, so a grey fringe colors a plain dirt side.
-//   bits 0..15 overlayLayer, 16..17 tint, 18..19 overlayTint
+//   bits 0..15 overlayLayer, 16..19 tint, 20..23 overlayTint
 [[nodiscard]] constexpr u32 textureLook(u32 overlayLayer, u32 tint, u32 overlayTint) noexcept {
-    return overlayLayer | (tint << 16U) | (overlayTint << 18U);
+    return overlayLayer | (tint << 16U) | (overlayTint << 20U);
 }
 
 // Everything the engine needs to know about a block state to mesh and light
@@ -67,6 +68,11 @@ struct BlockRenderInfo {
     bool cullsSameType = true;                           // Glass next to glass hides the shared face.
     std::array<u16, kBlockFaceCount> faceTextureLayer{}; // Texture array layer per face (BlockFace order).
     u8 tintIndex = 0; // 0 is no tint, otherwise the block's tint kind (textureLook).
+    // Plants: textures in a row from the face's layer. The block's position
+    // picks one, so each spot always looks the same and nothing is stored.
+    u8 variationCount = 1;
+    // Leaves: the layer plus 1 of bushy planes for MeshOptions::advancedLeaves.
+    u16 bushyLayer = 0;
 
     [[nodiscard]] constexpr bool isOpaque() const noexcept { return layer == RenderLayer::Opaque; }
     [[nodiscard]] constexpr bool isVisible() const noexcept { return layer != RenderLayer::Invisible; }

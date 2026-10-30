@@ -1,0 +1,7 @@
+name = "polished_deepslate"
+display_name = "Polished Deepslate"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "polished_deepslate"

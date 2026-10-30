@@ -1,0 +1,7 @@
+name = "tuff"
+display_name = "Tuff"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "tuff"

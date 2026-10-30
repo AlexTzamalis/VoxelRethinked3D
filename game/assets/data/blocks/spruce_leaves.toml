@@ -1,0 +1,12 @@
+name = "spruce_leaves"
+display_name = "Spruce Leaves"
+category = "Nature"
+layer = "cutout"
+light_opacity = 1
+culls_same_type = false
+tint = 4
+tint_color = "#619961"
+bushy = "advanced_leaves/spruce_leaves"
+
+[textures]
+all = "spruce_leaves_overlay"

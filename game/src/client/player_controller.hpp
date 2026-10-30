@@ -98,6 +98,9 @@ public:
     [[nodiscard]] const std::optional<vxe::RaycastHit>& target() const noexcept { return m_target; }
 
 private:
+    void removeBlock(const vxe::voxel::VoxelWorld& world, const vxe::BlockPos& block,
+                     const SetBlock& setBlock) const;
+
     vxe::input::InputSystem& m_input;
     const GameActions& m_actions;
     const BlockCatalog& m_catalog;

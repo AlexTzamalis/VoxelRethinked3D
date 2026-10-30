@@ -1,0 +1,10 @@
+name = "pale_oak_leaves"
+display_name = "Pale Oak Leaves"
+category = "Nature"
+layer = "cutout"
+light_opacity = 1
+culls_same_type = false
+bushy = "advanced_leaves/pale_oak_leaves"
+
+[textures]
+all = "pale_oak_leaves"

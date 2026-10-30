@@ -1,0 +1,7 @@
+name = "packed_mud"
+display_name = "Packed Mud"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "packed_mud"

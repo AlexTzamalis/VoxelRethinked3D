@@ -155,6 +155,7 @@ Result<void> Renderer::buildGraph() {
                                      m_constants.bind(context.commands);
                                      m_chunks->record(context.commands, ChunkPass::Opaque);
                                      m_chunks->record(context.commands, ChunkPass::Cutout);
+                                     m_chunks->record(context.commands, ChunkPass::Plants);
                                  }});
     const TextureRef color = chunks.createTexture("SceneColor", {.format = kSceneFormat});
     const TextureRef depth = chunks.createTexture("SceneDepth", {.format = kDepthFormat});

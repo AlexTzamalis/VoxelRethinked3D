@@ -1,0 +1,12 @@
+name = "acacia_leaves"
+display_name = "Acacia Leaves"
+category = "Nature"
+layer = "cutout"
+light_opacity = 1
+culls_same_type = false
+tint = 2
+tint_color = "#6FA32E"
+bushy = "advanced_leaves/acacia_leaves"
+
+[textures]
+all = "acacia_leaves"

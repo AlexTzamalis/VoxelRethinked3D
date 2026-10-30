@@ -21,7 +21,9 @@ namespace vxe::voxel {
 // word0: bits 0..4 x, 5..9 y, 10..14 z (0 to 16: the quad's minimum corner
 //        in chunk local block corners; a face can sit on the far edge 16),
 //        15..18 width - 1, 19..22 height - 1, 23..25 face (BlockFace),
-//        26 flip (AO diagonal), 27..31 reserved.
+//        26 flip (AO diagonal), 27..31 reserved. Face 6 and 7 are the two
+//        diagonal planes of a plant: 27..28 and 29..30 shift it on X and Z,
+//        and 31 makes it a large bushy plane around the block's center.
 // word1: bits 0..13 texture layer, 14..21 AO (2 bits per corner, 3 is fully
 //        lit), 22..25 sky light, 26..29 block light, 30..31 reserved.
 //
@@ -80,14 +82,16 @@ struct FaceAxes {
     return {.normal = 2, .u = 0, .v = 1, .positive = false};
 }
 
-// The render passes a mesh feeds: opaque, cutout (alpha tested) and
-// translucent (blended, sorted) quads go into separate lists (Section 10.5).
+// The render passes a mesh feeds: opaque, cutout (alpha tested), plants
+// (crossed planes seen from both sides, in the first group of their layer)
+// and translucent (blended, sorted) quads go into separate lists (Section 10.5).
 enum class MeshLayer : u8 {
     Opaque,
     Cutout,
+    Plants,
     Translucent,
 };
-inline constexpr usize kMeshLayerCount = 3;
+inline constexpr usize kMeshLayerCount = 4;
 // One group per layer and face direction, so whole groups facing away from
 // the camera can be skipped (Section 8.2).
 inline constexpr usize kFaceGroupCount = kMeshLayerCount * kBlockFaceCount;
@@ -145,12 +149,14 @@ struct MeshOptions {
     bool greedyMerge = true;       // Merge equal neighboring faces into larger quads.
     bool mergeAcrossLight = false; // Merge faces even when their light differs (faster, coarser).
     bool fancyLeaves = true;       // Cutout blocks stay see through; off meshes them as opaque.
+    bool advancedLeaves = false;   // Leaves grow bushy planes past their block.
+    u64 variationSeed = 0;         // The world's seed: picks plant textures per position.
 
     friend constexpr bool operator==(const MeshOptions&, const MeshOptions&) = default;
 };
 
-// Registers Graphics.Terrain.GreedyMerge, MergeAcrossLight and FancyLeaves
-// (all RequiresRemesh) and reads them into MeshOptions. The streaming
+// Registers Graphics.Terrain.GreedyMerge, MergeAcrossLight, FancyLeaves and
+// AdvancedLeaves (all RequiresRemesh) and reads them into MeshOptions. The streaming
 // manager reads options() once per batch of mesh jobs and remeshes resident
 // chunks when they change.
 class MesherSettings {
@@ -162,6 +168,7 @@ private:
     config::Setting<bool> m_greedyMerge;
     config::Setting<bool> m_mergeAcrossLight;
     config::Setting<bool> m_fancyLeaves;
+    config::Setting<bool> m_advancedLeaves;
 };
 
 // Binary greedy mesher (Section 10): turns a chunk snapshot into packed
@@ -245,6 +252,9 @@ private:
                                           u32 u, u32 v) const noexcept;
     using OpenRows = std::array<u16, kChunkArea>;
     [[nodiscard]] u32 floodComponent(usize start, const OpenRows& open, OpenRows& visited);
+    // Appends the crossed planes of plants and bushy leaves.
+    void addPlants(const ChunkSnapshot& snapshot, const BlockRegistryView& blocks, const MeshOptions& options,
+                   ChunkMesh& out);
     [[nodiscard]] u16 connectivity();
 
     // One byte per possible state: its Kind, plus bit 2 if it hides faces
@@ -267,6 +277,7 @@ private:
     std::array<u32, kSnapshotArea> m_sameY{};
     std::array<u32, kSnapshotArea> m_sameZ{};
     bool m_hasSeeThrough = false;
+    bool m_hasPlants = false; // A state with kPlantBit is in the snapshot.
 
     // Visible faces per layer, face, slice (chunk local coordinate along the
     // normal) and row (along V), bit u for U 0 to 15. Merging consumes every

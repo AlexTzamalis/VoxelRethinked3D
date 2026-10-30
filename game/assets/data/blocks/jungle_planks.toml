@@ -1,0 +1,7 @@
+name = "jungle_planks"
+display_name = "Jungle Planks"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "jungle_planks"

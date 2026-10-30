@@ -110,7 +110,7 @@ void InventoryScreen::rebuildGrid() {
     usize used = 0;
     for (const BlockDefinition& block : m_catalog.blocks()) {
         const std::string_view icon = m_icons.iconOf(block.firstState);
-        if (icon.empty() || (!m_category.empty() && block.category != m_category) ||
+        if (icon.empty() || block.hidden || (!m_category.empty() && block.category != m_category) ||
             (!needle.empty() && lowered(block.displayName).find(needle) == std::string::npos)) {
             continue;
         }

@@ -1,0 +1,6 @@
+name = "lilac"
+display_name = "Lilac"
+category = "Plants"
+layer = "plant"
+tall_top = "lilac_top"
+variations = ["foliage/lilac_bottom"]

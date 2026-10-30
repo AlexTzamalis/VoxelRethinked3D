@@ -30,6 +30,8 @@ constexpr BlockStateId kGrass = 2;  // Its top has its own texture.
 constexpr BlockStateId kWater = 3;  // Translucent, hides faces against water.
 constexpr BlockStateId kGlass = 4;  // Translucent, hides faces against glass.
 constexpr BlockStateId kLeaves = 5; // Cutout, shows faces between leaves.
+constexpr BlockStateId kPlant = 6;  // Crossed planes, 4 variations from layer 60.
+constexpr BlockStateId kBushy = 7;  // Leaves with a bushy plane at layer 70.
 
 std::shared_ptr<voxel::BlockRegistryView> testBlocks() {
     voxel::BlockRegistryBuilder builder;
@@ -44,6 +46,12 @@ std::shared_ptr<voxel::BlockRegistryView> testBlocks() {
     add(RenderLayer::Translucent, true, 30, 30);
     add(RenderLayer::Translucent, true, 40, 40);
     add(RenderLayer::Cutout, false, 50, 50);
+    BlockRenderInfo plant{.layer = RenderLayer::Plant, .lightOpacity = 0, .variationCount = 4};
+    plant.faceTextureLayer.fill(60);
+    REQUIRE(builder.add(plant));
+    BlockRenderInfo bushy{.layer = RenderLayer::Cutout, .cullsSameType = false, .bushyLayer = 71};
+    bushy.faceTextureLayer.fill(55);
+    REQUIRE(builder.add(bushy));
     return builder.build();
 }
 
@@ -205,6 +213,66 @@ TEST_CASE("Neighbor chunks hide border faces through the snapshot border") {
     CHECK(meshOf(edge).group(MeshLayer::Opaque, BlockFace::PosX).empty());
 }
 
+TEST_CASE("Plants are two crossed planes and hide nothing") {
+    TestSnapshot field;
+    field.set(5, 5, 5, kPlant);
+    field.set(5, 4, 5, kStone);
+    const ChunkMesh mesh = meshOf(field);
+    const auto plants = mesh.group(MeshLayer::Plants, BlockFace::PosX);
+    REQUIRE(plants.size() == 2);
+    CHECK((plants[0].word0 >> 23U & 7U) == 6);
+    CHECK((plants[1].word0 >> 23U & 7U) == 7);
+    CHECK(plants[0].x() == 5);
+    CHECK(plants[0].y() == 5);
+    CHECK(plants[0].textureLayer() >= 60);
+    CHECK(plants[0].textureLayer() < 64);
+    // The stone's top under the plant still shows.
+    CHECK(mesh.layer(MeshLayer::Opaque).size() == 6);
+    CHECK(mesh.connectivity == voxel::kAllConnected);
+}
+
+TEST_CASE("A plant's variation comes from its position and the world") {
+    const auto layerAt = [](i32 x, i32 y, i32 z, u64 seed) {
+        TestSnapshot field;
+        field.set(x, y, z, kPlant);
+        const MeshOptions options{.variationSeed = seed};
+        return meshOf(field, options).group(MeshLayer::Plants, BlockFace::PosX)[0].textureLayer();
+    };
+    // The same spot always looks the same.
+    CHECK(layerAt(3, 2, 9, 42) == layerAt(3, 2, 9, 42));
+    // Both halves of a tall plant agree: height does not count.
+    CHECK(layerAt(3, 2, 9, 42) == layerAt(3, 3, 9, 42));
+    // Every variation shows up, and a world has its own pattern.
+    std::array<usize, 4> seen{};
+    usize different = 0;
+    for (i32 z = 0; z < 16; ++z) {
+        for (i32 x = 0; x < 16; ++x) {
+            ++seen.at(layerAt(x, 0, z, 42) - 60);
+            different += layerAt(x, 0, z, 42) != layerAt(x, 0, z, 43) ? 1U : 0U;
+        }
+    }
+    for (const usize count : seen) {
+        CHECK(count > 16);
+    }
+    CHECK(different > 100);
+}
+
+TEST_CASE("Advanced leaves add bushy planes to leaves that show") {
+    TestSnapshot tree;
+    tree.fillChunk(kBushy);
+    CHECK(meshOf(tree).group(MeshLayer::Plants, BlockFace::PosX).empty()); // The setting is off.
+    const MeshOptions advanced{.advancedLeaves = true};
+    const ChunkMesh mesh = meshOf(tree, advanced);
+    const auto planes = mesh.group(MeshLayer::Plants, BlockFace::PosX);
+    REQUIRE_FALSE(planes.empty());
+    CHECK(planes[0].textureLayer() == 70);
+    CHECK((planes[0].word0 >> 31U) == 1);
+
+    // Leaves with leaves all around show nothing and add nothing.
+    TestSnapshot buried(kBushy);
+    CHECK(meshOf(buried, advanced).group(MeshLayer::Plants, BlockFace::PosX).empty());
+}
+
 TEST_CASE("Translucent and cutout blocks follow their culling rules") {
     TestSnapshot pool;
     for (i32 y = 0; y < 8; ++y) {
@@ -348,8 +416,8 @@ struct BruteForce {
 
     // 1 for every face that must be drawn, in the layout of coverage().
     [[nodiscard]] std::vector<u8> visibleFaces() const {
-        constexpr std::array<RenderLayer, 3> kLayers = {RenderLayer::Opaque, RenderLayer::Cutout,
-                                                        RenderLayer::Translucent};
+        constexpr std::array<RenderLayer, 4> kLayers = {RenderLayer::Opaque, RenderLayer::Cutout,
+                                                        RenderLayer::Plant, RenderLayer::Translucent};
         std::vector<u8> visible(voxel::kFaceGroupCount * kChunkVolume, 0);
         for (i32 y = 0; y < 16; ++y) {
             for (i32 z = 0; z < 16; ++z) {

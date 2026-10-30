@@ -112,6 +112,7 @@ StreamingManager::StreamingManager(const StreamingDesc& desc)
     , m_maxChunkY(desc.maxChunkY)
     , m_id(nextManagerId())
     , m_mesherSettings(*desc.settings)
+    , m_variationSeed(desc.variationSeed)
     , m_settings(*desc.settings, clampedSlots(desc.loadSlots), clampedSlots(desc.meshSlots),
                  clampedSlots(desc.lightSlots)) {
     VXE_ASSERT(desc.world != nullptr && desc.source != nullptr && desc.jobs != nullptr &&
@@ -140,7 +141,7 @@ StreamingManager::StreamingManager(const StreamingDesc& desc)
             m_meshSlots.push_back(std::make_unique<MeshSlot>());
             m_freeMeshSlots.push_back(static_cast<u16>(meshSlots - 1 - i));
         }
-        m_options = m_mesherSettings.options();
+        m_options = meshOptions();
     }
     if (m_blocks != nullptr) {
         m_view = m_blocks->current();
@@ -547,8 +548,8 @@ void StreamingManager::checkMeshInputs() {
             remeshAll();
         }
     }
-    if (m_sink != nullptr && m_mesherSettings.options() != m_options) {
-        m_options = m_mesherSettings.options();
+    if (m_sink != nullptr && meshOptions() != m_options) {
+        m_options = meshOptions();
         remeshAll();
     }
 }

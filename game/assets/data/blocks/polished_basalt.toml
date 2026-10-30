@@ -1,0 +1,9 @@
+name = "polished_basalt"
+display_name = "Polished Basalt"
+category = "Building"
+layer = "opaque"
+
+[textures]
+side = "polished_basalt_side"
+top = "polished_basalt_top"
+bottom = "polished_basalt_top"

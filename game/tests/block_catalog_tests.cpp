@@ -95,6 +95,46 @@ TEST_CASE("State ids follow file names and names map both ways") {
     CHECK(catalog.value().textureKeys().size() == 2);
 }
 
+TEST_CASE("Plants keep their variations in a row and tall plants know their halves") {
+    const std::vector<BlockSource> sources = {
+        {.file = "grass.toml",
+         .text = "name = \"grass\"\ndisplay_name = \"G\"\nlayer = \"plant\"\ntint = 1\n"
+                 "variations = [\"foliage/a\", \"foliage/b\", \"foliage/c\"]\n"
+                 "[variation_overlays]\n\"foliage/b\" = \"foliage/seeds\""},
+        {.file = "tall.toml",
+         .text = "name = \"tall\"\ndisplay_name = \"T\"\nlayer = \"plant\"\ntall_top = \"tall_top\"\n"
+                 "variations = [\"foliage/low\"]"},
+        {.file = "tall_top.toml",
+         .text = "name = \"tall_top\"\ndisplay_name = \"T\"\nlayer = \"plant\"\nhidden = true\n"
+                 "variations = [\"foliage/high\"]"},
+    };
+    const auto loaded = BlockCatalog::load(sources);
+    REQUIRE(loaded.hasValue());
+    const BlockCatalog& catalog = loaded.value();
+    const auto grass = *catalog.stateId("grass");
+    const auto& info = catalog.renderInfo(grass);
+    CHECK(info.layer == vxe::voxel::RenderLayer::Plant);
+    CHECK(info.variationCount == 3);
+    const auto keys = catalog.textureKeys();
+    const vxe::u16 first = info.textureLayer(BlockFace::PosX);
+    CHECK(keys[first] == "foliage/a");
+    CHECK(keys[first + 2U] == "foliage/c");
+    // The plant is tinted; its seed heads keep their colors.
+    const auto seeds = static_cast<vxe::u32>(std::ranges::find(keys, "foliage/seeds") - keys.begin());
+    CHECK(catalog.textureLooks()[first + 1U] == vxe::voxel::textureLook(seeds + 1, 1, 0));
+    CHECK(catalog.textureLooks()[first] == vxe::voxel::textureLook(0, 1, 0));
+
+    CHECK_FALSE(catalog.isSolid(grass));
+    CHECK(catalog.isReplaceable(grass));
+    CHECK(catalog.needsSupport(grass));
+    const auto tall = *catalog.stateId("tall");
+    const auto top = *catalog.stateId("tall_top");
+    CHECK(catalog.tallUpper(tall) == top);
+    CHECK(catalog.tallLower(top) == tall);
+    CHECK(catalog.tallUpper(grass) == vxe::voxel::kAirState);
+    CHECK(catalog.block("tall_top")->hidden);
+}
+
 TEST_CASE("Solid and liquid come from the block files") {
     const std::vector<BlockSource> sources = {
         {.file = "stone.toml",
@@ -169,7 +209,8 @@ TEST_CASE("Invalid block files report every problem with file and field") {
     });
     MESSAGE(message);
     CHECK(message.find("one.toml: 'name' must be lowercase") != std::string::npos);
-    CHECK(message.find("two.toml: 'layer' must be opaque, cutout, translucent or invisible (got 'solid')") !=
+    CHECK(message.find(
+              "two.toml: 'layer' must be opaque, cutout, translucent, plant or invisible (got 'solid')") !=
           std::string::npos);
     CHECK(message.find("three.toml: 'emitted_light' must be a whole number from 0 to 15") !=
           std::string::npos);
@@ -195,6 +236,14 @@ TEST_CASE("Invalid block files report every problem with file and field") {
     CHECK(tints.find("b.toml: tint_faces: unknown face 'front'") != std::string::npos);
     CHECK(tints.find("d.toml: texture 'shared' is tinted or overlaid in two different ways") !=
           std::string::npos);
+
+    const std::string shared = errorOf({
+        {.file = "a.toml",
+         .text = "name = \"a\"\ndisplay_name = \"A\"\nlayer = \"plant\"\nvariations = [\"foliage/x\"]"},
+        {.file = "b.toml",
+         .text = "name = \"b\"\ndisplay_name = \"B\"\nlayer = \"plant\"\nvariations = [\"foliage/x\"]"},
+    });
+    CHECK(shared.find("b.toml: variation 'foliage/x' must be a new texture key") != std::string::npos);
 
     // Duplicates and empty folders.
     const BlockSource stone{

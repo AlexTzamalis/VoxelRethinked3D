@@ -1,0 +1,5 @@
+name = "pink_tulip"
+display_name = "Pink Tulip"
+category = "Plants"
+layer = "plant"
+variations = ["foliage/pink_tulip"]

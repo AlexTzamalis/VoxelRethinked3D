@@ -1,0 +1,9 @@
+name = "podzol"
+display_name = "Podzol"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+side = "podzol_side"
+top = "podzol_top"
+bottom = "dirt"

@@ -1,0 +1,7 @@
+name = "granite"
+display_name = "Granite"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "granite"

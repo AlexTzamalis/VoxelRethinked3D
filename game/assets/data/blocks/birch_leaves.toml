@@ -1,0 +1,12 @@
+name = "birch_leaves"
+display_name = "Birch Leaves"
+category = "Nature"
+layer = "cutout"
+light_opacity = 1
+culls_same_type = false
+tint = 5
+tint_color = "#80A755"
+bushy = "advanced_leaves/birch_leaves"
+
+[textures]
+all = "birch_leaves"

@@ -1,0 +1,7 @@
+name = "andesite"
+display_name = "Andesite"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "andesite"

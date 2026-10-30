@@ -1,0 +1,7 @@
+name = "mud_bricks"
+display_name = "Mud Bricks"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "mud_bricks"

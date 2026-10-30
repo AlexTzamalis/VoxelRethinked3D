@@ -1,0 +1,6 @@
+name = "peony_top"
+display_name = "Peony"
+category = "Plants"
+layer = "plant"
+hidden = true
+variations = ["foliage/peony_top"]

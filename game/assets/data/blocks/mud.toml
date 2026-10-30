@@ -1,0 +1,7 @@
+name = "mud"
+display_name = "Mud"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "mud"

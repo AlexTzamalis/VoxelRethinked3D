@@ -1,0 +1,5 @@
+name = "lily_of_the_valley"
+display_name = "Lily Of The Valley"
+category = "Plants"
+layer = "plant"
+variations = ["foliage/lily_of_the_valley"]

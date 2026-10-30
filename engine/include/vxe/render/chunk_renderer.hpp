@@ -25,11 +25,11 @@
 
 namespace vxe::render {
 
-// The quad groups of one chunk mesh: 3 passes (opaque, cutout, translucent)
-// times 6 face directions, in that order. This matches voxel::ChunkMesh;
+// The quad groups of one chunk mesh: 4 passes (opaque, cutout, plants,
+// translucent) times 6 face directions, in that order. This matches voxel::ChunkMesh;
 // render sits below voxel in the module layers (ADR-015), so it takes the
 // mesh as plain data instead of including the mesher.
-inline constexpr usize kChunkPassCount = 3;
+inline constexpr usize kChunkPassCount = 4;
 inline constexpr usize kChunkFaceGroups = kChunkPassCount * 6;
 // Bytes of one packed quad (voxel::PackedQuad, Section 10.4).
 inline constexpr usize kChunkQuadBytes = 8;
@@ -37,6 +37,7 @@ inline constexpr usize kChunkQuadBytes = 8;
 enum class ChunkPass : u8 {
     Opaque,
     Cutout,
+    Plants, // Alpha tested like cutout, seen from both sides.
     Translucent,
 };
 
@@ -142,7 +143,7 @@ struct ChunkCullingCounts {
 //
 // Thread safety: main thread only, like the device.
 // Tint kinds of block textures, kind 0 being no tint (voxel::kTintCount).
-inline constexpr usize kBlockTintKinds = 4;
+inline constexpr usize kBlockTintKinds = 16;
 
 class ChunkRenderer {
 public:
@@ -255,7 +256,7 @@ private:
     explicit ChunkRenderer(const ChunkRendererDesc& desc);
 
     // Passes whose draws are in no particular order (opaque, cutout).
-    static constexpr usize kSortedPassCount = 2;
+    static constexpr usize kSortedPassCount = 3;
     static constexpr u32 kNoDraw = 0xFFFFFFFF;
     struct Resident {
         ChunkPos position{};

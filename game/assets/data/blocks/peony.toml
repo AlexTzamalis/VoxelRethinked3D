@@ -1,0 +1,6 @@
+name = "peony"
+display_name = "Peony"
+category = "Plants"
+layer = "plant"
+tall_top = "peony_top"
+variations = ["foliage/peony_bottom"]

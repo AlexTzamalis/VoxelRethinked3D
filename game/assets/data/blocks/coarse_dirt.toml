@@ -1,0 +1,7 @@
+name = "coarse_dirt"
+display_name = "Coarse Dirt"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "coarse_dirt"

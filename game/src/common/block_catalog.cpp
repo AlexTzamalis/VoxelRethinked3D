@@ -34,6 +34,17 @@ constexpr usize kMaxReportedProblems = 50;
 
 // Lowercase letters, digits and underscores: names end up in save files and
 // texture paths, so they must be portable and unambiguous.
+bool isValidName(std::string_view name);
+
+// A texture key is a name, with one folder in front when it lives outside
+// blocks/, like "foliage/poppy".
+bool isTextureKey(std::string_view key) {
+    const auto slash = key.find('/');
+    return slash == std::string_view::npos
+               ? isValidName(key)
+               : isValidName(key.substr(0, slash)) && isValidName(key.substr(slash + 1));
+}
+
 bool isValidName(std::string_view name) {
     return !name.empty() && name.size() <= 64 && std::ranges::all_of(name, [](char c) {
         return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
@@ -72,19 +83,26 @@ private:
     u16 addVariants(std::string_view file, const std::string& name, const toml::array& variants,
                     const BlockRenderInfo& info, const FaceKeys& baseKeys);
     bool readTintFaces(const BlockSource& source, const toml::table& root);
+    // Reads `variations`, `variation_overlays` and `bushy`.
+    bool readVariations(const BlockSource& source, const toml::table& root, BlockRenderInfo& info);
+    void linkTallPlants();
     void setLook(std::string_view file, u16 layer, u32 look);
     u16 layerOf(const std::string& key);
 
     BlockCatalog m_catalog;
     std::vector<std::string> m_problems;
     vxe::StringMap<u16> m_layers;
-    std::vector<bool> m_lookSet;       // Per layer: a block has chosen its look.
-    FaceKeys m_overlays;               // Of the block being read.
-    std::array<bool, 6> m_tintFaces{}; // Of the block being read.
-    vxe::u8 m_flags = 0;               // Of the block being read.
+    std::vector<bool> m_lookSet;                                 // Per layer: a block has chosen its look.
+    FaceKeys m_overlays;                                         // Of the block being read.
+    std::array<bool, 6> m_tintFaces{};                           // Of the block being read.
+    vxe::u8 m_flags = 0;                                         // Of the block being read.
+    bool m_hasVariations = false;                                // Of the block being read.
+    bool m_overlayTinted = true;                                 // Of the block being read.
+    std::vector<std::pair<std::string, std::string>> m_tallTops; // Lower and upper block names.
 };
 
 Result<BlockCatalog> BlockCatalogLoader::run(std::span<const BlockSource> sources) {
+    m_catalog.m_tintColors.fill(0xFFFFFFFFU);
     m_catalog.m_stateNames.emplace_back("air");
     m_catalog.m_stateFlags.push_back(0);
     m_catalog.m_renderInfos.push_back(vxe::voxel::airRenderInfo());
@@ -100,6 +118,7 @@ Result<BlockCatalog> BlockCatalogLoader::run(std::span<const BlockSource> source
     for (const BlockSource* source : ordered) {
         loadFile(*source);
     }
+    linkTallPlants();
     if (m_catalog.m_blocks.empty() && m_problems.empty()) {
         m_problems.emplace_back("no block definitions found");
     }
@@ -127,10 +146,29 @@ void BlockCatalogLoader::loadFile(const BlockSource& source) {
         return;
     }
     for (const auto& [key, node] : root) {
-        static constexpr std::array<std::string_view, 15> kKnown = {
-            "name",  "display_name", "layer",      "emitted_light", "light_opacity", "culls_same_type",
-            "tint",  "tint_color",   "tint_faces", "textures",      "overlays",      "variants",
-            "solid", "liquid",       "category"};
+        static constexpr std::array<std::string_view, 23> kKnown = {"name",
+                                                                    "display_name",
+                                                                    "layer",
+                                                                    "emitted_light",
+                                                                    "light_opacity",
+                                                                    "culls_same_type",
+                                                                    "tint",
+                                                                    "tint_color",
+                                                                    "tint_faces",
+                                                                    "textures",
+                                                                    "overlays",
+                                                                    "variants",
+                                                                    "solid",
+                                                                    "liquid",
+                                                                    "category",
+                                                                    "variations",
+                                                                    "variation_overlays",
+                                                                    "bushy",
+                                                                    "replaceable",
+                                                                    "needs_support",
+                                                                    "overlay_tint",
+                                                                    "tall_top",
+                                                                    "hidden"};
         if (std::ranges::find(kKnown, key.str()) == kKnown.end()) {
             problem(source.file, std::format("unknown field '{}'", key.str()));
         }
@@ -159,14 +197,18 @@ void BlockCatalogLoader::loadFile(const BlockSource& source) {
     }
     m_overlays = {};
     if (!applyTextures(source.file, "overlays", root.get("overlays"), m_overlays) ||
-        !readTintFaces(source, root)) {
+        !readTintFaces(source, root) || !readVariations(source, root, info)) {
         return;
+    }
+    if (const std::optional<std::string> top = root["tall_top"].value<std::string>()) {
+        m_tallTops.emplace_back(*name, *top);
     }
 
     BlockDefinition block{.name = *name,
                           .displayName = displayName.value_or(*name),
                           .file = source.file,
                           .category = root["category"].value_or(std::string("Building")),
+                          .hidden = root["hidden"].value_or(false),
                           .firstState = static_cast<BlockStateId>(m_catalog.m_stateNames.size()),
                           .stateCount = 0};
     const toml::node* variantsNode = root.get("variants");
@@ -233,11 +275,13 @@ bool BlockCatalogLoader::readCommon(const BlockSource& source, const toml::table
         info.layer = RenderLayer::Cutout;
     } else if (layer == "translucent") {
         info.layer = RenderLayer::Translucent;
+    } else if (layer == "plant") {
+        info.layer = RenderLayer::Plant;
     } else if (layer == "invisible") {
         info.layer = RenderLayer::Invisible;
     } else {
         problem(source.file,
-                std::format("'layer' must be opaque, cutout, translucent or invisible (got '{}')",
+                std::format("'layer' must be opaque, cutout, translucent, plant or invisible (got '{}')",
                             layer.value_or("nothing")));
         return false;
     }
@@ -269,9 +313,14 @@ bool BlockCatalogLoader::readCommon(const BlockSource& source, const toml::table
         }
         return node.value_or(fallback);
     };
-    const bool solid = flag("solid", info.layer != RenderLayer::Invisible);
+    const bool plant = info.layer == RenderLayer::Plant;
+    const bool solid = flag("solid", info.layer != RenderLayer::Invisible && !plant);
     const bool liquid = flag("liquid", false);
-    m_flags = static_cast<vxe::u8>((solid ? 1U : 0U) | (liquid ? 2U : 0U));
+    const bool replaceable = flag("replaceable", plant);
+    const bool needsSupport = flag("needs_support", plant);
+    m_flags = static_cast<vxe::u8>((solid ? 1U : 0U) | (liquid ? 2U : 0U) | (replaceable ? 4U : 0U) |
+                                   (needsSupport ? 8U : 0U));
+    m_overlayTinted = flag("overlay_tint", true);
     if (const auto color = root["tint_color"]; color) {
         const std::string text = color.value_or(std::string());
         u32 value = 0;
@@ -377,7 +426,7 @@ bool BlockCatalogLoader::applyTextures(std::string_view file, std::string_view w
                                 "south or north)",
                                 where, key.str()));
             valid = false;
-        } else if (!texture || !isValidName(*texture)) {
+        } else if (!texture || !isTextureKey(*texture)) {
             problem(file, std::format("{}.{} must be a texture key like \"stone\"", where, key.str()));
             valid = false;
         }
@@ -416,6 +465,9 @@ void BlockCatalogLoader::addState(std::string_view file, std::string name, const
     BlockRenderInfo info = base;
     if (info.layer != RenderLayer::Invisible) {
         for (usize face = 0; face < keys.size(); ++face) {
+            if (m_hasVariations) {
+                continue;
+            }
             if (keys.at(face).empty()) {
                 problem(file, std::format("state '{}' has no texture for its {} face", name,
                                           kFaceFields.at(face).first));
@@ -424,9 +476,15 @@ void BlockCatalogLoader::addState(std::string_view file, std::string name, const
             info.faceTextureLayer.at(face) = layerOf(keys.at(face));
             const u32 tint = m_tintFaces.at(face) ? info.tintIndex : 0U;
             const std::string& overlay = m_overlays.at(face);
+            if (m_hasVariations) {
+                continue; // readVariations set the layer and its looks.
+            }
+            const u32 baseTint = m_overlayTinted ? 0U : tint;
+            const u32 overlayTint = m_overlayTinted ? tint : 0U;
             setLook(file, info.faceTextureLayer.at(face),
-                    overlay.empty() ? vxe::voxel::textureLook(0, tint, 0)
-                                    : vxe::voxel::textureLook(u32{layerOf(overlay)} + 1U, 0, tint));
+                    overlay.empty()
+                        ? vxe::voxel::textureLook(0, tint, 0)
+                        : vxe::voxel::textureLook(u32{layerOf(overlay)} + 1U, baseTint, overlayTint));
         }
     }
     const auto id = static_cast<BlockStateId>(m_catalog.m_stateNames.size());
@@ -434,6 +492,73 @@ void BlockCatalogLoader::addState(std::string_view file, std::string name, const
     m_catalog.m_stateNames.push_back(std::move(name));
     m_catalog.m_renderInfos.push_back(info);
     m_catalog.m_stateFlags.push_back(m_flags);
+}
+
+// Variations sit in consecutive layers, so a mesher only adds a number to the
+// first: they must be new keys, used by this block alone.
+bool BlockCatalogLoader::readVariations(const BlockSource& source, const toml::table& root,
+                                        BlockRenderInfo& info) {
+    if (const std::optional<std::string> bushy = root["bushy"].value<std::string>()) {
+        if (!isTextureKey(*bushy)) {
+            problem(source.file, "'bushy' must be a texture key");
+            return false;
+        }
+        const u16 layer = layerOf(*bushy);
+        setLook(source.file, layer, vxe::voxel::textureLook(0, info.tintIndex, 0));
+        info.bushyLayer = static_cast<u16>(layer + 1U);
+    }
+    const toml::array* list = root.get_as<toml::array>("variations");
+    m_hasVariations = list != nullptr;
+    if (list == nullptr) {
+        return true;
+    }
+    if (list->empty() || list->size() > 255) {
+        problem(source.file, "'variations' needs 1 to 255 texture keys");
+        return false;
+    }
+    const auto first = static_cast<u16>(m_catalog.m_textureKeys.size());
+    const u32 tint = info.tintIndex;
+    for (const toml::node& entry : *list) {
+        const std::string key = entry.value_or(std::string());
+        if (!isTextureKey(key) || m_layers.contains(key)) {
+            problem(source.file, std::format("variation '{}' must be a new texture key", key));
+            return false;
+        }
+        setLook(source.file, layerOf(key), vxe::voxel::textureLook(0, tint, 0));
+    }
+    info.variationCount = static_cast<vxe::u8>(list->size());
+    info.faceTextureLayer.fill(first);
+    if (const toml::table* overlays = root.get_as<toml::table>("variation_overlays")) {
+        for (const auto& [key, value] : *overlays) {
+            const std::optional<std::string> overlay = value.value<std::string>();
+            const auto base = m_layers.find(std::string(key.str()));
+            if (!overlay || !isTextureKey(*overlay) || base == m_layers.end()) {
+                problem(source.file,
+                        std::format("variation_overlays: '{}' is not one of the variations", key.str()));
+                return false;
+            }
+            const u16 baseLayer = base->second;
+            // Seed heads and the like keep their own color over the tinted plant.
+            const u16 overlayLayer = layerOf(*overlay);
+            m_catalog.m_textureLooks.at(baseLayer) = vxe::voxel::textureLook(u32{overlayLayer} + 1U, tint, 0);
+        }
+    }
+    return true;
+}
+
+void BlockCatalogLoader::linkTallPlants() {
+    m_catalog.m_tallUpper.assign(m_catalog.m_stateNames.size(), vxe::voxel::kAirState);
+    m_catalog.m_tallLower.assign(m_catalog.m_stateNames.size(), vxe::voxel::kAirState);
+    for (const auto& [lower, upper] : m_tallTops) {
+        const auto below = m_catalog.defaultState(lower);
+        const auto above = m_catalog.defaultState(upper);
+        if (!below || !above) {
+            problem(lower + ".toml", std::format("'tall_top' names an unknown block '{}'", upper));
+            continue;
+        }
+        m_catalog.m_tallUpper.at(*below) = *above;
+        m_catalog.m_tallLower.at(*above) = *below;
+    }
 }
 
 u16 BlockCatalogLoader::layerOf(const std::string& key) {
@@ -468,11 +593,11 @@ std::vector<u32> BlockCatalog::shownColors(std::span<const u32> averageColors) c
     const usize count = std::min(shown.size(), m_textureLooks.size());
     for (usize layer = 0; layer < count; ++layer) {
         const u32 look = m_textureLooks[layer];
-        shown[layer] = multiply(averageColors[layer], m_tintColors.at((look >> 16U) & 3U));
+        shown[layer] = multiply(averageColors[layer], m_tintColors.at((look >> 16U) & 15U));
         const u32 overlayLayer = look & 0xFFFFU;
         if (overlayLayer != 0 && overlayLayer - 1 < averageColors.size()) {
             const u32 overlay =
-                multiply(averageColors[overlayLayer - 1], m_tintColors.at((look >> 18U) & 3U));
+                multiply(averageColors[overlayLayer - 1], m_tintColors.at((look >> 20U) & 15U));
             const u32 cover = overlay >> 24U;
             u32 mixed = shown[layer] & 0xFF000000U;
             for (const u32 shift : {0U, 8U, 16U}) {

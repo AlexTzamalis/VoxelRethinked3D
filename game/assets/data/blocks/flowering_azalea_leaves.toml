@@ -1,0 +1,10 @@
+name = "flowering_azalea_leaves"
+display_name = "Flowering Azalea Leaves"
+category = "Nature"
+layer = "cutout"
+light_opacity = 1
+culls_same_type = false
+bushy = "advanced_leaves/flowering_azalea_leaves"
+
+[textures]
+all = "flowering_azalea_leaves"

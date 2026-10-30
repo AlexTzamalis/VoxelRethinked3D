@@ -29,6 +29,7 @@ struct BlockDefinition {
     std::string displayName; // "Oak Log".
     std::string file;        // The definition file it came from.
     std::string category;    // Its tab in the creative inventory.
+    bool hidden = false;     // Not in the inventory: the top half of a tall plant.
     vxe::voxel::BlockStateId firstState = 0;
     vxe::u16 stateCount = 1;
 };
@@ -78,6 +79,22 @@ public:
     [[nodiscard]] bool isLiquid(vxe::voxel::BlockStateId state) const {
         return (m_stateFlags.at(state) & 2U) != 0;
     }
+    // Placing a block replaces it (plants).
+    [[nodiscard]] bool isReplaceable(vxe::voxel::BlockStateId state) const {
+        return (m_stateFlags.at(state) & 4U) != 0;
+    }
+    // It goes away when the block below it does (plants).
+    [[nodiscard]] bool needsSupport(vxe::voxel::BlockStateId state) const {
+        return (m_stateFlags.at(state) & 8U) != 0;
+    }
+    // The other half of a tall plant, or air: the state that goes above a
+    // lower half, and below an upper half.
+    [[nodiscard]] vxe::voxel::BlockStateId tallUpper(vxe::voxel::BlockStateId state) const {
+        return m_tallUpper.at(state);
+    }
+    [[nodiscard]] vxe::voxel::BlockStateId tallLower(vxe::voxel::BlockStateId state) const {
+        return m_tallLower.at(state);
+    }
 
     // Texture array layer i shows textureKeys()[i].
     [[nodiscard]] std::span<const std::string> textureKeys() const noexcept { return m_textureKeys; }
@@ -101,11 +118,12 @@ private:
     std::vector<BlockDefinition> m_blocks;
     std::vector<std::string> m_stateNames;
     std::vector<vxe::voxel::BlockRenderInfo> m_renderInfos;
-    std::vector<vxe::u8> m_stateFlags; // Per state: bit 0 solid, bit 1 liquid.
+    std::vector<vxe::u8> m_stateFlags; // Per state: bit 0 solid, 1 liquid, 2 replaceable, 3 needs support.
+    std::vector<vxe::voxel::BlockStateId> m_tallUpper;
+    std::vector<vxe::voxel::BlockStateId> m_tallLower;
     std::vector<std::string> m_textureKeys;
     std::vector<vxe::u32> m_textureLooks;
-    std::array<vxe::u32, vxe::voxel::kTintCount> m_tintColors{0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU,
-                                                              0xFFFFFFFFU};
+    std::array<vxe::u32, vxe::voxel::kTintCount> m_tintColors{};
     vxe::StringMap<vxe::voxel::BlockStateId> m_stateIds;
     vxe::StringMap<vxe::usize> m_blockIndex;
 };

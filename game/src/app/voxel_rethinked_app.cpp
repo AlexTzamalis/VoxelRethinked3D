@@ -279,6 +279,37 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
              return output;
          }});
     context.commands.registerCommand(
+        {.name = "placeon",
+         .usage = "placeon <x> <z> <state>",
+         .description = "Puts a block on the highest solid block of a column.",
+         .handler = [this](std::span<const std::string> arguments) {
+             vxe::config::CommandOutput output;
+             const auto state =
+                 arguments.size() == 3 && m_blocks ? m_blocks->stateId(arguments[2]) : std::nullopt;
+             if (!m_demo || !state) {
+                 output.success = false;
+                 return output;
+             }
+             const vxe::i64 x = std::stoll(arguments[0]);
+             const vxe::i64 z = std::stoll(arguments[1]);
+             constexpr vxe::i64 kTop = (vxe::i64{DemoWorld::kMaxChunkY} + 1) * vxe::kChunkSize;
+             for (vxe::i64 y = kTop - 2; y >= 0; --y) {
+                 const vxe::BlockPos ground{.x = x, .y = y, .z = z};
+                 if (m_demo->world().findChunk(vxe::toChunk(ground)) == nullptr) {
+                     output.success = false;
+                     return output;
+                 }
+                 if (m_blocks->isSolid(m_demo->world().getBlock(ground))) {
+                     output.success = m_demo->setBlock({.x = x, .y = y + 1, .z = z}, *state);
+                     if (const auto upper = m_blocks->tallUpper(*state); upper != vxe::voxel::kAirState) {
+                         static_cast<void>(m_demo->setBlock({.x = x, .y = y + 2, .z = z}, upper));
+                     }
+                     return output;
+                 }
+             }
+             return output;
+         }});
+    context.commands.registerCommand(
         {.name = "getblock",
          .usage = "getblock <x> <y> <z>",
          .description = "Shows one block of the loaded world.",
@@ -682,7 +713,7 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
         }
         // Block textures too, as PNG files: the icons are baked from them.
         for (const std::string& key : m_blocks->textureKeys()) {
-            images.push_back(std::format("blocks/{}.png", key));
+            images.push_back(vxe::render::textureFile(key) + ".png");
         }
         m_texturePacks->setImages(std::move(images));
         m_texturePacks->setFiles({std::string(kThemeFile)});
@@ -981,7 +1012,7 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
         std::ranges::for_each(vxe::ui::kThemeImages, addImage);
         std::ranges::for_each(kHudImages, addImage);
         m_blockIcons.bake(*m_blocks, [this](std::string_view key) {
-            return m_texturePacks->image(std::format("blocks/{}.png", key));
+            return m_texturePacks->image(vxe::render::textureFile(key) + ".png");
         });
         for (const BlockIcons::Icon& icon : m_blockIcons.icons()) {
             images.push_back({.name = icon.name,

@@ -6,4 +6,4 @@ display_name = "Foundation Stone"
 layer = "opaque"
 
 [textures]
-all = "foundation_stone"
+all = "bedrock"

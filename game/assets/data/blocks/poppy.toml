@@ -1,0 +1,5 @@
+name = "poppy"
+display_name = "Poppy"
+category = "Plants"
+layer = "plant"
+variations = ["foliage/poppy"]

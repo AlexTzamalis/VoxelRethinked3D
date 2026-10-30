@@ -1,0 +1,9 @@
+name = "basalt"
+display_name = "Basalt"
+category = "Building"
+layer = "opaque"
+
+[textures]
+side = "basalt_side"
+top = "basalt_top"
+bottom = "basalt_top"

@@ -1,0 +1,5 @@
+name = "cornflower"
+display_name = "Cornflower"
+category = "Plants"
+layer = "plant"
+variations = ["foliage/cornflower"]

@@ -1,0 +1,19 @@
+name = "jungle_log"
+display_name = "Jungle Log"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "jungle_log"
+
+[[variants]]
+properties = { axis = "y" }
+textures = { top = "jungle_log_top", bottom = "jungle_log_top" }
+
+[[variants]]
+properties = { axis = "x" }
+textures = { east = "jungle_log_top", west = "jungle_log_top" }
+
+[[variants]]
+properties = { axis = "z" }
+textures = { south = "jungle_log_top", north = "jungle_log_top" }

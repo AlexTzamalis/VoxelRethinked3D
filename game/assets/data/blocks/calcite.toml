@@ -1,0 +1,7 @@
+name = "calcite"
+display_name = "Calcite"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "calcite"

@@ -1,0 +1,5 @@
+name = "firefly_bush"
+display_name = "Firefly Bush"
+category = "Plants"
+layer = "plant"
+variations = ["foliage/firefly_bush"]

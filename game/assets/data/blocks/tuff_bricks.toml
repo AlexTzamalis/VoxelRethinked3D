@@ -1,0 +1,7 @@
+name = "tuff_bricks"
+display_name = "Tuff Bricks"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "tuff_bricks"

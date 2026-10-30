@@ -1,0 +1,5 @@
+name = "allium"
+display_name = "Allium"
+category = "Plants"
+layer = "plant"
+variations = ["foliage/allium"]

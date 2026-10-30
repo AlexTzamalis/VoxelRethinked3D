@@ -1,0 +1,6 @@
+name = "fern"
+display_name = "Fern"
+category = "Plants"
+layer = "plant"
+tint = 1
+variations = ["foliage/fern", "foliage/ferns", "foliage/fern2", "foliage/fern2s", "foliage/fern3", "foliage/fern3s", "foliage/fern4", "foliage/fern4s"]

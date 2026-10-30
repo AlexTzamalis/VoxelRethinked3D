@@ -1,0 +1,9 @@
+name = "red_sandstone"
+display_name = "Red Sandstone"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+side = "red_sandstone"
+top = "red_sandstone_top"
+bottom = "red_sandstone_bottom"

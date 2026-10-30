@@ -1,0 +1,9 @@
+name = "muddy_mangrove_roots"
+display_name = "Muddy Mangrove Roots"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+side = "muddy_mangrove_roots_side"
+top = "muddy_mangrove_roots_top"
+bottom = "muddy_mangrove_roots_top"

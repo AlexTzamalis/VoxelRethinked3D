@@ -1,0 +1,7 @@
+name = "mossy_stone_bricks"
+display_name = "Mossy Stone Bricks"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "mossy_stone_bricks"

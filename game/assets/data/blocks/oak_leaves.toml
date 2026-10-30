@@ -10,6 +10,7 @@ light_opacity = 1
 culls_same_type = false
 tint = 2
 tint_color = "#6FA32E"
+bushy = "advanced_leaves/oak_leaves"
 
 [textures]
 all = "oak_leaves"

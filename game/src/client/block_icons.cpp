@@ -59,11 +59,11 @@ u32 lookAt(const BlockCatalog& catalog, const BlockIcons::FindTexture& find, vxe
         return 0xFFFF00FFU; // The missing texture's magenta.
     }
     const u32 look = looks[layer];
-    u32 color = multiply(sample(*image, u, v), tints[(look >> 16U) & 3U]);
+    u32 color = multiply(sample(*image, u, v), tints[(look >> 16U) & 15U]);
     if (const u32 overlayLayer = look & 0xFFFFU; overlayLayer != 0) {
         const vxe::render::PackImage* overlay = find(keys[overlayLayer - 1]);
         if (overlay != nullptr && overlay->width != 0) {
-            const u32 top = multiply(sample(*overlay, u, v), tints[(look >> 18U) & 3U]);
+            const u32 top = multiply(sample(*overlay, u, v), tints[(look >> 20U) & 15U]);
             if ((top >> 24U) >= 128U) {
                 color = (top & 0x00FFFFFFU) | 0xFF000000U;
             }
@@ -80,6 +80,10 @@ void BlockIcons::bake(const BlockCatalog& catalog, const FindTexture& find) {
     for (const BlockDefinition& block : catalog.blocks()) {
         const vxe::voxel::BlockRenderInfo& info = catalog.renderInfo(block.firstState);
         if (!info.isVisible()) {
+            continue;
+        }
+        if (info.layer == vxe::voxel::RenderLayer::Plant) {
+            bakePlant(catalog, find, block, info);
             continue;
         }
         const auto layerTop = info.textureLayer(BlockFace::PosY);
@@ -117,6 +121,32 @@ void BlockIcons::bake(const BlockCatalog& catalog, const FindTexture& find) {
             m_iconOfState.at(usize{block.firstState} + state) = index;
         }
     }
+}
+
+// Plants are flat pictures, not cubes. A tall plant shows both halves.
+void BlockIcons::bakePlant(const BlockCatalog& catalog, const FindTexture& find, const BlockDefinition& block,
+                           const vxe::voxel::BlockRenderInfo& info) {
+    Icon icon{.name = "icon/" + block.name, .pixels = std::vector<u32>(usize{kSize} * kSize, 0U)};
+    const auto layer = info.textureLayer(BlockFace::PosX);
+    const vxe::voxel::BlockStateId upper = catalog.tallUpper(block.firstState);
+    const auto upperLayer = catalog.renderInfo(upper).textureLayer(BlockFace::PosX);
+    for (u32 y = 0; y < kSize; ++y) {
+        for (u32 x = 0; x < kSize; ++x) {
+            const f32 u = (static_cast<f32>(x) + 0.5F) / static_cast<f32>(kSize);
+            const f32 v = (static_cast<f32>(y) + 0.5F) / static_cast<f32>(kSize);
+            u32 color = 0;
+            if (upper == vxe::voxel::kAirState) {
+                color = lookAt(catalog, find, layer, u, v);
+            } else if (v < 0.5F) {
+                color = lookAt(catalog, find, upperLayer, u, v * 2.0F);
+            } else {
+                color = lookAt(catalog, find, layer, u, (v - 0.5F) * 2.0F);
+            }
+            icon.pixels[(usize{y} * kSize) + x] = color;
+        }
+    }
+    m_icons.push_back(std::move(icon));
+    m_iconOfState.at(block.firstState) = static_cast<u32>(m_icons.size());
 }
 
 std::string_view BlockIcons::iconOf(vxe::voxel::BlockStateId state) const {

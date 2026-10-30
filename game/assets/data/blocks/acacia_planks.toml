@@ -1,0 +1,7 @@
+name = "acacia_planks"
+display_name = "Acacia Planks"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "acacia_planks"

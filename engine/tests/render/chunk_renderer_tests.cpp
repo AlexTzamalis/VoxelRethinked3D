@@ -85,7 +85,8 @@ struct FakeMesh {
 // Every draw on the GPU, pass by pass (each pass has its own region).
 std::vector<Draw> readDraws(rhi::Device& device, const ChunkRenderer& renderer) {
     std::vector<Draw> draws;
-    for (const ChunkPass pass : {ChunkPass::Opaque, ChunkPass::Cutout, ChunkPass::Translucent}) {
+    for (const ChunkPass pass :
+         {ChunkPass::Opaque, ChunkPass::Cutout, ChunkPass::Plants, ChunkPass::Translucent}) {
         std::vector<Draw> region(renderer.drawCount(pass));
         if (!region.empty()) {
             REQUIRE(device
@@ -115,7 +116,7 @@ TEST_CASE("Uploads build one indirect draw per non empty face group") {
     stats::StatRegistry stats;
     auto renderer = makeRenderer(*device, settings, &stats);
     const FakeMesh mesh(
-        {{0, 10}, {2, 5}, {6 + 3, 2}, {12 + 4, 7}}); // Two opaque, one cutout, one translucent.
+        {{0, 10}, {2, 5}, {6 + 3, 2}, {18 + 4, 7}}); // Two opaque, one cutout, one translucent.
 
     renderer->beginFrame({});
     REQUIRE(renderer->upload(mesh.at({.x = 1, .y = 2, .z = 3})) == UploadResult::Uploaded);
@@ -284,7 +285,8 @@ TEST_CASE("The draw list stays exact through random uploads, replacements and re
         REQUIRE(device->readBuffer(renderer->metadataBuffer(), 0, std::as_writable_bytes(std::span(slots)))
                     .hasValue());
         std::map<ChunkPos, std::array<std::vector<u32>, render::kChunkPassCount>> actual;
-        for (const ChunkPass pass : {ChunkPass::Opaque, ChunkPass::Cutout, ChunkPass::Translucent}) {
+        for (const ChunkPass pass :
+             {ChunkPass::Opaque, ChunkPass::Cutout, ChunkPass::Plants, ChunkPass::Translucent}) {
             std::vector<Draw> draws(renderer->drawCount(pass));
             if (!draws.empty()) {
                 REQUIRE(device
@@ -312,7 +314,7 @@ TEST_CASE("Translucent draws go far to near and follow the camera") {
     const auto device = rhi::createNullDevice();
     config::SettingsRegistry settings;
     auto renderer = makeRenderer(*device, settings);
-    const FakeMesh water({{12 + 2, 1}});
+    const FakeMesh water({{18 + 2, 1}});
     renderer->beginFrame({});
     for (i32 x = 0; x < 4; ++x) {
         REQUIRE(renderer->upload(water.at({.x = x, .y = 0, .z = 0})) == UploadResult::Uploaded);

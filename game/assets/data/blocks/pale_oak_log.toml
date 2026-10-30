@@ -1,0 +1,19 @@
+name = "pale_oak_log"
+display_name = "Pale Oak Log"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "pale_oak_log"
+
+[[variants]]
+properties = { axis = "y" }
+textures = { top = "pale_oak_log_top", bottom = "pale_oak_log_top" }
+
+[[variants]]
+properties = { axis = "x" }
+textures = { east = "pale_oak_log_top", west = "pale_oak_log_top" }
+
+[[variants]]
+properties = { axis = "z" }
+textures = { south = "pale_oak_log_top", north = "pale_oak_log_top" }

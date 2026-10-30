@@ -1,0 +1,5 @@
+name = "torchflower"
+display_name = "Torchflower"
+category = "Plants"
+layer = "plant"
+variations = ["foliage/torchflower"]

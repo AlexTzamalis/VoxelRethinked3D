@@ -82,6 +82,7 @@ struct StreamingDesc {
     // The world's height in chunks, both ends included (Section 9.2): the
     // chunks above and below are never requested and count as present
     // neighbors, so the top and bottom layers still get meshed.
+    u64 variationSeed = 0; // The world's seed, for plant variations.
     i32 minChunkY = -64;
     i32 maxChunkY = 191;
     // Job slots are allocated once, so these cap the in flight settings
@@ -384,7 +385,13 @@ private:
     i32 m_maxChunkY;
     u64 m_id; // Tells worker threads' cached meshers which manager they belong to.
 
+    [[nodiscard]] MeshOptions meshOptions() const {
+        MeshOptions options = m_mesherSettings.options();
+        options.variationSeed = m_variationSeed;
+        return options;
+    }
     MesherSettings m_mesherSettings;
+    u64 m_variationSeed;
     MeshOptions m_options{};
     std::shared_ptr<const BlockRegistryView> m_view;
     u32 m_meshEpoch = 0;

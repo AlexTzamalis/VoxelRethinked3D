@@ -152,6 +152,22 @@ void PlayerController::update(vxe::render::Camera& camera, const vxe::voxel::Vox
     }
 }
 
+// Removes a block with what cannot stay without it: the other half of a tall
+// plant, and a plant standing on it.
+void BlockInteraction::removeBlock(const vxe::voxel::VoxelWorld& world, const BlockPos& block,
+                                   const SetBlock& setBlock) const {
+    const BlockStateId state = world.getBlock(block, kAirState);
+    if (m_catalog.tallLower(state) != kAirState) {
+        static_cast<void>(setBlock({.x = block.x, .y = block.y - 1, .z = block.z}, kAirState));
+    }
+    static_cast<void>(setBlock(block, kAirState));
+    BlockPos above{.x = block.x, .y = block.y + 1, .z = block.z};
+    while (m_catalog.needsSupport(world.getBlock(above, kAirState))) {
+        static_cast<void>(setBlock(above, kAirState));
+        ++above.y;
+    }
+}
+
 void BlockInteraction::update(const vxe::render::Camera& camera, const PlayerState& player,
                               const vxe::voxel::VoxelWorld& world, Hotbar& hotbar, const SetBlock& setBlock,
                               vxe::render::DebugDraw* draw, f64 deltaSeconds) {
@@ -190,7 +206,7 @@ void BlockInteraction::update(const vxe::render::Camera& camera, const PlayerSta
         hotbar.slots.at(hotbar.selected) = world.getBlock(block, kAirState);
     }
     if (shouldAct(m_actions.breakBlock, m_breakWait)) {
-        static_cast<void>(setBlock(block, kAirState));
+        removeBlock(world, block, setBlock);
         return;
     }
     if (shouldAct(m_actions.placeBlock, m_placeWait)) {
@@ -198,9 +214,27 @@ void BlockInteraction::update(const vxe::render::Camera& camera, const PlayerSta
         const vxe::IVec3 normal = vxe::normalOf(m_target->face);
         const BlockPos place{.x = block.x + normal.x, .y = block.y + normal.y, .z = block.z + normal.z};
         const BlockStateId there = world.getBlock(place, kUnloaded);
-        const bool free = there == kAirState || (there != kUnloaded && m_catalog.isLiquid(there));
-        if (state != kAirState && free && (!m_catalog.isSolid(state) || !overlapsPlayer(player, place))) {
+        const bool free =
+            there == kAirState ||
+            (there != kUnloaded && (m_catalog.isLiquid(there) || m_catalog.isReplaceable(there)));
+        // Plants grow on solid ground, and tall ones need room above.
+        const BlockPos below{.x = place.x, .y = place.y - 1, .z = place.z};
+        const BlockPos above{.x = place.x, .y = place.y + 1, .z = place.z};
+        const BlockStateId upper = m_catalog.tallUpper(state);
+        // Plants do not grow under water: nothing here keeps the water around them.
+        const bool grounded =
+            !m_catalog.needsSupport(state) ||
+            (m_catalog.isSolid(world.getBlock(below, kAirState)) && !m_catalog.isLiquid(there));
+        const bool roomy = upper == kAirState || world.getBlock(above, kUnloaded) == kAirState;
+        if (state != kAirState && free && grounded && roomy &&
+            (!m_catalog.isSolid(state) || !overlapsPlayer(player, place))) {
+            if (there != kAirState) {
+                removeBlock(world, place, setBlock); // A plant being replaced goes with its other half.
+            }
             static_cast<void>(setBlock(place, state));
+            if (upper != kAirState) {
+                static_cast<void>(setBlock(above, upper));
+            }
         }
     }
 }

@@ -1,0 +1,7 @@
+name = "polished_tuff"
+display_name = "Polished Tuff"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "polished_tuff"

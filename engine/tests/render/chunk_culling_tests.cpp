@@ -419,11 +419,15 @@ TEST_CASE("Depth pyramid levels cover the depth buffer with power of two texels"
 
 namespace {
 
-voxel::ChunkMesh solidMesh(ChunkPos position) {
+// A chunk of stone, or with `mixed` of blocks of every render pass.
+voxel::ChunkMesh solidMesh(ChunkPos position, bool mixed = false) {
     voxel::BlockRegistryBuilder builder;
-    voxel::BlockRenderInfo stone{.layer = voxel::RenderLayer::Opaque};
-    stone.faceTextureLayer.fill(0);
-    REQUIRE(builder.add(stone).hasValue());
+    for (const voxel::RenderLayer layer : {voxel::RenderLayer::Opaque, voxel::RenderLayer::Cutout,
+                                           voxel::RenderLayer::Plant, voxel::RenderLayer::Translucent}) {
+        voxel::BlockRenderInfo info{.layer = layer};
+        info.faceTextureLayer.fill(0);
+        REQUIRE(builder.add(info).hasValue());
+    }
     const auto registry = builder.build();
     auto snapshot = std::make_unique<voxel::ChunkSnapshot>();
     snapshot->position = position;
@@ -431,7 +435,9 @@ voxel::ChunkMesh solidMesh(ChunkPos position) {
     for (i32 y = 0; y < 16; ++y) {
         for (i32 z = 0; z < 16; ++z) {
             for (i32 x = 0; x < 16; ++x) {
-                snapshot->states[voxel::ChunkSnapshot::index(x, y, z)] = 1;
+                snapshot->states[voxel::ChunkSnapshot::index(x, y, z)] =
+                    mixed ? static_cast<voxel::BlockStateId>(1 + ((x + (y * 2) + (z * 3)) % 4))
+                          : voxel::BlockStateId{1};
             }
         }
     }
@@ -502,6 +508,9 @@ TEST_CASE("GPU culling matches the CPU path and hides chunks behind walls (VXE_G
               ChunkPos{.x = -3, .y = 1, .z = 1}, ChunkPos{.x = 0, .y = -2, .z = 3}}) {
             REQUIRE(r.chunks().upload(geometryOf(solidMesh(position))) == UploadResult::Uploaded);
         }
+        // Every pass in view: its draws must reach the GPU culling too.
+        REQUIRE(r.chunks().upload(geometryOf(solidMesh({.x = 0, .y = 0, .z = 0}, true))) ==
+                UploadResult::Uploaded);
         REQUIRE(r.endFrame({}).hasValue());
 
         // Without occlusion both paths must agree exactly.

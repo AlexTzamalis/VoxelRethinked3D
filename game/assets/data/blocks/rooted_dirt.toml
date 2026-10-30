@@ -1,0 +1,7 @@
+name = "rooted_dirt"
+display_name = "Rooted Dirt"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "rooted_dirt"

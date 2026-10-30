@@ -1,0 +1,6 @@
+name = "short_grass"
+display_name = "Short Grass"
+category = "Plants"
+layer = "plant"
+tint = 1
+variations = ["foliage/grass", "foliage/grasss", "foliage/grass2", "foliage/grass2s", "foliage/grass3", "foliage/grass3s", "foliage/grass4", "foliage/grass4s"]

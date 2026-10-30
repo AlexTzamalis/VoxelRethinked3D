@@ -1,6 +1,7 @@
 #include "vxe/voxel/mesher.hpp"
 
 #include <vxe/core/assert.hpp>
+#include <vxe/core/hash.hpp>
 #include <vxe/core/profile.hpp>
 #include <vxe/core/time.hpp>
 
@@ -15,6 +16,7 @@ constexpr usize kRow = kSnapshotSize;      // Snapshot rows along X: index y * 1
 constexpr usize kSlice = kSnapshotArea;    // Snapshot states: y * 324 + z * 18 + x.
 constexpr u32 kInterior = 0x1FFFEU;        // Bits 1 to 16 of a row: the chunk's own blocks.
 constexpr u32 kKindMask = 3U;              // Kind in the low bits of a state's class byte...
+constexpr u8 kPlantBit = 8U;               // ...plus "adds crossed planes" (plants, bushy leaves).
 constexpr u8 kCullsSameBit = 4U;           // ...plus "hides faces against its own state".
 constexpr u64 kLightBits = 0xFFULL << 22U; // Sky and block light in word1.
 
@@ -102,12 +104,19 @@ MesherSettings::MesherSettings(config::SettingsRegistry& settings)
             .displayName = "Fancy leaves",
             .description = "See through leaves. Off draws them as solid blocks, which is faster.",
             .applyMode = config::ApplyMode::RequiresRemesh},
-           true})) {}
+           true}))
+    , m_advancedLeaves(settings.registerBool(
+          {{.id = "Graphics.Terrain.AdvancedLeaves",
+            .displayName = "Advanced leaves",
+            .description = "Leaves grow bushy shapes past their blocks, for fuller trees.",
+            .applyMode = config::ApplyMode::RequiresRemesh},
+           false})) {}
 
 MeshOptions MesherSettings::options() const {
     return {.greedyMerge = m_greedyMerge.get(),
             .mergeAcrossLight = m_mergeAcrossLight.get(),
-            .fancyLeaves = m_fancyLeaves.get()};
+            .fancyLeaves = m_fancyLeaves.get(),
+            .advancedLeaves = m_advancedLeaves.get()};
 }
 
 Mesher::Mesher(stats::StatRegistry* stats)
@@ -154,10 +163,14 @@ void Mesher::prepare(const BlockRegistryView& blocks, const MeshOptions& options
         case RenderLayer::Translucent:
             kind = Kind::Translucent;
             break;
+        case RenderLayer::Plant:
         case RenderLayer::Invisible:
             break;
         }
         u8 value = static_cast<u8>(kind);
+        if (info.layer == RenderLayer::Plant || (options.advancedLeaves && info.bushyLayer != 0)) {
+            value = static_cast<u8>(value | kPlantBit);
+        }
         if (kind == Kind::Cutout || kind == Kind::Translucent) {
             value = static_cast<u8>(value | (info.cullsSameType ? kCullsSameBit : 0U));
         }
@@ -176,6 +189,7 @@ void Mesher::buildMasks(const ChunkSnapshot& snapshot) {
     const BlockStateId* states = snapshot.states.data();
     const u8* classes = m_classes.data();
     m_hasSeeThrough = false;
+    u32 seen = 0;
     for (usize row = 0; row < kSnapshotArea; ++row) {
         const BlockStateId* line = states + ((row / kRow) * kSlice) + ((row % kRow) * kRow);
         u32 opaque = 0;
@@ -190,6 +204,7 @@ void Mesher::buildMasks(const ChunkSnapshot& snapshot) {
             const u32 value = classes[line[0]];
             const u32 kind = value & kKindMask;
             const u32 full = (1U << kSnapshotSize) - 1U;
+            seen |= value;
             opaque = kind == static_cast<u32>(Kind::Opaque) ? full : 0U;
             cutout = kind == static_cast<u32>(Kind::Cutout) ? full : 0U;
             translucent = kind == static_cast<u32>(Kind::Translucent) ? full : 0U;
@@ -198,6 +213,7 @@ void Mesher::buildMasks(const ChunkSnapshot& snapshot) {
             for (u32 x = 0; x < kSnapshotSize; ++x) {
                 const u32 value = classes[line[x]];
                 const u32 kind = value & kKindMask;
+                seen |= value;
                 opaque |= static_cast<u32>(kind == static_cast<u32>(Kind::Opaque)) << x;
                 cutout |= static_cast<u32>(kind == static_cast<u32>(Kind::Cutout)) << x;
                 translucent |= static_cast<u32>(kind == static_cast<u32>(Kind::Translucent)) << x;
@@ -210,6 +226,7 @@ void Mesher::buildMasks(const ChunkSnapshot& snapshot) {
         m_cullsSame[row] = cullsSame;
         m_hasSeeThrough = m_hasSeeThrough || ((cutout | translucent) != 0);
     }
+    m_hasPlants = (seen & kPlantBit) != 0;
 }
 
 void Mesher::buildSameStateMasks(const ChunkSnapshot& snapshot) {
@@ -415,8 +432,18 @@ void Mesher::mergeFaces(const ChunkSnapshot& snapshot, const BlockRegistryView& 
                         .compareMask = options.mergeAcrossLight ? ~kLightBits : ~u64{0},
                         .greedy = options.greedyMerge};
     Bounds bounds;
+    const usize plantGroup = faceGroupIndex(MeshLayer::Plants, BlockFace::PosX);
     for (usize group = 0; group < kFaceGroupCount; ++group) {
         out.groupBegin[group] = static_cast<u32>(out.quads.size());
+        if (group == plantGroup && m_hasPlants) {
+            addPlants(snapshot, blocks, options, out);
+            if (out.quads.size() > out.groupBegin[group]) {
+                // Whole cells; bushy planes reach past them, so a chunk with
+                // plants keeps the full box and culling never clips them.
+                bounds.min = {0, 0, 0};
+                bounds.max = {16, 16, 16};
+            }
+        }
         u32 slices = m_groupSlices[group];
         m_groupSlices[group] = 0;
         const BlockFace face = kFaces[group % kBlockFaceCount];
@@ -486,6 +513,63 @@ u32 Mesher::floodComponent(usize start, const OpenRows& open, OpenRows& visited)
         }
     }
     return touched;
+}
+
+void Mesher::addPlants(const ChunkSnapshot& snapshot, const BlockRegistryView& blocks,
+                       const MeshOptions& options, ChunkMesh& out) {
+    const i64 originX = i64{snapshot.position.x} * kChunkSize;
+    const i64 originZ = i64{snapshot.position.z} * kChunkSize;
+    for (u32 y = 0; y < 16; ++y) {
+        for (u32 z = 0; z < 16; ++z) {
+            const usize line = (usize{y + 1} * kSlice) + (usize{z + 1} * kRow);
+            for (u32 x = 0; x < 16; ++x) {
+                const usize index = line + x + 1;
+                const BlockStateId state = snapshot.states[index];
+                if ((m_classes[state] & kPlantBit) == 0) {
+                    continue;
+                }
+                const BlockRenderInfo& info = blocks.info(state);
+                const bool plant = info.layer == RenderLayer::Plant;
+                u32 extra = 0;
+                u32 layer = 0;
+                if (plant) {
+                    // Only X and Z, so both halves of a tall plant agree; the
+                    // seed gives each world its own pattern.
+                    const u64 hash =
+                        hashCombine(hashCombine(options.variationSeed, static_cast<u64>(originX + x)),
+                                    static_cast<u64>(originZ + z));
+                    layer = info.textureLayer(BlockFace::PosX) + static_cast<u32>(hash % info.variationCount);
+                    extra = static_cast<u32>((hash >> 32U) & 15U) << 27U;
+                } else {
+                    // Buried leaves show nothing: only those with a free side.
+                    const u32 row =
+                        m_opaque[(usize{y + 1} * kRow) + z + 1] | m_cutout[(usize{y + 1} * kRow) + z + 1];
+                    const u32 bit = 1U << (x + 1);
+                    const bool buried =
+                        (row & (bit << 1U)) != 0 && (row & (bit >> 1U)) != 0 &&
+                        ((m_opaque[(usize{y + 2} * kRow) + z + 1] | m_cutout[(usize{y + 2} * kRow) + z + 1]) &
+                         bit) != 0 &&
+                        ((m_opaque[(usize{y} * kRow) + z + 1] | m_cutout[(usize{y} * kRow) + z + 1]) & bit) !=
+                            0 &&
+                        ((m_opaque[(usize{y + 1} * kRow) + z + 2] | m_cutout[(usize{y + 1} * kRow) + z + 2]) &
+                         bit) != 0 &&
+                        ((m_opaque[(usize{y + 1} * kRow) + z] | m_cutout[(usize{y + 1} * kRow) + z]) & bit) !=
+                            0;
+                    if (buried) {
+                        continue;
+                    }
+                    layer = info.bushyLayer - 1U;
+                    extra = 1U << 31U;
+                }
+                const u8 light = snapshot.light[index];
+                const u32 word1 = layer | (0xFFU << 14U) | (u32{skyLightOf(light)} << 22U) |
+                                  (u32{blockLightOf(light)} << 26U);
+                const u32 position = x | (y << 5U) | (z << 10U) | extra;
+                out.quads.push_back({.word0 = position | (6U << 23U), .word1 = word1});
+                out.quads.push_back({.word0 = position | (7U << 23U), .word1 = word1});
+            }
+        }
+    }
 }
 
 u16 Mesher::connectivity() {

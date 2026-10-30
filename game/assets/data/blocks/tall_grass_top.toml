@@ -1,0 +1,11 @@
+name = "tall_grass_top"
+display_name = "Tall Grass"
+category = "Plants"
+layer = "plant"
+tint = 1
+hidden = true
+variations = ["foliage/tall_grass_top", "foliage/tall_grass_tops", "foliage/tall_grass_top2", "foliage/tall_grass_top2s", "foliage/tall_grass_top3", "foliage/tall_grass_top3s", "foliage/tall_grass_top4", "foliage/tall_grass_top4s"]
+
+[variation_overlays]
+"foliage/tall_grass_top3" = "foliage/tall_grass_top3_overlay"
+"foliage/tall_grass_top3s" = "foliage/tall_grass_top3s_overlay"

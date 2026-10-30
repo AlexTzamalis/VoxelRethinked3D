@@ -1,0 +1,7 @@
+name = "cobbled_deepslate"
+display_name = "Cobbled Deepslate"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "cobble_deepslate"

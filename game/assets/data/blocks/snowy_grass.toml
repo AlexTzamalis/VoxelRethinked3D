@@ -1,0 +1,9 @@
+name = "snowy_grass"
+display_name = "Snowy Grass"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+side = "grass_snow"
+top = "snow"
+bottom = "dirt"

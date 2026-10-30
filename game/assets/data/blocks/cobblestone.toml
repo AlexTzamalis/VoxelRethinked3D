@@ -1,0 +1,7 @@
+name = "cobblestone"
+display_name = "Cobblestone"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "cobblestone"

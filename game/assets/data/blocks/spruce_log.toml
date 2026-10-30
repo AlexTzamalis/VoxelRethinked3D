@@ -1,0 +1,19 @@
+name = "spruce_log"
+display_name = "Spruce Log"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "spruce_log_side"
+
+[[variants]]
+properties = { axis = "y" }
+textures = { top = "spruce_log_top", bottom = "spruce_log_top" }
+
+[[variants]]
+properties = { axis = "x" }
+textures = { east = "spruce_log_top", west = "spruce_log_top" }
+
+[[variants]]
+properties = { axis = "z" }
+textures = { south = "spruce_log_top", north = "spruce_log_top" }

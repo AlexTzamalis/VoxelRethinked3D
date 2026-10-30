@@ -29,7 +29,7 @@ constexpr usize kMaxTextureLayers = 16384;
 static_assert(sizeof(IndirectDraw) == 20);
 
 // First capacities of the draw list regions; a full region doubles.
-constexpr std::array<u32, kChunkPassCount> kFirstRegionCapacity = {8192, 2048, 2048};
+constexpr std::array<u32, kChunkPassCount> kFirstRegionCapacity = {8192, 2048, 2048, 2048};
 // CPU write memory per frame for copying changed draws to the GPU; larger
 // changes go through Device::updateBuffer.
 constexpr usize kDrawStagingBytes = usize{1} << 20U;
@@ -267,10 +267,11 @@ Result<std::unique_ptr<ChunkRenderer>> ChunkRenderer::create(const ChunkRenderer
     const std::array<std::vector<rhi::ShaderDefine>, kChunkPassCount> defines = {
         std::vector<rhi::ShaderDefine>{},
         std::vector<rhi::ShaderDefine>{{.name = "VXE_CHUNK_CUTOUT"}},
+        std::vector<rhi::ShaderDefine>{{.name = "VXE_CHUNK_CUTOUT"}},
         std::vector<rhi::ShaderDefine>{{.name = "VXE_CHUNK_TRANSLUCENT"}},
     };
     constexpr std::array<std::string_view, kChunkPassCount> kNames = {"Chunks opaque", "Chunks cutout",
-                                                                      "Chunks translucent"};
+                                                                      "Chunks plants", "Chunks translucent"};
     Result<void> built{};
     for (usize pass = 0; pass < kChunkPassCount && built; ++pass) {
         const auto fragment =
@@ -290,6 +291,9 @@ Result<std::unique_ptr<ChunkRenderer>> ChunkRenderer::create(const ChunkRenderer
             pipeline.blend[0] = rhi::BlendState::alphaBlend();
             pipeline.depth.writeEnabled = false;
             pipeline.raster.cullMode = rhi::CullMode::None;
+        }
+        if (static_cast<ChunkPass>(pass) == ChunkPass::Plants) {
+            pipeline.raster.cullMode = rhi::CullMode::None; // A plant has no back.
         }
         auto solid = device.createPipeline(pipeline);
         pipeline.raster.polygonMode = rhi::PolygonMode::Line;
@@ -1001,8 +1005,8 @@ void ChunkRenderer::recordCulling(rhi::CommandList& commands) {
 void ChunkRenderer::cullOnGpu(rhi::CommandList& commands, const Camera& cullCamera) {
     // Threads cover the regions up to the end of the translucent entries;
     // the shader skips the unused room at the end of each region.
-    const u32 total = m_drawFirst[2] + m_gpuDrawCounts[2];
-    const u32 candidates = m_gpuDrawCounts[0] + m_gpuDrawCounts[1] + m_gpuDrawCounts[2];
+    const u32 total = m_drawFirst[3] + m_gpuDrawCounts[3];
+    const u32 candidates = m_gpuDrawCounts[0] + m_gpuDrawCounts[1] + m_gpuDrawCounts[2] + m_gpuDrawCounts[3];
     const f32 aspect = m_frozenCamera ? m_frozenAspect : viewAspect();
     const Frustum frustum = Frustum::fromViewProjection(cullCamera.viewProjection(aspect));
     const CameraPosition position = cullCamera.renderPosition();
@@ -1026,9 +1030,10 @@ void ChunkRenderer::cullOnGpu(rhi::CommandList& commands, const Camera& cullCame
         params.occlusionFraction = Vec4(occluder.fraction, 0.0F);
         params.occlusionSize = glm::uvec4(m_hiZ->depthWidth(), m_hiZ->depthHeight(), m_hiZ->levels(), 0);
     }
-    params.passFirst = glm::uvec4(m_drawFirst[0], m_drawFirst[1], m_drawFirst[2], total);
-    params.passCount = glm::uvec4(m_gpuDrawCounts[0], m_gpuDrawCounts[1], m_gpuDrawCounts[2], 0);
-    params.flags = glm::uvec4(tests, 0, 0, 0);
+    params.passFirst = glm::uvec4(m_drawFirst[0], m_drawFirst[1], m_drawFirst[2], m_drawFirst[3]);
+    params.passCount =
+        glm::uvec4(m_gpuDrawCounts[0], m_gpuDrawCounts[1], m_gpuDrawCounts[2], m_gpuDrawCounts[3]);
+    params.flags = glm::uvec4(tests, total, 0, 0);
     params.tuning = Vec4(m_frustumPadding.get(), m_occlusionCamera.nearPlane, 0.0F, 0.0F);
     const std::span<std::byte> memory = m_cullParams.next(m_device);
     std::memcpy(memory.data(), &params, sizeof(params));
@@ -1108,7 +1113,7 @@ void ChunkRenderer::cullOnCpu(const Camera& cullCamera) {
                 ++counts.frustum;
                 continue;
             }
-            if (faceOn && pass != static_cast<usize>(ChunkPass::Translucent) &&
+            if (faceOn && pass < static_cast<usize>(ChunkPass::Plants) &&
                 !faceGroupFacesCamera(m_drawFaceData[i], boxMin, boxMax)) {
                 ++counts.direction;
                 continue;

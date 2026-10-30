@@ -1,0 +1,7 @@
+name = "mossy_cobblestone"
+display_name = "Mossy Cobblestone"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "mossy_cobblestone"

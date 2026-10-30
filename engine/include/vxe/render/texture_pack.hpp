@@ -21,6 +21,10 @@
 // on a job; TexturePackManager uploads the result.
 namespace vxe::render {
 
+// The file of a texture key inside a pack, without its extension: keys live
+// in blocks/, and a key with a folder, like "foliage/poppy", is a path.
+[[nodiscard]] std::string textureFile(std::string_view key);
+
 // The newest pack format this engine reads (pack.toml "format").
 inline constexpr u32 kPackFormat = 1;
 // Block texture sizes a pack may declare (Section 15.2).

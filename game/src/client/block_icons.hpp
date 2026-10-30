@@ -41,6 +41,9 @@ public:
     [[nodiscard]] std::string_view iconOf(vxe::voxel::BlockStateId state) const;
 
 private:
+    void bakePlant(const BlockCatalog& catalog, const FindTexture& find, const BlockDefinition& block,
+                   const vxe::voxel::BlockRenderInfo& info);
+
     std::vector<Icon> m_icons;
     std::vector<vxe::u32> m_iconOfState; // Index into m_icons plus 1, per state.
 };

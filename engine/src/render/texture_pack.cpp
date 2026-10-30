@@ -24,6 +24,10 @@
 #include <utility>
 
 namespace vxe::render {
+
+std::string textureFile(std::string_view key) {
+    return key.find('/') == std::string_view::npos ? std::format("blocks/{}", key) : std::string(key);
+}
 namespace {
 
 constexpr u32 kMagenta = 0xFFFF00FFU;
@@ -243,7 +247,7 @@ Found findImage(std::span<const PackSource* const> stack, const std::string& png
 
 // Game ticks per frame from blocks/<key>.anim.toml ("frametime"), 1 without it.
 u32 frameTicks(const PackSource& source, const std::string& key, std::vector<std::string>& warnings) {
-    const auto anim = source.read(std::format("blocks/{}.anim.toml", key));
+    const auto anim = source.read(std::format("{}.anim.toml", textureFile(key)));
     if (!anim) {
         return 1;
     }
@@ -494,7 +498,8 @@ BlockTextureData buildBlockTextures(std::span<const PackSource* const> stack,
     data.animations.assign(keys.size(), 0);
     data.sources.assign(keys.size(), std::string());
     for (usize k = 0; k < keys.size(); ++k) {
-        const auto [source, image] = findImage(stack, std::format("blocks/{}.png", keys[k]), data.warnings);
+        const auto [source, image] =
+            findImage(stack, std::format("{}.png", textureFile(keys[k])), data.warnings);
         if (!image) {
             layers[k].pixels = checker(data.resolution);
             continue;

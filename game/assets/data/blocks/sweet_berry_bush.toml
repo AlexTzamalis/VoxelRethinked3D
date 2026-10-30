@@ -1,0 +1,5 @@
+name = "sweet_berry_bush"
+display_name = "Sweet Berry Bush"
+category = "Plants"
+layer = "plant"
+variations = ["foliage/sweet_berry_bush_stage0", "foliage/sweet_berry_bush_stage1", "foliage/sweet_berry_bush_stage2", "foliage/sweet_berry_bush_stage3"]

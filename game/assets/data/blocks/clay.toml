@@ -1,0 +1,7 @@
+name = "clay"
+display_name = "Clay"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "clay"

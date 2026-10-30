@@ -89,6 +89,7 @@ DemoWorld::DemoWorld(const DemoWorldDesc& desc, const DemoBlocks& blocks)
                                                                                  .sink = chunkSink,
                                                                                  .blocks = desc.blocks,
                                                                                  .stats = desc.stats,
+                                                                                 .variationSeed = desc.seed,
                                                                                  .minChunkY = kMinChunkY,
                                                                                  .maxChunkY = kMaxChunkY});
     m_streaming->startBurst();

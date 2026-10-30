@@ -1,0 +1,7 @@
+name = "tall_grass"
+display_name = "Tall Grass"
+category = "Plants"
+layer = "plant"
+tint = 1
+tall_top = "tall_grass_top"
+variations = ["foliage/tall_grass_bottom", "foliage/tall_grass_bottoms", "foliage/tall_grass_bottom2", "foliage/tall_grass_bottom2s", "foliage/tall_grass_bottom3", "foliage/tall_grass_bottom3s", "foliage/tall_grass_bottom4", "foliage/tall_grass_bottom4s"]

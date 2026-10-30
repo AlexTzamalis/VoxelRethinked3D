@@ -1,0 +1,5 @@
+name = "tall_dry_grass"
+display_name = "Tall Dry Grass"
+category = "Plants"
+layer = "plant"
+variations = ["foliage/tall_dry_grass"]

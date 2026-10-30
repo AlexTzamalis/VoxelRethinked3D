@@ -1,0 +1,7 @@
+name = "large_fern_top"
+display_name = "Large Fern"
+category = "Plants"
+layer = "plant"
+tint = 1
+hidden = true
+variations = ["foliage/large_fern_top", "foliage/large_fern_tops", "foliage/large_fern_top2", "foliage/large_fern_top2s", "foliage/large_fern_top3", "foliage/large_fern_top3s", "foliage/large_fern_top4", "foliage/large_fern_top4s"]

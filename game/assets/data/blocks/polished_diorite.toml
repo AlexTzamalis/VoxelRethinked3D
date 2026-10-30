@@ -1,0 +1,7 @@
+name = "polished_diorite"
+display_name = "Polished Diorite"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "polished_diorite"

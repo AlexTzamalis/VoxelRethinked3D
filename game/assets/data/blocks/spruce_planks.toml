@@ -1,0 +1,7 @@
+name = "spruce_planks"
+display_name = "Spruce Planks"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "spruce_planks"

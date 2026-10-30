@@ -1,0 +1,7 @@
+name = "polished_andesite"
+display_name = "Polished Andesite"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "polished_andesite"
