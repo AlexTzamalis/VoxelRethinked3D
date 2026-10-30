@@ -84,6 +84,22 @@ struct LodManagerDesc {
     stats::StatRegistry* stats = nullptr; // Optional.
 };
 
+// The far terrain settings (Graphics.LOD) and their quality presets. The
+// manager registers them, and a game registers them at startup too, so that
+// its settings menu shows them while no world exists.
+struct LodSettings {
+    explicit LodSettings(config::SettingsRegistry& settings);
+
+    config::Setting<bool> enabled;
+    config::Setting<i32> levels;
+    config::Setting<i32> halfExtent;
+    config::Setting<i32> maxSpans;
+    config::Setting<bool> caves;
+    config::Setting<i32> maxJobs;
+    config::Setting<bool> freeze;
+    config::Setting<bool> showQueue;
+};
+
 // Keeps the LOD tiles around the camera ready (Section 13.4): follows the
 // clipmap (LodClipmap) and, for every tile it wants, tries the cache on an IO
 // thread, samples the tile on a worker when the cache misses (low priority,
@@ -200,7 +216,6 @@ private:
         }
     };
 
-    void registerSettings(config::SettingsRegistry& settings);
     void registerStats();
     [[nodiscard]] u64 currentHash() const;
     void clearAll();
@@ -224,14 +239,7 @@ private:
     LodTileSink* m_sink;
     stats::StatRegistry* m_stats;
 
-    config::Setting<bool> m_enabled;
-    config::Setting<i32> m_levels;
-    config::Setting<i32> m_halfExtent;
-    config::Setting<i32> m_maxSpans;
-    config::Setting<bool> m_caves;
-    config::Setting<i32> m_maxJobs;
-    config::Setting<bool> m_freeze;
-    config::Setting<bool> m_showQueue;
+    LodSettings m_settings;
 
     LodClipmap m_clipmap;
     LodClipmapDesc m_appliedDesc;

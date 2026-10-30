@@ -292,7 +292,10 @@ TEST_CASE("Chunks leaving the range cancel their load jobs") {
 TEST_CASE("Uploads over the sink's budget wait for the next frame") {
     Rig rig;
     // Nothing goes out until at least 3 meshes wait, so the budget is what
-    // limits the next frame, not how fast the mesh jobs happen to finish.
+    // limits the next frame, not how fast the mesh jobs happen to finish. The
+    // main thread budget stays out of the way: a slow frame (sanitizers, a
+    // busy machine) would otherwise stop uploads before the sink's budget does.
+    REQUIRE(rig.settings.set("World.Streaming.MainThreadBudgetMs", config::SettingValue{8.0F}).hasValue());
     rig.sink.budget = 0;
     const Stopwatch clock;
     while (rig.manager->counts().at(ChunkStage::Uploading) < 3 && clock.elapsedMilliseconds() < 10000.0) {

@@ -93,6 +93,9 @@ public:
 
     // Sets the choice without calling the change handler.
     void setIndex(usize index);
+    // Shows text that is none of the choices (a preset row's "Custom") until
+    // the next setIndex or step. No handler runs.
+    void showOffList(std::string text);
     [[nodiscard]] usize index() const noexcept { return m_index; }
     void setOnChange(std::function<void(usize)> onChange) { m_onChange = std::move(onChange); }
 
@@ -109,9 +112,13 @@ public:
 
 private:
     void step(i32 direction);
+    [[nodiscard]] const std::string& shownText() const noexcept {
+        return m_offList.empty() ? m_choices[m_index] : m_offList;
+    }
 
     std::vector<std::string> m_choices;
     usize m_index;
+    std::string m_offList;
     std::function<void(usize)> m_onChange;
     mutable f32 m_textWidth = 0.0F;
     bool m_hovered = false;

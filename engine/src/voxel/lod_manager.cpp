@@ -31,10 +31,10 @@ LodManager::LodManager(const LodManagerDesc& desc)
     , m_cache(desc.cache)
     , m_sink(desc.sink)
     , m_stats(desc.stats)
+    , m_settings(*desc.settings)
     , m_clipmap(LodClipmapDesc{}) {
     VXE_ASSERT(desc.jobs != nullptr && desc.settings != nullptr && desc.sampler != nullptr,
                "LodManager needs jobs, settings and a sampler");
-    registerSettings(*desc.settings);
     registerStats();
     m_appliedDesc = clipmapDesc();
     m_clipmap = LodClipmap(m_appliedDesc);
@@ -49,7 +49,7 @@ LodManager::~LodManager() {
     m_jobs.wait(m_jobCounter);
 }
 
-void LodManager::registerSettings(config::SettingsRegistry& settings) {
+LodSettings::LodSettings(config::SettingsRegistry& settings) {
     const auto integer = [&settings](std::string_view id, std::string_view name, std::string_view description,
                                      i32 value, i32 min, i32 max, i32 step, config::Visibility visibility) {
         return settings.registerInt(
@@ -59,37 +59,37 @@ void LodManager::registerSettings(config::SettingsRegistry& settings) {
              max,
              step});
     };
-    m_enabled = settings.registerBool({{.id = "Graphics.LOD.Enabled",
-                                        .displayName = "Far terrain",
-                                        .description = "Shows terrain far beyond the loaded chunks, sampled "
-                                                       "from the world seed (Section 13)."},
-                                       true});
-    m_levels = integer("Graphics.LOD.Levels", "Far terrain levels",
-                       "How many levels of detail. Each level doubles the cell size and the reach.", 6, 1, 12,
-                       1, config::Visibility::Normal);
-    m_halfExtent = integer("Graphics.LOD.HalfExtentTiles", "Far terrain level size",
-                           "Tiles from the camera to the edge of each level. More is farther and smoother "
-                           "between levels, and costs tiles. Odd values count as the even value below.",
-                           4, 2, 16, 2, config::Visibility::Advanced);
-    m_maxSpans = integer("Graphics.LOD.MaxSpansPerCell", "Far terrain spans per cell",
-                         "Vertical runs of terrain per cell: more keeps overhangs and floating islands.", 4,
-                         1, static_cast<i32>(kLodMaxSpansPerCell), 1, config::Visibility::Advanced);
-    m_caves = settings.registerBool({{.id = "Graphics.LOD.CavesInLod",
-                                      .displayName = "Caves in far terrain",
-                                      .description = "Carves caves into far terrain. Rarely visible from "
-                                                     "far away, and slower to sample.",
-                                      .visibility = config::Visibility::Advanced},
-                                     false});
-    m_maxJobs = integer("Graphics.LOD.MaxJobsInFlight", "Far terrain jobs",
-                        "Tiles loaded or sampled at the same time. They run below chunk work.", 4, 1,
-                        kMaxSlots, 1, config::Visibility::Developer);
-    m_freeze =
+    enabled = settings.registerBool({{.id = "Graphics.LOD.Enabled",
+                                      .displayName = "Far terrain",
+                                      .description = "Shows terrain far beyond the loaded chunks, sampled "
+                                                     "from the world seed (Section 13)."},
+                                     true});
+    levels = integer("Graphics.LOD.Levels", "Far terrain levels",
+                     "How many levels of detail. Each level doubles the cell size and the reach.", 6, 1, 12,
+                     1, config::Visibility::Normal);
+    halfExtent = integer("Graphics.LOD.HalfExtentTiles", "Far terrain level size",
+                         "Tiles from the camera to the edge of each level. More is farther and smoother "
+                         "between levels, and costs tiles. Odd values count as the even value below.",
+                         4, 2, 16, 2, config::Visibility::Advanced);
+    maxSpans = integer("Graphics.LOD.MaxSpansPerCell", "Far terrain spans per cell",
+                       "Vertical runs of terrain per cell: more keeps overhangs and floating islands.", 4, 1,
+                       static_cast<i32>(kLodMaxSpansPerCell), 1, config::Visibility::Advanced);
+    caves = settings.registerBool({{.id = "Graphics.LOD.CavesInLod",
+                                    .displayName = "Caves in far terrain",
+                                    .description = "Carves caves into far terrain. Rarely visible from "
+                                                   "far away, and slower to sample.",
+                                    .visibility = config::Visibility::Advanced},
+                                   false});
+    maxJobs = integer("Graphics.LOD.MaxJobsInFlight", "Far terrain jobs",
+                      "Tiles loaded or sampled at the same time. They run below chunk work.", 4, 1, kMaxSlots,
+                      1, config::Visibility::Developer);
+    freeze =
         settings.registerBool({{.id = "Debug.LOD.Freeze",
                                 .displayName = "Freeze far terrain",
                                 .description = "Keeps the far terrain where it is while the camera moves.",
                                 .visibility = config::Visibility::Developer},
                                false});
-    m_showQueue =
+    showQueue =
         settings.registerBool({{.id = "Debug.LOD.ShowQueue",
                                 .displayName = "Show far terrain queue",
                                 .description = "Outlines far terrain tiles waiting (white) and in work "
@@ -99,9 +99,9 @@ void LodManager::registerSettings(config::SettingsRegistry& settings) {
     // Quality presets (Section 16.2). Reach: the coarsest level ends (half
     // extent - 1) to (half extent) of its tiles from the camera, a tile of
     // level L being 64 * 2^L blocks.
-    const auto preset = [&settings](std::string_view name, i32 levels, i32 half, i32 spans) {
+    const auto preset = [&settings](std::string_view name, i32 levelCount, i32 half, i32 spans) {
         settings.definePreset("Graphics.LOD", name,
-                              {{"Graphics.LOD.Levels", config::SettingValue{levels}},
+                              {{"Graphics.LOD.Levels", config::SettingValue{levelCount}},
                                {"Graphics.LOD.HalfExtentTiles", config::SettingValue{half}},
                                {"Graphics.LOD.MaxSpansPerCell", config::SettingValue{spans}}});
     };
@@ -155,14 +155,15 @@ void LodManager::registerStats() {
 }
 
 LodClipmapDesc LodManager::clipmapDesc() const {
-    const i32 half = std::max(2, m_halfExtent.get() & ~1);
-    const i32 levels = std::clamp(m_levels.get(), 1, static_cast<i32>(kLodMaxLevel));
+    const i32 half = std::max(2, m_settings.halfExtent.get() & ~1);
+    const i32 levels = std::clamp(m_settings.levels.get(), 1, static_cast<i32>(kLodMaxLevel));
     return {.firstLevel = kLodMinLevel, .levels = static_cast<u8>(levels), .halfExtentTiles = half};
 }
 
 LodSampleOptions LodManager::sampleOptions() const {
-    return {.maxSpansPerCell = static_cast<u32>(std::clamp<i32>(m_maxSpans.get(), 1, kLodMaxSpansPerCell)),
-            .caves = m_caves.get()};
+    return {.maxSpansPerCell =
+                static_cast<u32>(std::clamp<i32>(m_settings.maxSpans.get(), 1, kLodMaxSpansPerCell)),
+            .caves = m_settings.caves.get()};
 }
 
 u64 lodCacheHash(u64 samplerHash, const LodSampleOptions& options) noexcept {
@@ -179,7 +180,7 @@ void LodManager::update(const DVec3& cameraPosition) {
     m_camera = cameraPosition;
     collect();
     processEdits();
-    if (!m_enabled.get()) {
+    if (!m_settings.enabled.get()) {
         if (m_wasEnabled) {
             clearAll();
         }
@@ -196,8 +197,8 @@ void LodManager::update(const DVec3& cameraPosition) {
         m_appliedDesc = desc;
         m_clipmap.setDesc(desc);
     }
-    if (!m_freeze.get() && m_clipmap.update(static_cast<i64>(std::floor(cameraPosition.x)),
-                                            static_cast<i64>(std::floor(cameraPosition.z)))) {
+    if (!m_settings.freeze.get() && m_clipmap.update(static_cast<i64>(std::floor(cameraPosition.x)),
+                                                     static_cast<i64>(std::floor(cameraPosition.z)))) {
         applyClipmapChanges();
     }
     retire();
@@ -393,7 +394,7 @@ void LodManager::schedule() {
     if (m_queueDirty) {
         sortQueue();
     }
-    const auto limit = static_cast<usize>(std::clamp(m_maxJobs.get(), 1, kMaxSlots));
+    const auto limit = static_cast<usize>(std::clamp(m_settings.maxJobs.get(), 1, kMaxSlots));
     while (m_queueHead < m_queue.size() && m_busySlots.size() < limit) {
         const LodTileKey key = m_queue[m_queueHead++];
         const auto it = m_wanted.find(key);
@@ -629,7 +630,7 @@ void LodManager::runEdit(Edit& edit) {
 }
 
 void LodManager::drawDebug(render::DebugDraw& draw) const {
-    if (!m_showQueue.get()) {
+    if (!m_settings.showQueue.get()) {
         return;
     }
     constexpr u32 kQueued = render::debugColor(255, 255, 255, 200);

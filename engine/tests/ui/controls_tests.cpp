@@ -11,6 +11,7 @@
 #include <doctest/doctest.h>
 
 #include <memory>
+#include <ranges>
 #include <string>
 #include <vector>
 
@@ -111,6 +112,16 @@ TEST_CASE("Sliders snap to their step and follow the pointer and the arrows") {
     Slider fine(0.0, 1.0, 0.05, 0.25);
     fine.setValue(0.333);
     CHECK(fine.value() == doctest::Approx(0.35));
+}
+
+TEST_CASE("Cycle buttons show text outside their choices until the next choice") {
+    CycleButton cycle({"Low", "High"}, 0);
+    cycle.showOffList("Custom");
+    CHECK(cycle.index() == 0);
+    cycle.setIndex(0); // The same index still leaves the off list text.
+    cycle.showOffList("Custom");
+    cycle.activate();
+    CHECK(cycle.index() == 1);
 }
 
 TEST_CASE("Cycle buttons go through their choices") {
@@ -254,6 +265,78 @@ TEST_CASE("The settings view builds a row for every setting and keeps them in sy
     view.setFilter("nothing like this");
     CHECK(view.rowCount() == 0);
     static_cast<void>(vsync);
+}
+
+TEST_CASE("The settings view picks presets, searches and resets a page") {
+    Fixture ui;
+    config::SettingsRegistry& settings = ui.settings;
+    const auto quality = settings.registerInt(
+        {{.id = "Graphics.Quality", .displayName = "Quality", .description = {}}, 1, 0, 3, 1});
+    const auto far = settings.registerInt(
+        {{.id = "Graphics.Far.Reach", .displayName = "Reach", .description = {}}, 2, 0, 9, 1});
+    static_cast<void>(
+        settings.registerInt({{.id = "Video.Gamma", .displayName = "Gamma", .description = {}}, 5, 0, 9, 1}));
+    settings.definePreset("Graphics", "Low", {{"Graphics.Quality", config::SettingValue{0}}});
+    settings.definePreset("Graphics", "High", {{"Graphics.Quality", config::SettingValue{3}}});
+    settings.definePreset("Graphics.Far", "Short", {{"Graphics.Far.Reach", config::SettingValue{1}}});
+    settings.definePreset("Graphics.Far", "Long", {{"Graphics.Far.Reach", config::SettingValue{9}}});
+
+    auto& view = ui.context->root().add<SettingsView>(settings, SettingsViewOptions{.searchBox = true});
+    view.style().width = 600.0F;
+    view.style().height = 400.0F;
+    view.showGroup("Graphics");
+    ui.frame();
+    CHECK(view.rowCount() == 2);
+
+    // One preset row for the group and one for its sub category, in that order.
+    std::vector<CycleButton*> presets;
+    std::vector<Widget*> stack{&view};
+    while (!stack.empty()) {
+        Widget* widget = stack.back();
+        stack.pop_back();
+        if (auto* cycle = dynamic_cast<CycleButton*>(widget); cycle != nullptr) {
+            presets.push_back(cycle);
+        }
+        for (const auto& child : std::ranges::reverse_view(widget->children())) {
+            stack.push_back(child.get());
+        }
+    }
+    REQUIRE(presets.size() == 2);
+    // No preset matches the defaults yet: a press still picks one.
+    presets[0]->activate();
+    CHECK(quality.get() == 3);
+    CHECK(settings.currentPreset("Graphics") == "High");
+    presets[0]->activate();
+    CHECK(quality.get() == 0);
+    presets[1]->activate();
+    CHECK(far.get() == 9);
+
+    // Changing a value elsewhere leaves the preset; the row catches up.
+    CHECK(settings.set("Graphics.Far.Reach", config::SettingValue{4}).hasValue());
+    view.refresh();
+    CHECK(settings.currentPreset("Graphics.Far") == "Custom");
+    presets[1]->activate(); // From Custom a press picks a preset again.
+    CHECK((far.get() == 1 || far.get() == 9));
+
+    CHECK(view.pageChanged());
+    view.resetPage();
+    CHECK(quality.get() == 1);
+    CHECK(far.get() == 2);
+    CHECK_FALSE(view.pageChanged());
+
+    // The box searches every group; picking a group ends the search.
+    REQUIRE(view.searchBox() != nullptr);
+    view.setFilter("gamma");
+    ui.frame();
+    CHECK(view.rowCount() == 1);
+    view.showGroup("Video");
+    ui.frame();
+    CHECK(view.filter().empty());
+    CHECK(view.searchBox()->text().empty());
+    CHECK(view.rowCount() == 1);
+    view.setFilter("nothing like this");
+    ui.frame();
+    CHECK(view.rowCount() == 0);
 }
 
 TEST_CASE("Names from ids read as words") {

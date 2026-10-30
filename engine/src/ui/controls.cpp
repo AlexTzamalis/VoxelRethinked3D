@@ -176,8 +176,18 @@ void Slider::draw(DrawContext& context) const {
     context.fillRect({knobX, inner.y, kSliderKnob, inner.height}, theme.colors.text);
     if (const PixelFont* font = context.font(); font != nullptr) {
         const f32 width = std::ceil(font->measure(m_text).width);
-        context.text(m_text, box.x + std::floor((box.width - width) / 2.0F),
-                     box.y + std::floor((box.height - kFontCellPixels) / 2.0F), theme.colors.text, true);
+        // Centered, unless the knob would hide it: then in the middle of the
+        // wider side next to the knob.
+        f32 x = box.x + std::floor((box.width - width) / 2.0F);
+        if (x < knobX + kSliderKnob && x + width > knobX) {
+            const f32 leftWidth = knobX - inner.x;
+            const f32 rightStart = knobX + kSliderKnob;
+            const f32 rightWidth = inner.x + inner.width - rightStart;
+            x = leftWidth > rightWidth ? inner.x + std::floor((leftWidth - width) / 2.0F)
+                                       : rightStart + std::floor((rightWidth - width) / 2.0F);
+        }
+        context.text(m_text, x, box.y + std::floor((box.height - kFontCellPixels) / 2.0F), theme.colors.text,
+                     true);
     }
 }
 
@@ -220,9 +230,17 @@ CycleButton::CycleButton(std::vector<std::string> choices, usize index, std::fun
     , m_onChange(std::move(onChange)) {}
 
 void CycleButton::setIndex(usize index) {
-    if (index < m_choices.size() && index != m_index) {
+    if (index < m_choices.size() && (index != m_index || !m_offList.empty())) {
         m_index = index;
+        m_offList.clear();
         invalidateLayout(); // The text width changes.
+    }
+}
+
+void CycleButton::showOffList(std::string text) {
+    if (text != m_offList) {
+        m_offList = std::move(text);
+        invalidateLayout();
     }
 }
 
@@ -231,6 +249,7 @@ void CycleButton::step(i32 direction) {
         return;
     }
     const usize count = m_choices.size();
+    m_offList.clear();
     m_index = direction > 0 ? (m_index + 1) % count : (m_index + count - 1) % count;
     invalidateLayout();
     if (m_onChange) {
@@ -246,8 +265,7 @@ Size CycleButton::measureContent(const UiEnvironment& environment, f32 /*availab
         for (const std::string& choice : m_choices) {
             widest = std::max(widest, std::ceil(environment.font->measure(choice).width));
         }
-        m_textWidth =
-            m_choices.empty() ? 0.0F : std::ceil(environment.font->measure(m_choices[m_index]).width);
+        m_textWidth = m_choices.empty() ? 0.0F : std::ceil(environment.font->measure(shownText()).width);
     }
     // As wide as the widest choice, so the button does not jump while cycling.
     return {std::max(metrics.buttonMinWidth, widest + 2.0F * metrics.buttonPadding), metrics.buttonHeight};
@@ -278,7 +296,7 @@ void CycleButton::draw(DrawContext& context) const {
     const PixelFont* font = context.font();
     if (!m_choices.empty() && font != nullptr) {
         // Room for the arrows on both sides; longer choices end in "...".
-        const std::string text = font->ellipsize(m_choices[m_index], box.width - 2.0F * kArrowSpace);
+        const std::string text = font->ellipsize(shownText(), box.width - 2.0F * kArrowSpace);
         const f32 width = std::ceil(font->measure(text).width);
         context.text(text, box.x + std::floor((box.width - width) / 2.0F), y, theme.colors.text, true);
     }

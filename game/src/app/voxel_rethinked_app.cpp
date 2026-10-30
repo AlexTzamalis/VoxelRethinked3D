@@ -188,20 +188,24 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
              m_screens->push(std::make_unique<KeybindsScreen>(menuServices(context)));
              return output;
          }});
-    // Opens the settings screen over the pause menu (captures, quick access).
+    // Opens the settings screen over the menu or the pause menu (captures,
+    // quick access), at a group and with a search if given.
     context.commands.registerCommand(
         {.name = "settings",
-         .usage = "settings [group]",
-         .description = "Opens the settings screen at a group (pause the game first).",
+         .usage = "settings [group] [search]",
+         .description = "Opens the settings screen at a group (at the menu or paused).",
          .handler = [this, &context](std::span<const std::string> arguments) {
              vxe::config::CommandOutput output;
-             if (m_states.current() != GameState::Paused || !m_screens || m_screens->empty()) {
+             const GameState state = m_states.current();
+             if ((state != GameState::Paused && state != GameState::MainMenu) || !m_screens ||
+                 m_screens->empty()) {
                  output.lines.emplace_back("Pause the game first (pause).");
                  output.success = false;
                  return output;
              }
              m_screens->push(std::make_unique<SettingsScreen>(
-                 menuServices(context), arguments.empty() ? std::string() : arguments.front()));
+                 menuServices(context), arguments.empty() ? std::string() : arguments.front(),
+                 arguments.size() < 2 ? std::string() : arguments[1]));
              return output;
          }});
     // Opens the sample confirmation dialog, to look at dialogs while the

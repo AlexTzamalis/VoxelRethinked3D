@@ -74,6 +74,11 @@ std::optional<ChunkPos> offsetPosition(ChunkPos position, i64 dx, i64 dy, i64 dz
 // Every manager gets its own id, so a worker thread's cached mesher (which
 // records into that manager's stat registry) is never reused for another
 // manager whose registry may be a different one, or gone.
+// Slot indices are 16 bits.
+u32 clampedSlots(u32 slots) noexcept {
+    return std::clamp<u32>(slots, 1, std::numeric_limits<u16>::max());
+}
+
 u64 nextManagerId() noexcept {
     static std::atomic<u64> next{1};
     return next.fetch_add(1, std::memory_order_relaxed);
@@ -106,17 +111,17 @@ StreamingManager::StreamingManager(const StreamingDesc& desc)
     , m_minChunkY(desc.minChunkY)
     , m_maxChunkY(desc.maxChunkY)
     , m_id(nextManagerId())
-    , m_mesherSettings(*desc.settings) {
+    , m_mesherSettings(*desc.settings)
+    , m_settings(*desc.settings, clampedSlots(desc.loadSlots), clampedSlots(desc.meshSlots),
+                 clampedSlots(desc.lightSlots)) {
     VXE_ASSERT(desc.world != nullptr && desc.source != nullptr && desc.jobs != nullptr &&
                    desc.settings != nullptr,
                "StreamingManager needs a world, a source, jobs and settings");
     VXE_ASSERT(desc.sink == nullptr || desc.blocks != nullptr, "Meshing needs the block registry");
     VXE_ASSERT(desc.minChunkY <= desc.maxChunkY, "The world needs at least one chunk layer");
-    constexpr u32 kMaxSlots = std::numeric_limits<u16>::max();
-    const u32 loadSlots = std::clamp<u32>(desc.loadSlots, 1, kMaxSlots);
-    const u32 meshSlots = std::clamp<u32>(desc.meshSlots, 1, kMaxSlots);
-    const u32 lightSlots = std::clamp<u32>(desc.lightSlots, 1, kMaxSlots);
-    registerSettings(*desc.settings, loadSlots, meshSlots, lightSlots);
+    const u32 loadSlots = clampedSlots(desc.loadSlots);
+    const u32 meshSlots = clampedSlots(desc.meshSlots);
+    const u32 lightSlots = clampedSlots(desc.lightSlots);
     registerStats();
 
     m_loadSlots.reserve(loadSlots);
@@ -147,7 +152,7 @@ StreamingManager::StreamingManager(const StreamingDesc& desc)
             m_freeLightSlots.push_back(static_cast<u16>(lightSlots - 1 - i));
         }
     }
-    m_blockLightOn = m_blockLight.get();
+    m_blockLightOn = m_settings.blockLight.get();
 }
 
 StreamingManager::~StreamingManager() {
@@ -163,8 +168,8 @@ StreamingManager::~StreamingManager() {
     m_jobs.wait(m_jobCounter);
 }
 
-void StreamingManager::registerSettings(config::SettingsRegistry& settings, u32 loadSlots, u32 meshSlots,
-                                        u32 lightSlots) {
+StreamingSettings::StreamingSettings(config::SettingsRegistry& settings, u32 loadSlots, u32 meshSlots,
+                                     u32 lightSlots) {
     const auto integer = [&settings](std::string_view id, std::string_view name, std::string_view description,
                                      i32 value, i32 min, i32 max, config::Visibility visibility) {
         return settings.registerInt(
@@ -174,43 +179,42 @@ void StreamingManager::registerSettings(config::SettingsRegistry& settings, u32 
              max,
              1});
     };
-    m_renderDistance =
-        integer("World.Streaming.RenderDistance", "Render distance",
-                "How far around the camera chunks are loaded and drawn, in chunks of 16 blocks.", 16, 2, 64,
-                config::Visibility::Normal);
-    m_verticalDistance = integer("World.Streaming.VerticalRenderDistance", "Vertical render distance",
-                                 "How far up and down chunks are loaded and drawn, in chunks.", 8, 1, 32,
-                                 config::Visibility::Normal);
-    m_maxLoadJobs = integer("World.Streaming.MaxLoadJobsInFlight", "Load jobs in flight",
-                            "Chunks generated or read at the same time. More fills the world in faster but "
-                            "delays other jobs.",
-                            std::min(48, static_cast<i32>(loadSlots)), 1, static_cast<i32>(loadSlots),
-                            config::Visibility::Advanced);
-    m_maxMeshJobs = integer("World.Streaming.MaxMeshJobsInFlight", "Mesh jobs in flight",
-                            "Chunks meshed or waiting for upload at the same time.",
-                            std::min(32, static_cast<i32>(meshSlots)), 1, static_cast<i32>(meshSlots),
-                            config::Visibility::Advanced);
-    m_maxLightJobs = integer("World.Streaming.MaxLightJobsInFlight", "Light jobs in flight",
-                             "Chunks lit at the same time. Only chunks near light sources need a job.",
-                             std::min(16, static_cast<i32>(lightSlots)), 1, static_cast<i32>(lightSlots),
-                             config::Visibility::Advanced);
-    m_blockLight = settings.registerBool({{.id = "Graphics.Lighting.BlockLight",
-                                           .displayName = "Block light",
-                                           .description = "Light from torches, lava and glowing blocks. Off "
-                                                          "leaves only sky light."},
-                                          true});
-    m_skyRelightDepth = integer("Graphics.Lighting.SkyRelightDepth", "Sky relight depth",
-                                "How many chunks below a change sky light is computed again. Deeper "
-                                "is more exact under tall overhangs and costs more per edit.",
-                                4, 0, 32, config::Visibility::Advanced);
-    m_maxChunks = integer("World.Streaming.MaxChunks", "Most chunks",
-                          "The most chunks loaded or waiting to load, a memory cap. Normally the render "
-                          "distance decides.",
-                          262144, 1024, 4194304, config::Visibility::Advanced);
-    m_unloadHysteresis = integer("World.Streaming.UnloadHysteresisChunks", "Unload margin",
-                                 "How many chunks past the render distance chunks stay, so moving back and "
-                                 "forth at the edge does not load them again and again.",
-                                 2, 0, 8, config::Visibility::Advanced);
+    renderDistance = integer("World.Streaming.RenderDistance", "Render distance",
+                             "How far around the camera chunks are loaded and drawn, in chunks of 16 blocks.",
+                             16, 2, 64, config::Visibility::Normal);
+    verticalDistance = integer("World.Streaming.VerticalRenderDistance", "Vertical render distance",
+                               "How far up and down chunks are loaded and drawn, in chunks.", 8, 1, 32,
+                               config::Visibility::Normal);
+    maxLoadJobs = integer("World.Streaming.MaxLoadJobsInFlight", "Load jobs in flight",
+                          "Chunks generated or read at the same time. More fills the world in faster but "
+                          "delays other jobs.",
+                          std::min(48, static_cast<i32>(loadSlots)), 1, static_cast<i32>(loadSlots),
+                          config::Visibility::Advanced);
+    maxMeshJobs = integer("World.Streaming.MaxMeshJobsInFlight", "Mesh jobs in flight",
+                          "Chunks meshed or waiting for upload at the same time.",
+                          std::min(32, static_cast<i32>(meshSlots)), 1, static_cast<i32>(meshSlots),
+                          config::Visibility::Advanced);
+    maxLightJobs = integer("World.Streaming.MaxLightJobsInFlight", "Light jobs in flight",
+                           "Chunks lit at the same time. Only chunks near light sources need a job.",
+                           std::min(16, static_cast<i32>(lightSlots)), 1, static_cast<i32>(lightSlots),
+                           config::Visibility::Advanced);
+    blockLight = settings.registerBool({{.id = "Graphics.Lighting.BlockLight",
+                                         .displayName = "Block light",
+                                         .description = "Light from torches, lava and glowing blocks. Off "
+                                                        "leaves only sky light."},
+                                        true});
+    skyRelightDepth = integer("Graphics.Lighting.SkyRelightDepth", "Sky relight depth",
+                              "How many chunks below a change sky light is computed again. Deeper "
+                              "is more exact under tall overhangs and costs more per edit.",
+                              4, 0, 32, config::Visibility::Advanced);
+    maxChunks = integer("World.Streaming.MaxChunks", "Most chunks",
+                        "The most chunks loaded or waiting to load, a memory cap. Normally the render "
+                        "distance decides.",
+                        262144, 1024, 4194304, config::Visibility::Advanced);
+    unloadHysteresis = integer("World.Streaming.UnloadHysteresisChunks", "Unload margin",
+                               "How many chunks past the render distance chunks stay, so moving back and "
+                               "forth at the edge does not load them again and again.",
+                               2, 0, 8, config::Visibility::Advanced);
     config::EnumSettingDesc<LoadOrder> order;
     order.id = "World.Streaming.LoadOrder";
     order.displayName = "Load order";
@@ -218,18 +222,18 @@ void StreamingManager::registerSettings(config::SettingsRegistry& settings, u32 
     order.visibility = config::Visibility::Advanced;
     order.defaultValue = LoadOrder::ViewFirst;
     order.options = kOrders;
-    m_loadOrder = settings.registerEnum(order);
-    m_budgetMs = settings.registerFloat({{.id = "World.Streaming.MainThreadBudgetMs",
-                                          .displayName = "Main thread budget",
-                                          .description = "Most time per frame the main thread spends on "
-                                                         "streaming, in milliseconds. The rest waits for the "
-                                                         "next frame.",
-                                          .visibility = config::Visibility::Advanced},
-                                         0.5F,
-                                         0.05F,
-                                         8.0F,
-                                         0.05F});
-    m_burstSeconds =
+    loadOrder = settings.registerEnum(order);
+    budgetMs = settings.registerFloat({{.id = "World.Streaming.MainThreadBudgetMs",
+                                        .displayName = "Main thread budget",
+                                        .description = "Most time per frame the main thread spends on "
+                                                       "streaming, in milliseconds. The rest waits for the "
+                                                       "next frame.",
+                                        .visibility = config::Visibility::Advanced},
+                                       0.5F,
+                                       0.05F,
+                                       8.0F,
+                                       0.05F});
+    burstSeconds =
         settings.registerFloat({{.id = "World.Streaming.BurstSeconds",
                                  .displayName = "Burst on world entry",
                                  .description = "How long entering a world streams with raised "
@@ -293,15 +297,16 @@ void StreamingManager::registerStats() {
 }
 
 i32 StreamingManager::renderDistance() const noexcept {
-    return std::max(m_renderDistance.get(), 1);
+    return std::max(m_settings.renderDistance.get(), 1);
 }
 
 i32 StreamingManager::verticalRenderDistance() const noexcept {
-    return std::max(m_verticalDistance.get(), 0);
+    return std::max(m_settings.verticalDistance.get(), 0);
 }
 
 u32 StreamingManager::loadLimit() const noexcept {
-    const auto limit = static_cast<u32>(std::max(m_maxLoadJobs.get(), 1)) * (m_bursting ? kBurstFactor : 1U);
+    const auto limit =
+        static_cast<u32>(std::max(m_settings.maxLoadJobs.get(), 1)) * (m_bursting ? kBurstFactor : 1U);
     return std::min(limit, static_cast<u32>(m_loadSlots.size()));
 }
 
@@ -310,12 +315,14 @@ usize StreamingManager::meshQueueCap() const noexcept {
 }
 
 u32 StreamingManager::meshLimit() const noexcept {
-    const auto limit = static_cast<u32>(std::max(m_maxMeshJobs.get(), 1)) * (m_bursting ? kBurstFactor : 1U);
+    const auto limit =
+        static_cast<u32>(std::max(m_settings.maxMeshJobs.get(), 1)) * (m_bursting ? kBurstFactor : 1U);
     return std::min(limit, static_cast<u32>(m_meshSlots.size()));
 }
 
 u32 StreamingManager::lightLimit() const noexcept {
-    const auto limit = static_cast<u32>(std::max(m_maxLightJobs.get(), 1)) * (m_bursting ? kBurstFactor : 1U);
+    const auto limit =
+        static_cast<u32>(std::max(m_settings.maxLightJobs.get(), 1)) * (m_bursting ? kBurstFactor : 1U);
     return std::min(limit, static_cast<u32>(m_lightSlots.size()));
 }
 
@@ -386,8 +393,8 @@ void StreamingManager::eraseEntry(ChunkPos position) {
 void StreamingManager::readSettings() {
     const i32 range = renderDistance();
     const i32 vertical = verticalRenderDistance();
-    const LoadOrder order = m_loadOrder.get();
-    const i32 hysteresis = std::max(m_unloadHysteresis.get(), 0);
+    const LoadOrder order = m_settings.loadOrder.get();
+    const i32 hysteresis = std::max(m_settings.unloadHysteresis.get(), 0);
     const bool rangeChanged = range != m_rangeR || vertical != m_rangeV || order != m_order;
     if (!rangeChanged && hysteresis == m_hysteresis) {
         return;
@@ -530,7 +537,7 @@ void StreamingManager::checkMeshInputs() {
         return;
     }
     const std::shared_ptr<const BlockRegistryView> view = m_blocks->current();
-    const bool blockLight = m_blockLight.get();
+    const bool blockLight = m_settings.blockLight.get();
     if (view != m_view || blockLight != m_blockLightOn) {
         // New block data can change what emits light and what blocks it.
         m_view = view;
@@ -563,7 +570,7 @@ void StreamingManager::update(const StreamingView& view) {
     VXE_PROFILE_FUNCTION();
     const Stopwatch stopwatch;
     const bool burst = m_bursting;
-    const f64 budgetMs = static_cast<f64>(m_budgetMs.get()) * (m_bursting ? kBurstFactor : 1U);
+    const f64 budgetMs = static_cast<f64>(m_settings.budgetMs.get()) * (m_bursting ? kBurstFactor : 1U);
     m_deadline =
         Clock::now() + std::chrono::duration_cast<Duration>(std::chrono::duration<f64, std::milli>(budgetMs));
 
@@ -959,7 +966,7 @@ void StreamingManager::processEditedChunks() {
 // light, from `above` chunks above it down to the sky relight depth below
 // the neighborhoods it is part of.
 void StreamingManager::relightBelow(ChunkPos position, i32 above) {
-    const i32 depth = std::max(m_skyRelightDepth.get(), 0);
+    const i32 depth = std::max(m_settings.skyRelightDepth.get(), 0);
     for (i32 dy = above; dy >= -1 - depth; --dy) {
         for (i32 dz = -1; dz <= 1; ++dz) {
             for (i32 dx = -1; dx <= 1; ++dx) {
@@ -1317,7 +1324,7 @@ void StreamingManager::requestChunks() {
         return;
     }
     const usize heapCap = std::max<usize>(kMinPending, usize{2} * loadLimit());
-    const auto chunkCap = static_cast<usize>(std::max(m_maxChunks.get(), 1));
+    const auto chunkCap = static_cast<usize>(std::max(m_settings.maxChunks.get(), 1));
     usize examined = 0;
     while (m_scanCursor < m_offsets.size()) {
         if (m_pending.size() >= heapCap || m_entries.size() >= chunkCap || examined >= kMaxScanPerUpdate) {
@@ -1378,8 +1385,8 @@ void StreamingManager::scheduleLoads() {
 
 void StreamingManager::startBurst() {
     m_bursting = true;
-    m_burstEnd = Clock::now() + std::chrono::duration_cast<Duration>(
-                                    std::chrono::duration<f64>(static_cast<f64>(m_burstSeconds.get())));
+    m_burstEnd = Clock::now() + std::chrono::duration_cast<Duration>(std::chrono::duration<f64>(
+                                    static_cast<f64>(m_settings.burstSeconds.get())));
     m_burstClock.restart();
     if (m_sink != nullptr) {
         m_sink->setBudgetScale(static_cast<f32>(kBurstFactor));

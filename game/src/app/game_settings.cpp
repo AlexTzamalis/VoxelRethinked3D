@@ -1,5 +1,9 @@
 #include "game_settings.hpp"
 
+#include <vxe/voxel/lod_manager.hpp>
+#include <vxe/voxel/mesher.hpp>
+#include <vxe/voxel/streaming.hpp>
+
 #include <string>
 
 namespace vr {
@@ -111,7 +115,28 @@ GameSettings::GameSettings(vxe::config::SettingsRegistry& settings)
                                 8,
                                 2,
                                 32,
-                                1})) {}
+                                1})) {
+    // These systems start with a world, but the menu's settings screen shows
+    // their settings with none loaded. Each registers the same settings again
+    // when a world starts.
+    static_cast<void>(vxe::voxel::StreamingSettings(settings));
+    static_cast<void>(vxe::voxel::LodSettings(settings));
+    static_cast<void>(vxe::voxel::MesherSettings(settings));
+    // The overall quality presets (Section 16.4); High is the defaults. G9.1
+    // tunes them on the reference hardware.
+    const auto quality = [&settings](std::string_view name, vxe::i32 renderDistance, vxe::i32 levels,
+                                     vxe::i32 spans) {
+        settings.definePreset("Graphics", name,
+                              {{"World.Streaming.RenderDistance", vxe::config::SettingValue{renderDistance}},
+                               {"Graphics.LOD.Levels", vxe::config::SettingValue{levels}},
+                               {"Graphics.LOD.HalfExtentTiles", vxe::config::SettingValue{4}},
+                               {"Graphics.LOD.MaxSpansPerCell", vxe::config::SettingValue{spans}}});
+    };
+    quality("Low", 8, 4, 2);
+    quality("Medium", 12, 5, 3);
+    quality("High", 16, 6, 4);
+    quality("Ultra", 32, 8, 4);
+}
 
 GameActions::GameActions(vxe::input::InputSystem& input)
     : global(input.registerContext({.name = "Global", .alwaysActive = true}))

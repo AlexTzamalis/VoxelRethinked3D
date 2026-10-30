@@ -2,6 +2,22 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#093] 2026-10-30, G4.2 Settings screen presets, search and page reset
+### Added
+- Quality presets in the settings screen: a row at the top of a group or category that has presets, showing Custom when the values match none. Overall presets Low to Ultra in the group Graphics (High is the defaults, G9.1 tunes them).
+- A search box above the settings; picking a group ends the search.
+- Reset page with a confirmation, for the settings on screen (Section 19.3's Reset category).
+- CycleButton::showOffList for text outside the choices.
+### Changed
+- StreamingSettings and LodSettings can be registered without their managers, and the game does so at startup: with no world behind the menu, the settings screen still shows every setting.
+- The settings console command also works at the menu and takes a search text.
+- The settings screen's button for the keybind screen is now called Keybinds; it read the same as the Controls group.
+### Fixed
+- A slider's value no longer disappears under its knob.
+- A streaming test failed about half the time in full AddressSanitizer runs: slow frames hit the main thread budget before the sink's budget, which is what the test measures. It now sets a generous main thread budget (6 of 6 full runs pass).
+### Docs
+- Correction for #092: that commit also carried hand edited default textures (dirt, gravel, stone, grass top, grass side and the grass side overlay), which its entry did not list.
+
 ## [#092] 2026-10-30, G4.1b Menu panorama image
 ### Added
 - The menu background is a baked 360 degree image from the texture pack (ui/panorama.jpg, packs can replace it) that turns slowly: UiRenderer::setPanorama and drawPanorama draw it as one window filling quad whose pixels look up their view ray, in true perspective and in the UI's one draw call. Without an image the menu shows the sky.

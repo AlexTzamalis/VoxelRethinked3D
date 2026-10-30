@@ -32,6 +32,19 @@ TEST_CASE("Game settings register in their categories with their defaults") {
     CHECK(game.fieldOfView.get() == 110);
 }
 
+TEST_CASE("World settings and quality presets exist with no world loaded") {
+    vxe::config::SettingsRegistry settings;
+    const vr::GameSettings game(settings);
+    CHECK(settings.value("World.Streaming.RenderDistance").hasValue());
+    CHECK(settings.value("Graphics.LOD.Levels").hasValue());
+    CHECK(settings.value("Graphics.Terrain.GreedyMerge").hasValue());
+    CHECK(settings.presetNames("Graphics") == std::vector<std::string>{"Low", "Medium", "High", "Ultra"});
+    CHECK(settings.currentPreset("Graphics") == "High"); // The defaults.
+    CHECK(settings.applyPreset("Graphics", "Ultra").hasValue());
+    CHECK(settings.currentPreset("Graphics") == "Ultra");
+    CHECK(settings.currentPreset("Graphics.LOD") == "Ultra");
+}
+
 TEST_CASE("Default actions follow Section 17.5 without conflicts") {
     vxe::input::InputSystem input;
     const vr::GameActions actions(input);

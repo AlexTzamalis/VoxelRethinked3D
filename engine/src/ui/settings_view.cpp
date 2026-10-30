@@ -101,8 +101,7 @@ std::vector<std::string> orderedSettingGroups(const config::SettingsRegistry& se
 SettingsView::SettingsView(config::SettingsRegistry& settings, SettingsViewOptions options)
     : m_settings(settings)
     , m_options(std::move(options))
-    , m_list(&add<Widget>())
-    , m_scroll(&add<ScrollView>()) {
+    , m_list(&add<Widget>()) {
     style().direction = Direction::Row;
     style().gap = 6.0F;
     style().grow = 1.0F;
@@ -117,10 +116,20 @@ SettingsView::SettingsView(config::SettingsRegistry& settings, SettingsViewOptio
     }
     m_list->style().width = kGroupListWidth;
     m_list->style().gap = 2.0F;
+    auto& column = add<Widget>();
+    column.style().grow = 1.0F;
+    column.style().shrink = 1.0F;
+    column.style().minWidth = 0.0F;
+    column.style().gap = 3.0F;
+    if (m_options.searchBox) {
+        m_search = &column.add<TextField>(m_options.filter, "Search settings");
+        m_search->setOnChange([this](const std::string& text) { setFilter(text); });
+    }
+    m_scroll = &column.add<ScrollView>();
     m_scroll->style().grow = 1.0F;
     m_scroll->add<Widget>().style().gap = 3.0F;
     buildGroupList();
-    showGroup(m_groups.empty() ? std::string() : m_groups.front());
+    selectGroup(m_groups.empty() ? std::string() : m_groups.front());
 }
 
 bool SettingsView::shows(const config::SettingInfo& info) const {
@@ -140,6 +149,14 @@ void SettingsView::buildGroupList() {
 }
 
 void SettingsView::showGroup(std::string group) {
+    m_options.filter.clear();
+    if (m_search != nullptr) {
+        m_search->setText({});
+    }
+    selectGroup(std::move(group));
+}
+
+void SettingsView::selectGroup(std::string group) {
     m_group = std::move(group);
     for (const auto& [name, button] : m_groupButtons) {
         button->setSelected(name == m_group && m_options.filter.empty());
@@ -150,14 +167,30 @@ void SettingsView::showGroup(std::string group) {
 
 void SettingsView::setFilter(std::string filter) {
     m_options.filter = std::move(filter);
-    showGroup(m_group);
+    selectGroup(m_group);
+}
+
+bool SettingsView::pageChanged() const {
+    return std::ranges::any_of(m_rows,
+                               [this](const Row& row) { return !m_settings.isDefault(row.info->id); });
+}
+
+void SettingsView::resetPage() {
+    for (const Row& row : m_rows) {
+        static_cast<void>(m_settings.reset(row.info->id));
+    }
+    refresh();
 }
 
 void SettingsView::buildPage() {
     Widget& page = *m_scroll->children().front();
     page.clearChildren();
     m_rows.clear();
+    m_presetRows.clear();
     const std::string needle = lowered(m_options.filter);
+    if (needle.empty()) {
+        addPresetRow(page, m_group);
+    }
     // Settings by category, in the order they were registered.
     std::map<std::string, std::vector<const config::SettingInfo*>> byCategory;
     std::vector<std::string> categoryOrder;
@@ -197,6 +230,9 @@ void SettingsView::buildPage() {
             }
             auto& header = page.add<Label>(spacedName(title), TextRole::Title);
             header.style().padding = Edges{0.0F, 4.0F, 0.0F, 1.0F};
+            if (needle.empty()) {
+                addPresetRow(page, category);
+            }
         }
         for (const config::SettingInfo* info : byCategory[category]) {
             addRow(page, *info);
@@ -207,6 +243,28 @@ void SettingsView::buildPage() {
                         TextRole::Muted);
     }
     refresh();
+}
+
+void SettingsView::addPresetRow(Widget& page, const std::string& group) {
+    std::vector<std::string> names = m_settings.presetNames(group);
+    if (names.empty()) {
+        return;
+    }
+    auto& row = page.add<Widget>();
+    row.style().direction = Direction::Row;
+    row.style().align = Align::Center;
+    row.style().gap = 4.0F;
+    auto& name = row.add<Label>(group == m_group ? "Quality preset" : "Preset");
+    name.style().grow = 1.0F;
+    row.add<InfoBadge>("Sets the settings below together. Custom means they match no preset.");
+    // The callback holds the row's index: rows live as long as the page.
+    auto& cycle = row.add<CycleButton>(names, 0, [this, index = m_presetRows.size()](usize choice) {
+        const PresetRow& preset = m_presetRows[index];
+        static_cast<void>(m_settings.applyPreset(preset.group, preset.names[choice]));
+    });
+    cycle.style().width = kControlWidth;
+    cycle.style().shrink = 0.0F;
+    m_presetRows.push_back({.group = group, .names = std::move(names), .button = &cycle});
 }
 
 void SettingsView::addRow(Widget& page, const config::SettingInfo& info) {
@@ -302,6 +360,15 @@ void SettingsView::addRow(Widget& page, const config::SettingInfo& info) {
 }
 
 void SettingsView::refresh() {
+    for (const PresetRow& preset : m_presetRows) {
+        const std::string current = m_settings.currentPreset(preset.group);
+        const auto found = std::ranges::find(preset.names, current);
+        if (found == preset.names.end()) {
+            preset.button->showOffList(current);
+        } else {
+            preset.button->setIndex(static_cast<usize>(found - preset.names.begin()));
+        }
+    }
     for (const Row& row : m_rows) {
         const auto value = m_settings.value(row.info->id);
         if (!value) {

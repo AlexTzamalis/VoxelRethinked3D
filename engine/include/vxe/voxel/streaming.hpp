@@ -91,6 +91,29 @@ struct StreamingDesc {
     u32 lightSlots = 64;
 };
 
+// The streaming settings (World.Streaming and the light job settings). The
+// manager registers them, and a game registers them at startup too, so that
+// its settings menu shows them while no world exists. Registering a setting
+// again returns the same setting, so both can happen. The slot counts must
+// match the manager's: they cap the in flight settings.
+struct StreamingSettings {
+    explicit StreamingSettings(config::SettingsRegistry& settings, u32 loadSlots = 512, u32 meshSlots = 256,
+                               u32 lightSlots = 64);
+
+    config::Setting<i32> renderDistance;
+    config::Setting<i32> verticalDistance;
+    config::Setting<i32> maxLoadJobs;
+    config::Setting<i32> maxMeshJobs;
+    config::Setting<i32> maxLightJobs;
+    config::Setting<bool> blockLight;
+    config::Setting<i32> skyRelightDepth;
+    config::Setting<i32> maxChunks;
+    config::Setting<i32> unloadHysteresis;
+    config::Setting<LoadOrder> loadOrder;
+    config::Setting<f32> budgetMs;
+    config::Setting<f32> burstSeconds;
+};
+
 // Where a chunk the manager tracks is in the pipeline (Section 11.2). The
 // plan's Generating and LoadingFromDisk are one stage here, since the game's
 // ChunkSource decides which it is; Featuring happens inside generation
@@ -299,7 +322,6 @@ private:
         i16 z = 0;
     };
 
-    void registerSettings(config::SettingsRegistry& settings, u32 loadSlots, u32 meshSlots, u32 lightSlots);
     void registerStats();
     void readSettings();
     void rebuildOffsets();
@@ -415,18 +437,7 @@ private:
     UpdateTimes m_times;
     bool m_warnedRefused = false;
 
-    config::Setting<i32> m_renderDistance;
-    config::Setting<i32> m_verticalDistance;
-    config::Setting<i32> m_maxLoadJobs;
-    config::Setting<i32> m_maxMeshJobs;
-    config::Setting<i32> m_maxLightJobs;
-    config::Setting<bool> m_blockLight;
-    config::Setting<i32> m_skyRelightDepth;
-    config::Setting<i32> m_maxChunks;
-    config::Setting<i32> m_unloadHysteresis;
-    config::Setting<LoadOrder> m_loadOrder;
-    config::Setting<f32> m_budgetMs;
-    config::Setting<f32> m_burstSeconds;
+    StreamingSettings m_settings;
 
     struct StatIds {
         std::array<stats::StatId, kChunkStageCount> stages;
