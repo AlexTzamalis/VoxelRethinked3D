@@ -49,9 +49,6 @@ private:
     void setMouseCaptured(vxe::EngineContext& context, bool captured);
     void registerCommands(vxe::EngineContext& context);
     void startDemoWorld(vxe::EngineContext& context);
-    // Puts the camera where the state wants it: over the spawn looking out
-    // for the menu's panorama, at the spawn for playing.
-    void placePanoramaCamera();
     void placeSpawnCamera();
     void updateTextures(vxe::EngineContext& context);
     void drawUi(vxe::EngineContext& context, const vxe::FrameTime& time);
@@ -72,6 +69,8 @@ private:
     // Menu navigation (Tab, arrows, Enter, Escape) in the menu context.
     std::unique_ptr<vxe::ui::UiActions> m_uiActions;
     bool m_widgetSampleShown = false;
+    // How far the menu's panorama has turned, radians.
+    vxe::f32 m_panoramaYaw = 0.0F;
     // Measures launch to the first frame of the menu, logged once.
     vxe::Stopwatch m_sinceInit;
     bool m_menuShown = false;

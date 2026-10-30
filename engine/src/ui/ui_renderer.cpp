@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <numbers>
 #include <thread>
 
 namespace vxe::ui {
@@ -128,6 +129,17 @@ Result<std::unique_ptr<UiRenderer>> UiRenderer::create(const UiRendererDesc& des
         return sampler.error().withContext("UI renderer");
     }
     renderer->m_sampler = sampler.value();
+    // The panorama wraps around horizontally and is smooth, unlike pixel art.
+    auto panoramaSampler = device.createSampler({.minFilter = rhi::Filter::Linear,
+                                                 .magFilter = rhi::Filter::Linear,
+                                                 .mipmapMode = rhi::MipmapMode::None,
+                                                 .addressU = rhi::AddressMode::Repeat,
+                                                 .addressV = rhi::AddressMode::ClampToEdge,
+                                                 .debugName = "UI panorama sampler"});
+    if (!panoramaSampler) {
+        return panoramaSampler.error().withContext("UI renderer");
+    }
+    renderer->m_panoramaSampler = panoramaSampler.value();
     for (FrameBuffers& set : renderer->m_frames) {
         auto uniforms = device.createBuffer({.sizeBytes = 256,
                                              .usage = rhi::BufferUsage::Uniform | rhi::BufferUsage::CpuWrite,
@@ -158,8 +170,10 @@ UiRenderer::~UiRenderer() {
         m_device.destroy(set.fence);
     }
     m_device.destroy(m_atlas);
+    m_device.destroy(m_panorama);
     m_device.destroy(m_pipeline);
     m_device.destroy(m_sampler);
+    m_device.destroy(m_panoramaSampler);
 }
 
 Result<void> UiRenderer::setResources(const AtlasImage& fontSheet, std::span<const AtlasImage> images) {
@@ -212,6 +226,43 @@ Result<void> UiRenderer::setResources(const AtlasImage& fontSheet, std::span<con
 
 Result<void> UiRenderer::setFont(std::span<const u32> pixels, u32 width, u32 height) {
     return setResources({.name = {}, .width = width, .height = height, .pixels = pixels}, {});
+}
+
+Result<void> UiRenderer::setPanorama(std::span<const u32> pixels, u32 width, u32 height) {
+    if (width == 0 || height == 0 || pixels.size() != usize{width} * height) {
+        return Error(ErrorCode::InvalidArgument,
+                     std::format("Panorama has {} pixels for {} x {}", pixels.size(), width, height));
+    }
+    auto texture =
+        m_device.createTexture({.format = rhi::Format::RGBA8Unorm,
+                                .width = width,
+                                .height = height,
+                                .usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
+                                .debugName = "UI panorama"});
+    if (!texture) {
+        return texture.error();
+    }
+    // Top row first like the atlas, so v counts down from the top.
+    if (auto uploaded = m_device.uploadTexture(texture.value(),
+                                               {.mipLevel = 0, .layer = 0, .data = std::as_bytes(pixels)});
+        !uploaded) {
+        m_device.destroy(texture.value());
+        return uploaded.error();
+    }
+    m_device.destroy(m_panorama); // Deferred until the GPU is done with it (E6.6).
+    m_panorama = texture.value();
+    return {};
+}
+
+void UiRenderer::drawPanorama(f32 yaw, f32 pitch, f32 fovYDegrees) {
+    if (!m_panorama.isValid()) {
+        return;
+    }
+    const auto width = static_cast<f32>(m_width);
+    const auto height = static_cast<f32>(m_height);
+    const f32 tanHalfY = std::tan(fovYDegrees * 0.5F * std::numbers::pi_v<f32> / 180.0F);
+    m_frame.panorama({.x = 0.0F, .y = 0.0F, .width = width, .height = height}, yaw, pitch,
+                     tanHalfY * width / height, tanHalfY);
 }
 
 void UiRenderer::begin(u32 width, u32 height) {
@@ -299,6 +350,9 @@ void UiRenderer::record(rhi::CommandList& commands) {
     commands.bindStorageBuffer(2, 0, set.quads, 0, bytes);
     if (m_atlas.isValid()) {
         commands.bindTexture(2, 1, m_atlas, m_sampler);
+    }
+    if (m_panorama.isValid()) {
+        commands.bindTexture(2, 2, m_panorama, m_panoramaSampler);
     }
     commands.draw(static_cast<u32>(quadCount * 6));
     commands.endDebugGroup();

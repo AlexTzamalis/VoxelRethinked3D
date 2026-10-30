@@ -25,6 +25,7 @@ VXE_BINDING_STD140(1, 0) uniform UiProjection {
 layout(location = 0) out vec2 vUv;
 layout(location = 1) flat out vec4 vColor;
 layout(location = 2) flat out uint vFlags;
+layout(location = 3) flat out vec4 vPanorama;
 
 // The corners of the two triangles: (0,0) (1,0) (1,1), (0,0) (1,1) (0,1).
 const vec2 kCorners[6] = vec2[6](vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0),
@@ -35,6 +36,11 @@ void main() {
     const vec2 corner = kCorners[gl_VertexID % 6];
     const vec2 position = quad.rect.xy + corner * quad.rect.zw;
     vUv = mix(quad.uv.xy, quad.uv.zw, corner);
+    vPanorama = quad.uv;
+    if ((quad.flags & 2u) != 0u) {
+        // The panorama's fragments build a view ray: -1 to 1, y up.
+        vUv = vec2(corner.x * 2.0 - 1.0, 1.0 - corner.y * 2.0);
+    }
     vColor = unpackUnorm4x8(quad.color);
     vFlags = quad.flags;
     gl_Position = vec4(position * projection.scale + projection.translate, 0.0, 1.0);

@@ -2,6 +2,7 @@
 
 #include "client/default_pack.hpp"
 #include "ui/screens/keybinds_screen.hpp"
+#include "ui/screens/loading_screen.hpp"
 #include "ui/screens/main_menu_screen.hpp"
 #include "ui/screens/pause_screen.hpp"
 #include "ui/screens/settings_screen.hpp"
@@ -32,15 +33,15 @@ namespace {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): the level changes at runtime.
 constinit vxe::log::Category gameLog{"game", vxe::log::Level::Info};
 
-// The menu's panorama: how far above the spawn it looks from, how far it
-// tilts down, and how fast it turns (radians per second, one turn in about
-// five minutes).
-constexpr vxe::f64 kPanoramaHeight = 40.0;
-constexpr vxe::f32 kPanoramaPitchDegrees = -10.0F;
+// The menu's panorama: how it tilts, how wide it looks and how fast it turns
+// (radians per second, one turn in about five minutes).
+constexpr vxe::f32 kPanoramaPitch = -0.14F;
+constexpr vxe::f32 kPanoramaFovY = 70.0F;
 constexpr vxe::f32 kPanoramaTurnSpeed = 0.02F;
 
-// The UI font and theme inside the texture packs (Section 15.1).
+// The UI font, panorama and theme inside the texture packs (Section 15.1).
 constexpr std::string_view kFontImage = "ui/font.png";
+constexpr std::string_view kPanoramaImage = "ui/panorama.jpg";
 constexpr std::string_view kThemeFile = "ui/theme.toml";
 
 // Debug.Ui.FontSample: the UI font at every whole scale over a dark panel,
@@ -305,11 +306,10 @@ void VoxelRethinkedApp::onTransition(vxe::EngineContext& context, GameState from
         m_input->popContext(m_actions->menu);
     }
     context.inMenu = isMenuState(to);
-    if (to == GameState::MainMenu) {
-        // The world behind the menu: it streams on jobs, so the menu does
-        // not wait for it. Playing it later needs no second load.
-        startDemoWorld(context);
-        placePanoramaCamera();
+    if (to == GameState::MainMenu && m_demo) {
+        // The menu shows an image, so no world stays loaded behind it.
+        m_demo->shutdown();
+        m_demo.reset();
     } else if (to == GameState::LoadingWorld) {
         startDemoWorld(context);
         placeSpawnCamera();
@@ -318,7 +318,7 @@ void VoxelRethinkedApp::onTransition(vxe::EngineContext& context, GameState from
         setMouseCaptured(context, false);
     }
     const auto hasScreens = [](GameState state) {
-        return state == GameState::MainMenu || state == GameState::Paused;
+        return state == GameState::MainMenu || state == GameState::LoadingWorld || state == GameState::Paused;
     };
     if (hasScreens(to) || hasScreens(from)) {
         rebuildScreens(context);
@@ -338,6 +338,9 @@ void VoxelRethinkedApp::rebuildScreens(vxe::EngineContext& context) {
         m_screens->push(std::make_unique<MainMenuScreen>(
             menuServices(context), [this] { m_states.request(GameState::StartingIntegratedServer); },
             [this, &context] { onQuitRequested(context); }));
+    }
+    if (m_states.current() == GameState::LoadingWorld) {
+        m_screens->push(std::make_unique<LoadingScreen>());
     }
     if (m_settings->widgetSample.get()) {
         m_screens->push(std::make_unique<WidgetSampleScreen>(*m_uiContext));
@@ -391,7 +394,7 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
         m_texturePacks = std::move(packs).value();
         // The UI font comes from the packs too, so packs can replace it.
         // The UI font and images come from the packs too, so packs restyle them.
-        std::vector<std::string> images{std::string(kFontImage)};
+        std::vector<std::string> images{std::string(kFontImage), std::string(kPanoramaImage)};
         for (const std::string_view name : vxe::ui::kThemeImages) {
             images.push_back(std::format("ui/{}.png", name));
         }
@@ -488,8 +491,9 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
             // The mouse looks around whenever the world has the input; the
             // open console needs the cursor instead.
             const bool consoleOpen = context.console != nullptr && context.console->isOpen();
-            setMouseCaptured(context, !consoleOpen);
-            if (!consoleOpen) {
+            const bool steering = !consoleOpen && !m_settings->freezeCamera.get();
+            setMouseCaptured(context, steering);
+            if (steering) {
                 m_flight->update(m_camera, time.deltaSeconds);
             }
             if (m_autoFlySpeed > 0.0) {
@@ -502,9 +506,6 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
                 }
             }
         }
-    }
-    if (m_states.current() == GameState::MainMenu) {
-        m_camera.yaw += kPanoramaTurnSpeed * static_cast<vxe::f32>(time.deltaSeconds);
     }
     // The free camera has its own field of view setting for debugging; in the
     // game the player's choice wins.
@@ -549,13 +550,6 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
     }
 }
 
-void VoxelRethinkedApp::placePanoramaCamera() {
-    if (m_demo) {
-        m_camera.position = m_demo->spawnPosition() + vxe::DVec3(0.0, kPanoramaHeight, 0.0);
-        m_camera.pitch = glm::radians(kPanoramaPitchDegrees);
-    }
-}
-
 void VoxelRethinkedApp::placeSpawnCamera() {
     // Streaming centers on the camera, so it waits at the spawn while the
     // world loads around it.
@@ -596,6 +590,12 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
             VXE_LOG_WARN(gameLog, "UI font from pack '{}': {}", font->source, set.error().describe());
         }
     }
+    if (const vxe::render::PackImage* panorama = m_texturePacks->image(kPanoramaImage);
+        panorama != nullptr && m_ui) {
+        if (auto set = m_ui->setPanorama(panorama->pixels, panorama->width, panorama->height); !set) {
+            VXE_LOG_WARN(gameLog, "Panorama from pack '{}': {}", panorama->source, set.error().describe());
+        }
+    }
     if (const std::vector<std::byte>* theme = m_texturePacks->file(kThemeFile);
         theme != nullptr && m_uiContext) {
         std::vector<std::string> warnings;
@@ -625,6 +625,10 @@ void VoxelRethinkedApp::drawUi(vxe::EngineContext& context, const vxe::FrameTime
         rebuildScreens(context);
     }
     m_ui->begin(width, height);
+    if (m_states.current() == GameState::MainMenu) {
+        m_panoramaYaw += kPanoramaTurnSpeed * static_cast<vxe::f32>(time.deltaSeconds);
+        m_ui->drawPanorama(m_panoramaYaw, kPanoramaPitch, kPanoramaFovY);
+    }
     if (m_uiContext) {
         // The pointer and keys belong to the UI only while the game does not
         // use them for playing (mouse look captures the pointer, the menu
@@ -663,7 +667,7 @@ void VoxelRethinkedApp::onFrame(vxe::EngineContext& context, const vxe::FrameTim
     drawUi(context, time);
     // The world streams in while loading (no loading screen before G5.3).
     const GameState state = m_states.current();
-    if (isWorldState(state) || state == GameState::LoadingWorld || state == GameState::MainMenu) {
+    if (isWorldState(state) || state == GameState::LoadingWorld) {
         updateWorld(context, time);
     }
     if (!m_menuShown && state == GameState::MainMenu && m_ui && m_ui->font() != nullptr) {

@@ -32,12 +32,13 @@ and glyph coordinates are mapped into the atlas; it runs on changes only, so a s
 |------|--------|----------|
 | `SettingsView::refresh` with 60 settings (every frame the settings screen shows) | 0.05 ms | 0.0048 ms |
 
-## Main menu start (G4.1)
+## Main menu start (G4.1, G4.1b)
 
 Release build, from the engine's first log line to the first frame with the menu's text, window 1280 x 720. The
-font comes with the first texture pack load, on a job.
+font and the 2048 x 1024 panorama come with the first texture pack load, on a job; decoding the panorama adds
+about 40 ms. No world loads at the menu.
 
 | Case | Target | Measured |
 |------|--------|----------|
-| Engine start to the first menu frame | instant | 347 ms |
-| Engine start to the world behind the menu being ready | not waited for | 1.8 s |
+| Engine start to the first menu frame | instant | 371 ms |
+| Singleplayer to a playable world (cached far terrain) | <= 1.0 s | 478 ms |

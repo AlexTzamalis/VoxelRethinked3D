@@ -87,10 +87,19 @@ public:
     // text sizes or images changed.
     [[nodiscard]] u64 resourceVersion() const noexcept { return m_resources.version; }
 
+    // A 360 degree image (equirectangular, RGBA8, rows from the top) for
+    // drawPanorama: a menu background from a pack (ui/panorama.jpg), with no
+    // world behind it.
+    [[nodiscard]] Result<void> setPanorama(std::span<const u32> pixels, u32 width, u32 height);
+    [[nodiscard]] bool hasPanorama() const noexcept { return m_panorama.isValid(); }
+
     // Starts a frame's UI for a window of this size; drops the last frame's quads.
     void begin(u32 width, u32 height);
     // This frame's quads; draw into it or append kept batches.
     [[nodiscard]] QuadBatch& frame() noexcept { return m_frame; }
+    // Fills the window with a view into the panorama, turned by `yaw` and
+    // tilted by `pitch` (radians). Nothing without an image.
+    void drawPanorama(f32 yaw, f32 pitch, f32 fovYDegrees);
     void fillRect(const Rect& rect, u32 color) { m_frame.fillRect(rect, color); }
     void drawText(std::string_view text, f32 x, f32 y, const TextStyle& style = {}) {
         m_frame.text(text, x, y, style);
@@ -123,7 +132,9 @@ private:
     stats::StatId m_atlasBytesStat;
     rhi::PipelineHandle m_pipeline;
     rhi::SamplerHandle m_sampler;
+    rhi::SamplerHandle m_panoramaSampler;
     rhi::TextureHandle m_atlas;
+    rhi::TextureHandle m_panorama;
     UiResources m_resources;
     QuadBatch m_frame;
     std::array<FrameBuffers, kFramesInFlight> m_frames{};

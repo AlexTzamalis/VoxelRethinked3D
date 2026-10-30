@@ -12,6 +12,7 @@ cmake_minimum_required(VERSION 3.28)
 cmake_policy(VERSION 3.28)
 
 file(GLOB_RECURSE files RELATIVE "${FOLDER}" "${FOLDER}/*")
+list(FILTER files EXCLUDE REGEX "^ui/panorama\.") # Decoration, stays a file on disk.
 list(SORT files)
 
 set(arrays "")

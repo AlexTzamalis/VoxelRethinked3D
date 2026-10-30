@@ -17,6 +17,7 @@ set(vrGameSources
     src/common/block_catalog.hpp
     src/ui/screens/keybinds_screen.cpp
     src/ui/screens/keybinds_screen.hpp
+    src/ui/screens/loading_screen.hpp
     src/ui/screens/main_menu_screen.cpp
     src/ui/screens/main_menu_screen.hpp
     src/ui/screens/menu_services.hpp
@@ -39,6 +40,9 @@ find_package(tomlplusplus CONFIG REQUIRED)
 # whenever a file of the pack changes.
 set(vrDefaultPackFolder "${PROJECT_SOURCE_DIR}/textures/default")
 file(GLOB_RECURSE vrDefaultPackFiles CONFIGURE_DEPENDS "${vrDefaultPackFolder}/*")
+# The panorama is hundreds of KB and only decorates the menu: it stays a file
+# in textures/default (without it the menu shows the sky).
+list(FILTER vrDefaultPackFiles EXCLUDE REGEX "/ui/panorama\.")
 set(vrDefaultPackSource "${CMAKE_CURRENT_BINARY_DIR}/generated/default_pack_files.cpp")
 add_custom_command(OUTPUT "${vrDefaultPackSource}"
     COMMAND "${CMAKE_COMMAND}" "-DFOLDER=${vrDefaultPackFolder}" "-DOUTPUT=${vrDefaultPackSource}"
@@ -60,7 +64,9 @@ vxe_set_warnings(voxel_rethinked)
 # The engine reads its shaders from shaders/ next to the executable
 # (EngineConfig::shaderFolder) and the game its data from assets/ (the
 # assets:/ mount), so every build copies both there.
-add_custom_command(TARGET voxel_rethinked POST_BUILD
+# A target of its own, not a step after linking: a changed texture or shader
+# must arrive even when the program did not relink.
+add_custom_target(vr_runtime_files ALL
     COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PROJECT_SOURCE_DIR}/engine/shaders"
             "$<TARGET_FILE_DIR:voxel_rethinked>/shaders"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets"
@@ -69,6 +75,7 @@ add_custom_command(TARGET voxel_rethinked POST_BUILD
             "$<TARGET_FILE_DIR:voxel_rethinked>/textures"
     COMMENT "Copying engine shaders, game assets and texture packs next to voxel_rethinked"
     VERBATIM)
+add_dependencies(voxel_rethinked vr_runtime_files)
 
 # The game may use any engine module, but never the graphics API directly.
 set(vrCheckedSources ${vrGameSources} src/app/main.cpp)

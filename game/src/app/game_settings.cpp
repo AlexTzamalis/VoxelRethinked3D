@@ -65,6 +65,11 @@ GameSettings::GameSettings(vxe::config::SettingsRegistry& settings)
                                          .description = "Shows the UI font at scales 1 to 4.",
                                          .visibility = Visibility::Developer},
                                         false}))
+    , freezeCamera(settings.registerBool({{.id = "Debug.FreeCamera.Frozen",
+                                           .displayName = "Freeze camera",
+                                           .description = "Mouse and keys leave the camera alone.",
+                                           .visibility = Visibility::Developer},
+                                          false}))
     , widgetSample(settings.registerBool({{.id = "Debug.Ui.WidgetSample",
                                            .displayName = "Widget sample",
                                            .description = "Shows a screen with every UI widget.",

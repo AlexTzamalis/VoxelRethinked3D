@@ -115,6 +115,36 @@ TEST_CASE("Nine slice frames keep their corners and stretch the rest") {
     CHECK(batch.quads()[0].rect == std::array<f32, 4>{0.0F, 0.0F, 5.0F, 5.0F});
 }
 
+TEST_CASE("The panorama fills the window once it has an image") {
+    const auto device = rhi::createNullDevice();
+    auto renderer = UiRenderer::create(
+        {.device = device.get(), .shaders = rhi::folderShaderReader(VXE_ENGINE_SHADER_DIR)});
+    REQUIRE(renderer.hasValue());
+    UiRenderer& ui = *renderer.value();
+    ui.begin(1280, 720);
+    ui.drawPanorama(0.5F, 0.0F, 70.0F);
+    CHECK(ui.quadCount() == 0); // No image yet: the window keeps what it shows.
+
+    const std::vector<u32> pixels = filled(8, 4, 0xFF808080U);
+    CHECK_FALSE(ui.setPanorama(pixels, 8, 8).hasValue()); // Wrong size.
+    REQUIRE(ui.setPanorama(pixels, 8, 4).hasValue());
+    ui.begin(1280, 720);
+    ui.drawPanorama(0.5F, -0.1F, 90.0F);
+    REQUIRE(ui.quadCount() == 1);
+    const UiQuad& quad = ui.frame().quads()[0];
+    CHECK(quad.rect == std::array<f32, 4>{0.0F, 0.0F, 1280.0F, 720.0F});
+    CHECK(quad.uv[0] == doctest::Approx(0.5));            // Yaw.
+    CHECK(quad.uv[2] == doctest::Approx(1.0));            // A 90 degree view.
+    CHECK(quad.uv[1] == doctest::Approx(1280.0 / 720.0)); // Wider by the aspect.
+    CHECK(quad.uv[3] == doctest::Approx(-0.1));           // Pitch.
+    rhi::CommandList commands;
+    ui.record(commands);
+    device->submit(commands);
+    renderer.value().reset();
+    device->waitIdle();
+    CHECK(device->liveResources().empty());
+}
+
 TEST_CASE("Themes read nine slice corner sizes") {
     std::vector<std::string> warnings;
     const auto theme = Theme::parse("[slices]\npanel = 5\nbutton = 2\nicon = 1\n", warnings);

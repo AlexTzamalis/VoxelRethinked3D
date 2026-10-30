@@ -398,6 +398,28 @@ TEST_CASE("The pack validator reports errors and warnings with their files") {
     CHECK(none[0].file == "pack.toml");
 }
 
+TEST_CASE("Pack images may be JPEG, for the menu panorama") {
+    const auto root = freshFolder("jpeg");
+    const std::vector<u32> pixels(usize{32} * 16, 0xFF204080U);
+    std::vector<std::byte> jpeg;
+    stbi_write_jpg_to_func(
+        [](void* context, void* data, int size) {
+            auto* bytes = static_cast<std::vector<std::byte>*>(context);
+            const auto* begin = static_cast<const std::byte*>(data);
+            bytes->insert(bytes->end(), begin, begin + size);
+        },
+        &jpeg, 32, 16, 4, pixels.data(), 90);
+    writePack(root / "pack", 16, {{"ui/panorama.jpg", jpeg}});
+    const auto pack = open(root / "pack");
+    const std::vector<const PackSource*> stack = {pack.get()};
+    std::vector<std::string> warnings;
+    const auto image = render::readPackImage(stack, "ui/panorama.jpg", warnings);
+    REQUIRE(image.has_value());
+    CHECK(image->width == 32);
+    CHECK(image->height == 16);
+    CHECK(warnings.empty());
+}
+
 TEST_CASE("Pack images come from the first pack with a usable one") {
     const auto root = freshFolder("images");
     writePack(root / "low", 16, {{"ui/font.png", solid(128, kGreen)}});

@@ -9,6 +9,7 @@
 // compiled here once.
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
+#define STBI_ONLY_JPEG // The menu panorama: photo like, far smaller than a PNG.
 #define STBI_NO_STDIO
 #include <stb_image.h>
 
@@ -88,7 +89,7 @@ struct Decoded {
     std::vector<u32> pixels;
 };
 
-std::optional<Decoded> decodePng(std::span<const std::byte> bytes) {
+std::optional<Decoded> decodeImage(std::span<const std::byte> bytes) {
     int width = 0;
     int height = 0;
     int channels = 0;
@@ -221,7 +222,7 @@ Found findImage(std::span<const PackSource* const> stack, const std::string& png
             continue;
         }
         anyFile = true;
-        std::optional<Decoded> image = decodePng(*bytes);
+        std::optional<Decoded> image = decodeImage(*bytes);
         if (!image) {
             warnings.push_back(
                 std::format("{} in pack '{}' is not a readable PNG", png, pack->manifest().id));
@@ -345,7 +346,7 @@ void validateFont(const std::filesystem::path& folder, std::vector<PackIssue>& i
     if (!bytes) {
         return;
     }
-    const std::optional<Decoded> font = decodePng(bytes.value());
+    const std::optional<Decoded> font = decodeImage(bytes.value());
     if (!font) {
         issues.push_back({.error = true, .file = "ui/font.png", .message = "not a readable PNG"});
     } else if (font->width != font->height || font->width % 16 != 0) {
@@ -367,10 +368,10 @@ std::optional<PackImage> readPackImage(std::span<const PackSource* const> stack,
         if (!bytes) {
             continue;
         }
-        std::optional<Decoded> image = decodePng(*bytes);
+        std::optional<Decoded> image = decodeImage(*bytes);
         if (!image) {
             warnings.push_back(
-                std::format("{} in pack '{}' is not a readable PNG", path, pack->manifest().id));
+                std::format("{} in pack '{}' is not a readable image", path, pack->manifest().id));
             continue;
         }
         return PackImage{.path = std::string(path),
@@ -420,7 +421,7 @@ std::vector<PackIssue> validatePack(const std::filesystem::path& folder,
     for (const std::string& key : keys) {
         const std::string file = "blocks/" + key + ".png";
         const auto bytes = io::readFile(folder / file);
-        const std::optional<Decoded> image = bytes ? decodePng(bytes.value()) : std::nullopt;
+        const std::optional<Decoded> image = bytes ? decodeImage(bytes.value()) : std::nullopt;
         if (!image) {
             issue(true, file, "not a readable PNG");
             continue;

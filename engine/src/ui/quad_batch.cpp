@@ -7,6 +7,7 @@ namespace vxe::ui {
 namespace {
 
 constexpr u32 kFlagTextured = 1;
+constexpr u32 kFlagPanorama = 2;
 
 // The drop shadow color: the text color at a quarter brightness, same alpha.
 constexpr u32 shadowOf(u32 color) noexcept {
@@ -145,6 +146,14 @@ void QuadBatch::text(std::string_view text, f32 x, f32 y, const TextStyle& style
                   scale, shadowOf(style.color));
     }
     addGlyphs(*m_resources->font, text, left, top, scale, style.color);
+}
+
+void QuadBatch::panorama(const Rect& rect, f32 yaw, f32 pitch, f32 tanHalfX, f32 tanHalfY) {
+    // Not through add(): uv holds the view here, not texture coordinates.
+    m_quads.push_back({.rect = {rect.x, rect.y, rect.width, rect.height},
+                       .uv = {yaw, tanHalfX, tanHalfY, pitch},
+                       .color = rgba(255, 255, 255),
+                       .flags = kFlagPanorama});
 }
 
 void QuadBatch::pushClip(const Rect& rect) {

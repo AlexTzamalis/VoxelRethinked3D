@@ -59,7 +59,7 @@ struct UiQuad {
     std::array<f32, 4> rect{}; // x, y, width, height in window pixels.
     std::array<f32, 4> uv{};   // u0, v0, u1, v1.
     u32 color = 0;
-    u32 flags = 0; // Bit 0: sample the atlas.
+    u32 flags = 0; // Bit 0: sample the atlas. Bit 1: the panorama (uv holds its view).
     std::array<u32, 2> padding{};
 };
 static_assert(sizeof(UiQuad) == 48);
@@ -89,6 +89,10 @@ public:
                    u32 tint = rgba(255, 255, 255));
     // Text with its top left corner at (x, y), snapped to whole pixels.
     void text(std::string_view text, f32 x, f32 y, const TextStyle& style = {});
+
+    // A window covering view into the renderer's panorama image: yaw and pitch
+    // in radians, and the tangents of half the view angle across and up.
+    void panorama(const Rect& rect, f32 yaw, f32 pitch, f32 tanHalfX, f32 tanHalfY);
 
     // Everything drawn until the matching pop stays inside `rect` (and inside
     // the clips around it).

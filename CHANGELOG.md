@@ -2,6 +2,19 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#092] 2026-10-30, G4.1b Menu panorama image
+### Added
+- The menu background is a baked 360 degree image from the texture pack (ui/panorama.jpg, packs can replace it) that turns slowly: UiRenderer::setPanorama and drawPanorama draw it as one window filling quad whose pixels look up their view ray, in true perspective and in the UI's one draw call. Without an image the menu shows the sky.
+- tools/panorama/bake_panorama.ps1: bakes the image from the game (six views stitched into one equirectangular image), to run again when real world generation exists. Debug.FreeCamera.Frozen keeps real input from moving the camera meanwhile.
+- A small Loading world screen while a world loads (the full one is G5.3).
+- JPEG images in packs.
+- Tests: the panorama quad, JPEG pack images.
+### Changed
+- No world is loaded at the menu: the world starts on Singleplayer and unloads on Quit to title.
+- Engine shaders, game assets and texture packs are copied next to the program on every build, not only when it relinks, so a changed texture always arrives.
+### Performance
+- Engine start to the first menu frame 371 ms; Singleplayer to a playable world 478 ms (docs/perf/ui.md).
+
 ## [#091] 2026-10-30, Free camera follows the mouse
 ### Changed
 - In the game the mouse always turns the camera, with no button held (FreeCameraDesc::alwaysLook), so the right mouse button is free for placing blocks. The console gets the cursor back while open. The developer demo keeps right button look.
