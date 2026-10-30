@@ -10,10 +10,8 @@
 
 namespace vxe::voxel {
 
-RegionStore::RegionStore(const RegionStoreDesc& desc)
-    : m_folder(desc.folder)
-    , m_stats(desc.stats)
-    , m_compressionLevel(desc.settings->registerInt(
+RegionStoreSettings::RegionStoreSettings(config::SettingsRegistry& settings)
+    : compressionLevel(settings.registerInt(
           {{.id = "Server.Save.CompressionLevel",
             .displayName = "Save compression",
             .description = "How hard region files are compressed (zstd level). Higher saves disk space and "
@@ -23,15 +21,20 @@ RegionStore::RegionStore(const RegionStoreDesc& desc)
            1,
            19,
            1}))
-    , m_maxOpenFiles(desc.settings->registerInt(
-          {{.id = "Server.Save.MaxOpenRegionFiles",
-            .displayName = "Open region files",
-            .description = "How many region files stay open between reads and saves.",
-            .visibility = config::Visibility::Developer},
-           64,
-           4,
-           1024,
-           1})) {
+    , maxOpenFiles(
+          settings.registerInt({{.id = "Server.Save.MaxOpenRegionFiles",
+                                 .displayName = "Open region files",
+                                 .description = "How many region files stay open between reads and saves.",
+                                 .visibility = config::Visibility::Developer},
+                                64,
+                                4,
+                                1024,
+                                1})) {}
+
+RegionStore::RegionStore(const RegionStoreDesc& desc)
+    : m_folder(desc.folder)
+    , m_stats(desc.stats)
+    , m_settings(*desc.settings) {
     VXE_ASSERT(desc.settings != nullptr, "RegionStore needs settings");
     if (m_stats == nullptr) {
         return;
@@ -90,7 +93,7 @@ Result<std::shared_ptr<RegionFile>> RegionStore::file(RegionPos region, bool cre
     }
     std::shared_ptr<RegionFile> shared = std::move(opened).value();
     m_files.emplace(region, Open{.file = shared, .lastUse = ++m_useCounter});
-    closeUnused(static_cast<usize>(std::max(m_maxOpenFiles.get(), 1)));
+    closeUnused(static_cast<usize>(std::max(m_settings.maxOpenFiles.get(), 1)));
     if (m_stats != nullptr && m_statIds.openFiles.isValid()) {
         m_stats->set(m_statIds.openFiles, static_cast<f64>(m_files.size()));
     }
@@ -162,7 +165,7 @@ Result<void> RegionStore::save(std::span<const SavedChunk> chunks) {
         }
         const Stopwatch stopwatch;
         if (Result<void> committed =
-                target.value()->commit(changes, io::Codec::Zstd, m_compressionLevel.get());
+                target.value()->commit(changes, io::Codec::Zstd, m_settings.compressionLevel.get());
             !committed) {
             return committed.error().withContext(
                 std::format("Saving region {} {} {}", region.x, region.y, region.z));

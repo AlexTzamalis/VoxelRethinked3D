@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#097] 2026-10-30, G5.4 Save worlds
+### Added
+- Worlds save: edited chunks go to region files, the player to player.dat, on quitting and every Server.AutosaveMinutes. Only edited chunks are saved, and an edit is safe in memory from its own frame, even if the chunk unloads before the next save (game/src/server/world_saver).
+- Each world has its own far terrain cache and uses its own seed, so seeds now change the terrain. World type and height still wait for the real generator.
+- setblock and getblock console commands.
+### Changed
+- Server.Save.* settings show at the menu.
+
 ## [#096] 2026-10-30, G5.1 G5.2 World list and create world
 ### Added
 - World list behind Singleplayer: worlds sorted by last played, with name, date, type and size, a search box, Play (also a double click), Create New World, Edit, and Delete with a confirmation.

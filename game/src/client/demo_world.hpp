@@ -1,6 +1,8 @@
 #pragma once
 
 #include "common/block_catalog.hpp"
+#include "common/catalog_state_names.hpp"
+#include "server/world_saver.hpp"
 #include "worldgen/demo_lod_sampler.hpp"
 #include "worldgen/demo_terrain.hpp"
 
@@ -47,6 +49,9 @@ struct DemoWorldDesc {
     // the tiles around the spawn are premapped before the world shows, so the
     // horizon is there on the first frame (Section 13.4).
     std::filesystem::path lodCacheFolder{};
+    // Optional: where edited chunks are saved (saves/<world>/regions). Without
+    // it edits last until the world closes.
+    std::filesystem::path saveFolder{};
 };
 
 // Makes the demo terrain's chunks for the streaming manager, on its jobs.
@@ -54,10 +59,13 @@ class DemoChunkSource final : public vxe::voxel::ChunkSource {
 public:
     explicit DemoChunkSource(const DemoTerrain& terrain) noexcept
         : m_terrain(terrain) {}
+    // Saved chunks then win over generated ones. Optional; set before streaming.
+    void setSaver(WorldSaver* saver) noexcept { m_saver = saver; }
     void produce(const vxe::voxel::ChunkRequest& request, vxe::voxel::ChunkProduct& out) override;
 
 private:
     const DemoTerrain& m_terrain;
+    WorldSaver* m_saver = nullptr;
 };
 
 // The temporary demo world agreed for the first playable build (until the
@@ -105,8 +113,15 @@ public:
     // beginFrame (uploads need its staging memory).
     void update(const vxe::render::Camera& camera);
     // Takes the meshes back from the renderer, waits for jobs and releases
-    // the textures. Logs the streaming time per frame.
+    // the textures. Saves every edit first. Logs the streaming time per frame.
     void shutdown();
+
+    // Changes a block and marks its chunk for saving. All edits of the world
+    // go through here, so the integrated server (G0.2) has one place to take
+    // over. False if the chunk is not loaded.
+    bool setBlock(const vxe::BlockPos& position, vxe::voxel::BlockStateId state);
+    // Commits edits in the background (autosave). The world stays playable.
+    void saveEdits();
 
     // The spawn area is ready (or loading took too long).
     [[nodiscard]] bool isLoaded() const noexcept { return m_loaded; }
@@ -127,6 +142,8 @@ private:
     DemoTerrain m_terrain;
     vxe::voxel::VoxelWorld m_world;
     DemoChunkSource m_source;
+    CatalogStateNames m_names;
+    std::optional<WorldSaver> m_saver;
     std::optional<vxe::voxel::ChunkRenderSink> m_sink;
     vxe::render::LodRenderer* m_lodRenderer;
     vxe::render::DebugDraw* m_debugDraw;

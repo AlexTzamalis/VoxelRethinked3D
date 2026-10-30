@@ -350,7 +350,7 @@ void CreateWorldScreen::buildPage() {
         auto& row = formRow(*m_page, "Generate structures");
         row.add<Toggle>(m_structures, [this](bool value) { m_structures = value; });
         m_page
-            ->add<Label>("The seed, type and height take effect with the new world generator.",
+            ->add<Label>("The seed shapes the terrain. Type and height come with the new world generator.",
                          TextRole::Muted)
             .setWrap(true);
         break;

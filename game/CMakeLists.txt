@@ -15,6 +15,8 @@ set(vrGameSources
     src/client/demo_world.hpp
     src/common/block_catalog.cpp
     src/common/block_catalog.hpp
+    src/server/world_saver.cpp
+    src/server/world_saver.hpp
     src/server/world_store.cpp
     src/server/world_store.hpp
     src/ui/screens/background_task.hpp

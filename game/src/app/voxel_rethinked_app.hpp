@@ -53,6 +53,9 @@ private:
     void placeSpawnCamera();
     // Marks a world as played now and starts it.
     void playWorld(vxe::EngineContext& context, const WorldInfo& world);
+    // Saves the player and commits edits; `waitForDisk` for leaving the world.
+    void saveWorld(vxe::EngineContext& context, bool waitForDisk);
+    [[nodiscard]] PlayerData playerData() const;
     void updateTextures(vxe::EngineContext& context);
     void drawUi(vxe::EngineContext& context, const vxe::FrameTime& time);
     // Puts the screens the game state and the debug settings ask for on the stack.
@@ -72,9 +75,10 @@ private:
     // Menu navigation (Tab, arrows, Enter, Escape) in the menu context.
     std::unique_ptr<vxe::ui::UiActions> m_uiActions;
     bool m_widgetSampleShown = false;
-    // The world being played. Until world generation exists (G3) every world
-    // shows the demo terrain; this only names it.
+    // The world being played, with its own seed, edits and far terrain cache.
+    // Empty for the play console command, which saves nothing.
     std::optional<WorldInfo> m_world;
+    vxe::f64 m_sinceAutosave = 0.0;
     // How far the menu's panorama has turned, radians.
     vxe::f32 m_panoramaYaw = 0.0F;
     // Measures launch to the first frame of the menu, logged once.

@@ -2,6 +2,7 @@
 
 #include <vxe/core/error.hpp>
 #include <vxe/core/hash.hpp>
+#include <vxe/io/binary.hpp>
 #include <vxe/io/file_io.hpp>
 
 #include <toml++/toml.hpp>
@@ -29,6 +30,8 @@ using vxe::Result;
 using vxe::u64;
 
 constexpr std::string_view kInfoFile = "world.toml";
+constexpr std::string_view kPlayerFile = "player.dat";
+constexpr vxe::u8 kPlayerVersion = 1;
 constexpr vxe::usize kMaxFolderLength = 32;
 
 std::string asText(std::span<const std::byte> bytes) {
@@ -40,6 +43,34 @@ bool isPlainFolder(const std::string& folder) {
     const fs::path path(folder);
     return !folder.empty() && folder != "." && folder != ".." && !path.has_parent_path() &&
            !path.has_root_path();
+}
+
+// Nothing for a missing or damaged file: the player then starts at the spawn,
+// which is better than refusing a world over its player file.
+std::optional<PlayerData> loadPlayerData(const fs::path& file) {
+    const auto bytes = vxe::io::readFile(file);
+    if (!bytes) {
+        return std::nullopt;
+    }
+    vxe::io::BinaryReader reader(bytes.value());
+    if (reader.readU8() != kPlayerVersion) {
+        return std::nullopt;
+    }
+    PlayerData player;
+    player.position.x = reader.readF64();
+    player.position.y = reader.readF64();
+    player.position.z = reader.readF64();
+    player.yaw = reader.readF32();
+    player.pitch = reader.readF32();
+    player.flying = reader.readBool();
+    player.hotbarSlot = reader.readU8();
+    for (std::string& block : player.hotbar) {
+        block = reader.readString();
+    }
+    if (!reader.ok() || player.hotbarSlot >= player.hotbar.size()) {
+        return std::nullopt;
+    }
+    return player;
 }
 
 // Everything under a folder. Files that vanish meanwhile just do not count.
@@ -123,7 +154,27 @@ Result<WorldInfo> loadWorldInfo(const fs::path& saves, const std::string& folder
     info.createdSeconds = table["created"].value_or(i64{0});
     info.lastPlayedSeconds = table["last_played"].value_or(i64{0});
     info.gameVersion = table["game_version"].value_or(std::string());
+    info.player = loadPlayerData(saves / folder / kPlayerFile);
     return info;
+}
+
+Result<void> savePlayerData(const fs::path& saves, const std::string& folder, const PlayerData& player) {
+    if (!isPlainFolder(folder)) {
+        return Error(ErrorCode::InvalidArgument, std::format("'{}' is not a world folder", folder));
+    }
+    vxe::io::BinaryWriter writer;
+    writer.writeU8(kPlayerVersion);
+    writer.writeF64(player.position.x);
+    writer.writeF64(player.position.y);
+    writer.writeF64(player.position.z);
+    writer.writeF32(player.yaw);
+    writer.writeF32(player.pitch);
+    writer.writeBool(player.flying);
+    writer.writeU8(player.hotbarSlot);
+    for (const std::string& block : player.hotbar) {
+        writer.writeString(block);
+    }
+    return vxe::io::writeFile(saves / folder / kPlayerFile, writer.bytes());
 }
 
 Result<void> saveWorldInfo(const fs::path& saves, const WorldInfo& info) {

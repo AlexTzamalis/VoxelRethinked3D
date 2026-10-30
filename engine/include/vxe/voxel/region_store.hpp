@@ -22,6 +22,15 @@ struct RegionStoreDesc {
     stats::StatRegistry* stats = nullptr; // Optional.
 };
 
+// Server.Save.*. The store registers them, and a game registers them at
+// startup too, so that its settings menu shows them while no world exists.
+struct RegionStoreSettings {
+    explicit RegionStoreSettings(config::SettingsRegistry& settings);
+
+    config::Setting<i32> compressionLevel;
+    config::Setting<i32> maxOpenFiles;
+};
+
 // The region files of one world (Section 21): finds the file of a chunk,
 // keeps recently used files open, and turns a batch of saved chunks into one
 // commit per region file. Payloads come from encodeChunk; the store does not
@@ -76,8 +85,7 @@ private:
 
     std::filesystem::path m_folder;
     stats::StatRegistry* m_stats;
-    config::Setting<i32> m_compressionLevel;
-    config::Setting<i32> m_maxOpenFiles;
+    RegionStoreSettings m_settings;
 
     struct Open {
         std::shared_ptr<RegionFile> file;

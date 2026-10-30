@@ -2,6 +2,7 @@
 
 #include <vxe/voxel/lod_manager.hpp>
 #include <vxe/voxel/mesher.hpp>
+#include <vxe/voxel/region_store.hpp>
 #include <vxe/voxel/streaming.hpp>
 
 #include <string>
@@ -122,6 +123,7 @@ GameSettings::GameSettings(vxe::config::SettingsRegistry& settings)
     static_cast<void>(vxe::voxel::StreamingSettings(settings));
     static_cast<void>(vxe::voxel::LodSettings(settings));
     static_cast<void>(vxe::voxel::MesherSettings(settings));
+    static_cast<void>(vxe::voxel::RegionStoreSettings(settings));
     // The overall quality presets (Section 16.4); High is the defaults. G9.1
     // tunes them on the reference hardware.
     const auto quality = [&settings](std::string_view name, vxe::i32 renderDistance, vxe::i32 levels,

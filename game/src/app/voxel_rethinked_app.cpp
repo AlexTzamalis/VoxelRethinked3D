@@ -143,9 +143,53 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                                               output.success = false;
                                               return output;
                                           }
+                                          m_world.reset();
                                           m_states.request(GameState::StartingIntegratedServer);
                                           return output;
                                       }});
+    // Reads and changes single blocks, for scripted runs and debugging.
+    context.commands.registerCommand(
+        {.name = "setblock",
+         .usage = "setblock <x> <y> <z> <state>",
+         .description = "Changes one block of the loaded world.",
+         .handler = [this](std::span<const std::string> arguments) {
+             vxe::config::CommandOutput output;
+             const auto state =
+                 arguments.size() == 4 && m_blocks ? m_blocks->stateId(arguments[3]) : std::nullopt;
+             if (!m_demo || !state) {
+                 output.lines.emplace_back("Needs a loaded world and a known state.");
+                 output.success = false;
+                 return output;
+             }
+             const vxe::BlockPos position{
+                 .x = std::stoll(arguments[0]), .y = std::stoll(arguments[1]), .z = std::stoll(arguments[2])};
+             output.success = m_demo->setBlock(position, *state);
+             return output;
+         }});
+    context.commands.registerCommand(
+        {.name = "getblock",
+         .usage = "getblock <x> <y> <z>",
+         .description = "Shows one block of the loaded world.",
+         .handler = [this](std::span<const std::string> arguments) {
+             vxe::config::CommandOutput output;
+             if (!m_demo || arguments.size() != 3) {
+                 output.success = false;
+                 return output;
+             }
+             const vxe::BlockPos position{
+                 .x = std::stoll(arguments[0]), .y = std::stoll(arguments[1]), .z = std::stoll(arguments[2])};
+             if (m_demo->world().findChunk(vxe::toChunk(position)) == nullptr) {
+                 output.lines.emplace_back("Not loaded yet.");
+                 output.success = false;
+                 return output;
+             }
+             const std::string name(m_blocks->stateName(m_demo->world().getBlock(position)));
+             VXE_LOG_INFO(gameLog, "Block at {} {} {} is {}; player at {:.1f} {:.1f} {:.1f}", position.x,
+                          position.y, position.z, name, m_camera.position.x, m_camera.position.y,
+                          m_camera.position.z);
+             output.lines.push_back(name);
+             return output;
+         }});
     // Presses a button of the UI by its text, so scripted runs can walk through
     // real screens the way a player does.
     context.commands.registerCommand({.name = "uiclick",
@@ -368,6 +412,40 @@ void VoxelRethinkedApp::onTransition(vxe::EngineContext& context, GameState from
     }
 }
 
+PlayerData VoxelRethinkedApp::playerData() const {
+    PlayerData player;
+    player.position = m_camera.position;
+    player.yaw = m_camera.yaw;
+    player.pitch = m_camera.pitch;
+    return player;
+}
+
+void VoxelRethinkedApp::saveWorld(vxe::EngineContext& context, bool waitForDisk) {
+    if (!m_world || !m_demo) {
+        return;
+    }
+    m_sinceAutosave = 0.0;
+    m_world->player = playerData();
+    if (waitForDisk) {
+        // Only when leaving: the edits go with the world's shutdown right after.
+        const auto saved = savePlayerData(menuServices(context).saves, m_world->folder, *m_world->player);
+        if (!saved) {
+            VXE_LOG_WARN(gameLog, "Could not save the player: {}", saved.error().describe());
+        }
+        return;
+    }
+    m_demo->saveEdits();
+    auto save =
+        std::make_shared<std::pair<std::filesystem::path, WorldInfo>>(menuServices(context).saves, *m_world);
+    const auto write = [save] {
+        if (const auto saved = savePlayerData(save->first, save->second.folder, *save->second.player);
+            !saved) {
+            VXE_LOG_WARN(gameLog, "Could not save the player: {}", saved.error().describe());
+        }
+    };
+    static_cast<void>(context.jobs.schedule(write, {vxe::jobs::Priority::Normal, {}, vxe::jobs::Pool::Io}));
+}
+
 void VoxelRethinkedApp::playWorld(vxe::EngineContext& context, const WorldInfo& world) {
     m_world = world;
     m_world->lastPlayedSeconds =
@@ -518,8 +596,8 @@ void VoxelRethinkedApp::advanceStartup(vxe::EngineContext& context) {
         m_states.request(GameState::InGame);
         break;
     case GameState::SavingAndStopping:
-        // Nothing to save before G5.4. A window close passes through here
-        // too, on its way out of the main loop.
+        // A window close passes through here too, on its way out of the main loop.
+        saveWorld(context, true);
         m_states.request(GameState::MainMenu);
         break;
     default:
@@ -589,6 +667,11 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
     vxe::render::Renderer& renderer = *context.renderer;
     renderer.beginFrame(m_camera, time);
     if (m_demo) {
+        m_sinceAutosave += time.deltaSeconds;
+        if (const vxe::i32 minutes = m_settings->autosaveMinutes.get();
+            minutes > 0 && m_sinceAutosave >= minutes * 60.0 && m_states.current() == GameState::InGame) {
+            saveWorld(context, false);
+        }
         m_demo->update(m_camera);
         return;
     }
@@ -611,7 +694,11 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
          .chunks = context.renderer != nullptr ? &context.renderer->chunks() : nullptr,
          .lod = context.renderer != nullptr ? &context.renderer->lod() : nullptr,
          .debugDraw = context.renderer != nullptr ? &context.renderer->debugDraw() : nullptr,
-         .lodCacheFolder = demoLodFolder(context)});
+         .seed = m_world ? m_world->seed : DemoWorldDesc{}.seed,
+         .lodCacheFolder =
+             m_world ? menuServices(context).saves / m_world->folder / "lod" : demoLodFolder(context),
+         .saveFolder =
+             m_world ? menuServices(context).saves / m_world->folder / "regions" : std::filesystem::path()});
     if (!demo) {
         VXE_LOG_ERROR(gameLog, "The demo world could not start: {}", demo.error().describe());
         return;
@@ -625,7 +712,11 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
 void VoxelRethinkedApp::placeSpawnCamera() {
     // Streaming centers on the camera, so it waits at the spawn while the
     // world loads around it.
-    if (m_demo) {
+    if (m_world && m_world->player) {
+        m_camera.position = m_world->player->position;
+        m_camera.yaw = m_world->player->yaw;
+        m_camera.pitch = m_world->player->pitch;
+    } else if (m_demo) {
         m_camera.position = m_demo->spawnPosition();
         m_camera.yaw = 0.0F;
         m_camera.pitch = glm::radians(-25.0F);

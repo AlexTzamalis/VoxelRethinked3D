@@ -1,4 +1,12 @@
+#include "common/block_catalog.hpp"
+#include "common/catalog_state_names.hpp"
+#include "server/world_saver.hpp"
 #include "server/world_store.hpp"
+
+#include <vxe/config/settings.hpp>
+#include <vxe/jobs/job_system.hpp>
+#include <vxe/voxel/chunk_source.hpp>
+#include <vxe/voxel/voxel_world.hpp>
 
 #include <doctest/doctest.h>
 
@@ -126,4 +134,89 @@ TEST_CASE("Deleting only ever removes one real world") {
     CHECK_FALSE(deleteWorld(saves, "keep/../keep").hasValue());
     CHECK_FALSE(deleteWorld(saves, "").hasValue());
     CHECK(fs::exists(saves / "keep"));
+}
+
+TEST_CASE("player.dat round trips, and a damaged file means a fresh start") {
+    const fs::path saves = freshSaves("player");
+    REQUIRE(saveWorldInfo(saves, world("w", "W", 1)).hasValue());
+    CHECK_FALSE(loadWorldInfo(saves, "w").value().player.has_value()); // Not played yet.
+
+    PlayerData player;
+    player.position = {1234.5, 70.25, -9876.125};
+    player.yaw = 1.5F;
+    player.pitch = -0.25F;
+    player.flying = true;
+    player.hotbarSlot = 4;
+    player.hotbar[4] = "oak_log[axis=y]";
+    REQUIRE(savePlayerData(saves, "w", player).hasValue());
+    const auto loaded = loadWorldInfo(saves, "w").value().player;
+    REQUIRE(loaded.has_value());
+    CHECK(loaded->position.x == 1234.5);
+    CHECK(loaded->position.z == -9876.125);
+    CHECK(loaded->yaw == 1.5F);
+    CHECK(loaded->flying);
+    CHECK(loaded->hotbarSlot == 4);
+    CHECK(loaded->hotbar[4] == "oak_log[axis=y]");
+
+    std::ofstream(saves / "w" / "player.dat", std::ios::binary) << "junk";
+    const auto damaged = loadWorldInfo(saves, "w");
+    REQUIRE(damaged.hasValue()); // The world itself still opens.
+    CHECK_FALSE(damaged.value().player.has_value());
+}
+
+TEST_CASE("Edited chunks come back from memory at once and from disk after a save") {
+    const std::vector<BlockSource> sources = {
+        {.file = "stone.toml",
+         .text = "name = \"stone\"\ndisplay_name = \"Stone\"\nlayer = \"opaque\"\n[textures]\nall = \"s\""},
+        {.file = "dirt.toml",
+         .text = "name = \"dirt\"\ndisplay_name = \"Dirt\"\nlayer = \"opaque\"\n[textures]\nall = \"d\""},
+    };
+    const auto catalog = BlockCatalog::load(sources);
+    REQUIRE(catalog.hasValue());
+    const CatalogStateNames names(catalog.value());
+    const auto stone = *catalog.value().stateId("stone");
+    const auto dirt = *catalog.value().stateId("dirt");
+
+    const fs::path folder = freshSaves("saver") / "regions";
+    vxe::jobs::JobSystem jobs;
+    vxe::config::SettingsRegistry settings;
+    const WorldSaverDesc desc{.folder = folder, .jobs = &jobs, .settings = &settings, .names = &names};
+    const vxe::ChunkPos position{.x = -3, .y = 2, .z = 40};
+    const vxe::BlockPos block{.x = -3 * 16 + 5, .y = (2 * 16) + 6, .z = (40 * 16) + 7};
+    {
+        WorldSaver saver(desc);
+        vxe::voxel::ChunkProduct product;
+        CHECK_FALSE(saver.load(position, product)); // Never edited: the generator makes it.
+
+        vxe::voxel::VoxelWorld voxels;
+        voxels.insertChunk(position);
+        REQUIRE(voxels.setBlock(block, stone));
+        saver.markEdited(position);
+        saver.markEdited(position); // Twice is still one chunk.
+        saver.encodeEdited(voxels);
+        CHECK(saver.unsavedChunks() == 1);
+
+        // Unloaded before any save: memory has it.
+        voxels.removeChunk(position);
+        REQUIRE(saver.load(position, product));
+        CHECK(product.origin == vxe::voxel::ChunkOrigin::Loaded);
+        CHECK(product.blocks.get(vxe::toLocal(block)) == stone);
+
+        // A newer edit wins over an older commit.
+        saver.flush();
+        CHECK(saver.unsavedChunks() == 0);
+        voxels.insertChunk(position);
+        REQUIRE(voxels.setBlock(block, dirt));
+        saver.markEdited(position);
+        saver.encodeEdited(voxels);
+        REQUIRE(saver.load(position, product));
+        CHECK(product.blocks.get(vxe::toLocal(block)) == dirt);
+        saver.flush();
+    }
+    // A later session reads it from the region files.
+    WorldSaver saver(desc);
+    CHECK(saver.unsavedChunks() == 0);
+    vxe::voxel::ChunkProduct product;
+    REQUIRE(saver.load(position, product));
+    CHECK(product.blocks.get(vxe::toLocal(block)) == dirt);
 }

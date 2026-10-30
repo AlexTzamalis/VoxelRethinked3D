@@ -18,8 +18,11 @@ void DemoChunkSource::produce(const vxe::voxel::ChunkRequest& request, vxe::voxe
     // needs no clearing and the job allocates nothing but the result.
     thread_local std::array<BlockStateId, vxe::kChunkVolume> states{};
     const vxe::ChunkPos position = request.position();
-    m_terrain.generate(position, states);
-    out.blocks.assign(states);
+    if (m_saver == nullptr || !m_saver->load(position, out)) {
+        m_terrain.generate(position, states);
+        out.blocks.assign(states);
+        out.origin = vxe::voxel::ChunkOrigin::Generated;
+    }
     out.surfaceEstimate = static_cast<vxe::i32>(m_terrain.surfaceHeight(
         (vxe::i64{position.x} * vxe::kChunkSize) + 8, (vxe::i64{position.z} * vxe::kChunkSize) + 8));
 }
@@ -30,11 +33,20 @@ DemoWorld::DemoWorld(const DemoWorldDesc& desc, const DemoBlocks& blocks)
     , m_terrain(blocks, desc.seed)
     , m_world({}, desc.stats)
     , m_source(m_terrain)
+    , m_names(*desc.catalog)
     , m_lodRenderer(desc.lod)
     , m_debugDraw(desc.debugDraw)
     , m_view(desc.blocks->current())
     , m_lodSampler(m_terrain, blocks, *m_view, static_cast<vxe::u16>(desc.catalog->textureKeys().size()),
                    desc.seed) {
+    if (!desc.saveFolder.empty()) {
+        m_saver.emplace(WorldSaverDesc{.folder = desc.saveFolder,
+                                       .jobs = desc.jobs,
+                                       .settings = desc.settings,
+                                       .stats = desc.stats,
+                                       .names = &m_names});
+        m_source.setSaver(&*m_saver);
+    }
     if (m_chunks != nullptr) {
         m_sink.emplace(*m_chunks);
     }
@@ -106,9 +118,30 @@ void DemoWorld::setTextureColors(std::span<const vxe::u32> averageColors) {
     }
 }
 
+bool DemoWorld::setBlock(const vxe::BlockPos& position, BlockStateId state) {
+    if (!m_world.setBlock(position, state)) {
+        return false;
+    }
+    if (m_saver) {
+        m_saver->markEdited(vxe::toChunk(position));
+    }
+    return true;
+}
+
+void DemoWorld::saveEdits() {
+    if (m_saver) {
+        m_saver->encodeEdited(m_world);
+        m_saver->save();
+    }
+}
+
 void DemoWorld::shutdown() {
     if (m_shutDown) {
         return;
+    }
+    if (m_saver) {
+        m_saver->encodeEdited(m_world);
+        m_saver->flush();
     }
     const vxe::voxel::StreamingManager::UpdateTimes& times = m_streaming->updateTimes();
     if (times.updates > 0) {
@@ -138,6 +171,9 @@ void DemoWorld::release() noexcept {
 void DemoWorld::update(const vxe::render::Camera& camera) {
     if (m_shutDown) {
         return;
+    }
+    if (m_saver) {
+        m_saver->encodeEdited(m_world); // Before streaming can unload the chunks.
     }
     m_streaming->update({.position = camera.position, .forward = camera.forward()});
     // Far terrain waits for the premap, so its tiles come from the cache.

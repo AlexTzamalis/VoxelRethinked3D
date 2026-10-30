@@ -2,17 +2,31 @@
 
 #include <vxe/core/result.hpp>
 #include <vxe/core/types.hpp>
+#include <vxe/math/vector.hpp>
 
+#include <array>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace vr {
 
-// What world.toml says about a world (Section 21), plus its size on disk.
-// Until world generation exists (G3), the seed, type and preset are stored
-// with the world and the demo terrain is what loads.
+// What player.dat holds (Section 21).
+struct PlayerData {
+    vxe::DVec3 position{};
+    vxe::f32 yaw = 0.0F;   // Radians.
+    vxe::f32 pitch = 0.0F; // Radians.
+    bool flying = false;
+    vxe::u8 hotbarSlot = 0;
+    std::array<std::string, 9> hotbar{}; // Block names, empty for free slots.
+};
+
+// What world.toml says about a world (Section 21), plus its size on disk and
+// its player, read along with it so entering a world needs no disk access.
+// Until world generation exists (G3), the seed picks the demo terrain, and
+// the type and preset are only stored.
 struct WorldInfo {
     std::string folder;   // Inside saves/, also the world's stable id.
     std::string name;     // Shown to players; renaming keeps the folder.
@@ -28,7 +42,8 @@ struct WorldInfo {
     vxe::i64 createdSeconds = 0; // Seconds since 1970.
     vxe::i64 lastPlayedSeconds = 0;
     std::string gameVersion;
-    vxe::u64 sizeBytes = 0; // Not stored; measured when scanning.
+    vxe::u64 sizeBytes = 0;           // Not stored; measured when scanning.
+    std::optional<PlayerData> player; // Nothing in a world not played yet.
 };
 
 // The seed of what a player typed: whole numbers are used as they are, any
@@ -48,6 +63,10 @@ struct WorldInfo {
                                                    const std::string& folder);
 // Writes world.toml atomically, so a crash leaves the old file or the new one.
 [[nodiscard]] vxe::Result<void> saveWorldInfo(const std::filesystem::path& saves, const WorldInfo& info);
+
+// Writes player.dat atomically.
+[[nodiscard]] vxe::Result<void> savePlayerData(const std::filesystem::path& saves, const std::string& folder,
+                                               const PlayerData& player);
 
 // A folder name from a world's name that `saves` does not use yet: safe on
 // every system, with a number added when the name is taken.
