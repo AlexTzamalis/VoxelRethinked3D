@@ -76,31 +76,29 @@ Note! This is a fully educational project, designed and created for learning. I 
 
 # Building
 
-**Prerequisites:** Visual Studio 2022 17.8+ (MSVC) or newer, CMake 3.28+, Ninja and [vcpkg](https://github.com/microsoft/vcpkg) with the `VCPKG_ROOT` environment variable pointing at it. Dependencies are installed automatically from `vcpkg.json` on the first configure.
+Everything about building, running, debugging and sharing a build is in **[docs/building.md](docs/building.md)**.
 
-From a Visual Studio developer shell (x64):
+With Visual Studio 2026 (Desktop development with C++) and vcpkg set up, this builds and starts the game:
 
 ```
-cmake --preset debug
-cmake --build --preset debug
-ctest --preset debug
+.\build.cmd release run
 ```
-
-| Preset | Use |
-|--------|-----|
-| `debug` | Day to day development |
-| `release` | Optimized build for players |
-| `relwithdebinfo` | Optimized with debug info, for profiling |
-| `asan` | AddressSanitizer (plus UBSan on Clang and GCC) |
-| `tsan` | ThreadSanitizer, Linux only |
-
-Code style is enforced with clang-format (`--target format-check`, or `--target format` to fix) and clang-tidy (`--target tidy`). Architecture decisions live in [docs/adr](docs/adr).
 
 Executables end up in `build/<preset>/bin/`.
 
-**Running:** `build/release/bin/voxel_rethinked.exe` starts the game. Until the menus exist it goes straight into a demo world (endless hills, beaches, lakes, caves and trees, 128 blocks tall, streamed in around the camera on all cores) in free flight: W, A, S, D, Space and Left Shift fly, the right mouse button looks, Escape pauses, F11 switches fullscreen, F3 shows the performance overlay and the Grave key opens the developer console. `--exec "set Video.FpsLimit 144"` runs a console command at startup and `--frames N` quits after N frames (the log then shows the frame rate of the last frames). `autofly 300` in the console flies the camera forward at 300 blocks per second; `set World.Streaming.RenderDistance 24` changes how far the world reaches. The overlay page "Streaming and Jobs" (F3, then F3+Right) shows the chunk pipeline and how busy the workers are. The overview line "Culling" shows how many chunk face groups were drawn and why the rest were skipped; `set Debug.FreezeCulling true` in the console keeps culling where the camera is, so you can fly around and look at what was culled. `vxe_rhi_demo --terrain` shows a field of terrain chunks through the chunk renderer.
+| Preset | Use |
+|--------|-----|
+| `release` | Playing and measuring |
+| `debug` | Stepping through code |
+| `relwithdebinfo` | Optimized with debug info, for profiling with Tracy |
+| `asan` | AddressSanitizer (plus UBSan on Clang and GCC) |
+| `tsan` | ThreadSanitizer, Linux only |
 
-**Profiling:** the `relwithdebinfo` preset includes the [Tracy](https://github.com/wolfpld/tracy) 0.14.1 client. Start the game, then connect with the Tracy 0.14.1 profiler (the versions must match). Set `TRACY_NO_EXIT=1` to keep a short run open until the profiler has received its data. In CLion, select the **Visual Studio** toolchain and enable the CMake presets.
+On Linux, set `VCPKG_ROOT`, then use `cmake --preset debug`, `cmake --build --preset debug` and `ctest --preset debug`.
+
+Code style is enforced with clang-format (`--target format-check`, or `--target format` to fix) and clang-tidy (`--target tidy`). Architecture decisions live in [docs/adr](docs/adr).
+
+**In the game:** the game opens on the main menu, and Singleplayer enters a demo world (endless hills, beaches, lakes, caves and trees) in free flight until world generation exists. W, A, S, D, Space and Left Shift fly, the mouse looks, Escape pauses, F11 switches fullscreen, F3 shows the performance overlay and the Grave key opens the developer console. `--exec "set Video.FpsLimit 144"` runs a console command at startup and `--frames N` quits after N frames. `autofly 300` in the console flies forward at 300 blocks per second. The overlay page "Streaming and Jobs" (F3, then F3+Right) shows the chunk pipeline. `vxe_rhi_demo --terrain` shows a field of terrain chunks through the chunk renderer.
 
 ---
 

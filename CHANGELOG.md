@@ -2,6 +2,17 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#094] 2026-10-30, One command build and building guide
+### Added
+- build.cmd: builds, tests, runs, repairs or packages any preset from any terminal, with the newest Visual Studio.
+- docs/building.md: how to build, run, debug and share the game, CLion setup and troubleshooting.
+- cmake/VcpkgToolchain.cmake: the presets now load the vcpkg of the user's VCPKG_ROOT, even inside Visual Studio's environment, which replaces that variable with a private vcpkg.
+### Changed
+- Configuring without a preset stops at once with instructions, instead of a compiler or package error.
+- A build folder remembers its MSVC tools, and configuring it with another Visual Studio version stops before anything changes the libraries.
+### Docs
+- The README's build section points to the guide, and its game controls match the main menu and mouse look.
+
 ## [#093] 2026-10-30, G4.2 Settings screen presets, search and page reset
 ### Added
 - Quality presets in the settings screen: a row at the top of a group or category that has presets, showing Custom when the values match none. Overall presets Low to Ultra in the group Graphics (High is the defaults, G9.1 tunes them).

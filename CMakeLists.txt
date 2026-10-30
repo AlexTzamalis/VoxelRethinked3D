@@ -26,6 +26,29 @@ if(CMAKE_HOST_WIN32)
     endif()
 endif()
 
+# The presets bring in the compiler defaults and vcpkg. A plain configure (a
+# CLion profile that is not a preset) would fail with long, unhelpful errors.
+if(NOT CMAKE_TOOLCHAIN_FILE)
+    message(FATAL_ERROR
+        "Voxel Rethinked is configured through its presets: run build.cmd or cmake --preset debug. "
+        "In CLion, turn off plain profiles and enable the presets. See docs/building.md.")
+endif()
+
+# A build folder and its vcpkg packages belong to one compiler: objects from a
+# newer MSVC do not link with an older one. Two tools that use different Visual
+# Studio versions on one folder would damage it, so stop before project() starts
+# vcpkg. VCToolsVersion comes from the Visual Studio environment.
+if(CMAKE_HOST_WIN32 AND DEFINED ENV{VCToolsVersion})
+    string(REGEX MATCH "^[0-9]+\.[0-9]+" vxeMsvcTools "$ENV{VCToolsVersion}")
+    if(DEFINED CACHE{VXE_MSVC_TOOLS} AND NOT VXE_MSVC_TOOLS STREQUAL vxeMsvcTools)
+        message(FATAL_ERROR
+            "This build folder was made with MSVC tools ${VXE_MSVC_TOOLS}, but this tool uses "
+            "${vxeMsvcTools} (another Visual Studio version). Use Visual Studio 2026 for this "
+            "project, for example with build.cmd. See docs/building.md.")
+    endif()
+    set(VXE_MSVC_TOOLS "${vxeMsvcTools}" CACHE INTERNAL "MSVC tools this build folder was made with")
+endif()
+
 project(VoxelRethinked3D
     VERSION 0.1.0
     DESCRIPTION "Voxel Rethinked, a modern voxel sandbox game, and the vxe engine"
