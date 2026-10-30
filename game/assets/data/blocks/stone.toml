@@ -14,6 +14,8 @@
 #   tint_color       The tint's color like "#8DBB5A", until biomes set it (G3.7). One
 #                    block per tint is enough.
 #   tint_faces       Which faces the tint colors, like ["top", "side"]. Default all.
+#   solid            The player collides with it. Default true, false for invisible.
+#   liquid           Slows the player, and blocks can be placed into it. Default false.
 #   [textures]       Texture keys from the texture pack (G2): all, side, top, bottom,
 #                    or one face: east (+X), west (-X), up, down, south (+Z),
 #                    north (-Z). The most specific one wins.

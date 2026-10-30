@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#098] 2026-10-30, G6.1 G6.2 G6.3 Player, collision, breaking and placing blocks
+### Added
+- A real player (Section 20.4): walking with collision, gravity, jump, sprint, crouch that stops at edges, swimming, and flight with double Space. The physics is one function at a fixed step (game/src/common/player_physics.hpp), ready for the server to share. The camera sits between steps, so movement stays smooth at any frame rate.
+- Mouse look, the FOV setting, zoom on C with the wheel while held, and view bobbing.
+- Break, place and pick blocks with an outline on the target. Holding repeats, and blocks are not placed inside the player. F6 still switches to the free debug camera.
+- solid and liquid in block files. The hotbar's blocks and the flight state save with the player.
+- input, look, wait and playerinfo console commands, driving the real input path through Platform::injectEvent.
+### Changed
+- Startup commands run strictly in order: one that fails holds back the ones after it, for up to 10 seconds.
+
 ## [#097] 2026-10-30, G5.4 Save worlds
 ### Added
 - Worlds save: edited chunks go to region files, the player to player.dat, on quitting and every Server.AutosaveMinutes. Only edited chunks are saved, and an edit is safe in memory from its own frame, even if the chunk unloads before the next save (game/src/server/world_saver).

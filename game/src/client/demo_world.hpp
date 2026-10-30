@@ -128,6 +128,8 @@ public:
     [[nodiscard]] std::string progressText() const;
     // A spot above the ground near the origin, looking across the terrain.
     [[nodiscard]] vxe::DVec3 spawnPosition() const;
+    // Where a new player's feet stand: on the ground or the water at the spawn.
+    [[nodiscard]] vxe::DVec3 spawnGround() const;
     [[nodiscard]] const vxe::voxel::VoxelWorld& world() const noexcept { return m_world; }
     [[nodiscard]] const vxe::voxel::StreamingManager& streaming() const noexcept { return *m_streaming; }
 

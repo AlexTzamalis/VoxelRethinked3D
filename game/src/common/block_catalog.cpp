@@ -81,10 +81,12 @@ private:
     std::vector<bool> m_lookSet;       // Per layer: a block has chosen its look.
     FaceKeys m_overlays;               // Of the block being read.
     std::array<bool, 6> m_tintFaces{}; // Of the block being read.
+    vxe::u8 m_flags = 0;               // Of the block being read.
 };
 
 Result<BlockCatalog> BlockCatalogLoader::run(std::span<const BlockSource> sources) {
     m_catalog.m_stateNames.emplace_back("air");
+    m_catalog.m_stateFlags.push_back(0);
     m_catalog.m_renderInfos.push_back(vxe::voxel::airRenderInfo());
     m_catalog.m_stateIds.emplace("air", vxe::voxel::kAirState);
 
@@ -125,9 +127,10 @@ void BlockCatalogLoader::loadFile(const BlockSource& source) {
         return;
     }
     for (const auto& [key, node] : root) {
-        static constexpr std::array<std::string_view, 12> kKnown = {
-            "name", "display_name", "layer",      "emitted_light", "light_opacity", "culls_same_type",
-            "tint", "tint_color",   "tint_faces", "textures",      "overlays",      "variants"};
+        static constexpr std::array<std::string_view, 14> kKnown = {
+            "name",  "display_name", "layer",      "emitted_light", "light_opacity", "culls_same_type",
+            "tint",  "tint_color",   "tint_faces", "textures",      "overlays",      "variants",
+            "solid", "liquid"};
         if (std::ranges::find(kKnown, key.str()) == kKnown.end()) {
             problem(source.file, std::format("unknown field '{}'", key.str()));
         }
@@ -257,6 +260,17 @@ bool BlockCatalogLoader::readCommon(const BlockSource& source, const toml::table
         integer("light_opacity", info.layer == RenderLayer::Opaque ? vxe::voxel::kMaxLightLevel : 0,
                 vxe::voxel::kMaxLightLevel);
     info.tintIndex = integer("tint", 0, vxe::voxel::kTintCount - 1);
+    const auto flag = [&](std::string_view key, bool fallback) {
+        const auto node = root[key];
+        if (node && !node.is_boolean()) {
+            problem(source.file, std::format("'{}' must be true or false", key));
+            valid = false;
+        }
+        return node.value_or(fallback);
+    };
+    const bool solid = flag("solid", info.layer != RenderLayer::Invisible);
+    const bool liquid = flag("liquid", false);
+    m_flags = static_cast<vxe::u8>((solid ? 1U : 0U) | (liquid ? 2U : 0U));
     if (const auto color = root["tint_color"]; color) {
         const std::string text = color.value_or(std::string());
         u32 value = 0;
@@ -418,6 +432,7 @@ void BlockCatalogLoader::addState(std::string_view file, std::string name, const
     m_catalog.m_stateIds.emplace(name, id);
     m_catalog.m_stateNames.push_back(std::move(name));
     m_catalog.m_renderInfos.push_back(info);
+    m_catalog.m_stateFlags.push_back(m_flags);
 }
 
 u16 BlockCatalogLoader::layerOf(const std::string& key) {

@@ -166,6 +166,7 @@ GameActions::GameActions(vxe::input::InputSystem& input)
         action("gameplay.place", "Place block", "Interaction", gameplay, Binding::mouse(MouseButton::Right));
     pickBlock =
         action("gameplay.pick", "Pick block", "Interaction", gameplay, Binding::mouse(MouseButton::Middle));
+    zoom = action("gameplay.zoom", "Zoom", "Interaction", gameplay, Binding::key(scancode::kC));
     for (vxe::usize slot = 0; slot < hotbar.size(); ++slot) {
         const std::string id = "gameplay.hotbar_" + std::to_string(slot + 1);
         const std::string name = "Hotbar slot " + std::to_string(slot + 1);

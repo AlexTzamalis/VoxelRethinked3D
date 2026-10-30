@@ -227,6 +227,10 @@ std::string DemoWorld::progressText() const {
     return m_streaming->summary();
 }
 
+vxe::DVec3 DemoWorld::spawnGround() const {
+    return spawnPosition() - vxe::DVec3(0.0, 23.0, 0.0);
+}
+
 vxe::DVec3 DemoWorld::spawnPosition() const {
     const auto ground = static_cast<vxe::f64>(m_terrain.surfaceHeight(8, 40));
     return {8.5, std::max(ground, static_cast<vxe::f64>(DemoTerrain::kSeaLevel)) + 24.0, 40.5};

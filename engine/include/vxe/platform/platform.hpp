@@ -36,6 +36,9 @@ public:
     // Translates every pending OS event and appends it to `out`. Call once per
     // frame on the main thread. Returns the number of events appended.
     usize pollEvents(std::vector<PlatformEvent>& out);
+    // Delivers an event with the next pollEvents, as if the system had sent
+    // it: scripted runs drive the real input path this way.
+    void injectEvent(const PlatformEvent& event) { m_injected.push_back(event); }
 
     // The label of a key for the keybind screen, in the current keyboard
     // layout (for example "Z" for the scancode labeled Y on a German keyboard).
@@ -64,6 +67,7 @@ private:
     explicit Platform(bool video) noexcept
         : m_video(video) {}
     bool m_video = false;
+    std::vector<PlatformEvent> m_injected;
 };
 
 } // namespace vxe::platform

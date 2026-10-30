@@ -95,6 +95,25 @@ TEST_CASE("State ids follow file names and names map both ways") {
     CHECK(catalog.value().textureKeys().size() == 2);
 }
 
+TEST_CASE("Solid and liquid come from the block files") {
+    const std::vector<BlockSource> sources = {
+        {.file = "stone.toml",
+         .text = "name = \"stone\"\ndisplay_name = \"S\"\nlayer = \"opaque\"\n[textures]\nall = \"s\""},
+        {.file = "water.toml",
+         .text = "name = \"water\"\ndisplay_name = \"W\"\nlayer = \"translucent\"\nsolid = false\n"
+                 "liquid = true\n[textures]\nall = \"w\""},
+        {.file = "glass.toml",
+         .text = "name = \"glass\"\ndisplay_name = \"G\"\nlayer = \"translucent\"\n[textures]\nall = \"g\""},
+    };
+    const auto catalog = BlockCatalog::load(sources);
+    REQUIRE(catalog.hasValue());
+    CHECK_FALSE(catalog.value().isSolid(0)); // Air.
+    CHECK(catalog.value().isSolid(*catalog.value().stateId("stone")));
+    CHECK(catalog.value().isSolid(*catalog.value().stateId("glass")));
+    CHECK_FALSE(catalog.value().isSolid(*catalog.value().stateId("water")));
+    CHECK(catalog.value().isLiquid(*catalog.value().stateId("water")));
+}
+
 TEST_CASE("Tints and overlays color the faces their block names") {
     const std::vector<BlockSource> sources = {
         {.file = "grass.toml",

@@ -26,6 +26,7 @@ namespace vxe::input {
 namespace scancode {
 inline constexpr u16 kA = 4;
 inline constexpr u16 kD = 7;
+inline constexpr u16 kC = 6;
 inline constexpr u16 kE = 8;
 inline constexpr u16 kG = 10;
 inline constexpr u16 kS = 22;

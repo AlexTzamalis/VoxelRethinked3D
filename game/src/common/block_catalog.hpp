@@ -69,6 +69,15 @@ public:
         return m_renderInfos.at(state);
     }
 
+    // Whether the player and blocks collide with a state; liquids are not
+    // solid, slow the player down and let blocks replace them.
+    [[nodiscard]] bool isSolid(vxe::voxel::BlockStateId state) const {
+        return (m_stateFlags.at(state) & 1U) != 0;
+    }
+    [[nodiscard]] bool isLiquid(vxe::voxel::BlockStateId state) const {
+        return (m_stateFlags.at(state) & 2U) != 0;
+    }
+
     // Texture array layer i shows textureKeys()[i].
     [[nodiscard]] std::span<const std::string> textureKeys() const noexcept { return m_textureKeys; }
     // How each texture layer is colored, voxel::textureLook, for
@@ -91,6 +100,7 @@ private:
     std::vector<BlockDefinition> m_blocks;
     std::vector<std::string> m_stateNames;
     std::vector<vxe::voxel::BlockRenderInfo> m_renderInfos;
+    std::vector<vxe::u8> m_stateFlags; // Per state: bit 0 solid, bit 1 liquid.
     std::vector<std::string> m_textureKeys;
     std::vector<vxe::u32> m_textureLooks;
     std::array<vxe::u32, vxe::voxel::kTintCount> m_tintColors{0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU,

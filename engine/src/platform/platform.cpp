@@ -125,7 +125,9 @@ Platform::~Platform() {
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 usize Platform::pollEvents(std::vector<PlatformEvent>& out) {
     VXE_PROFILE_FUNCTION();
-    usize count = 0;
+    usize count = m_injected.size();
+    out.insert(out.end(), m_injected.begin(), m_injected.end());
+    m_injected.clear();
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         if (translate(event, out)) {

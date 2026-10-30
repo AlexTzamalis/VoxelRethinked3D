@@ -1,6 +1,7 @@
 #pragma once
 
 #include "client/demo_world.hpp"
+#include "client/player_controller.hpp"
 #include "common/block_catalog.hpp"
 #include "game_settings.hpp"
 #include "game_state.hpp"
@@ -56,6 +57,7 @@ private:
     // Saves the player and commits edits; `waitForDisk` for leaving the world.
     void saveWorld(vxe::EngineContext& context, bool waitForDisk);
     [[nodiscard]] PlayerData playerData() const;
+    void setFreeCamera(bool on);
     void updateTextures(vxe::EngineContext& context);
     void drawUi(vxe::EngineContext& context, const vxe::FrameTime& time);
     // Puts the screens the game state and the debug settings ask for on the stack.
@@ -78,6 +80,13 @@ private:
     // The world being played, with its own seed, edits and far terrain cache.
     // Empty for the play console command, which saves nothing.
     std::optional<WorldInfo> m_world;
+    std::unique_ptr<PlayerController> m_player;
+    std::unique_ptr<BlockInteraction> m_interaction;
+    Hotbar m_hotbar;
+    bool m_freeCamera = false; // The debug camera (F6, autofly) instead of the player.
+    std::vector<vxe::platform::PlatformEvent> m_inputUps; // Tapped by the input command, for the next frame.
+    vxe::u64 m_inGameFrames = 0;
+    vxe::u64 m_waitUntil = 0; // The wait command's frame, 0 when none runs.
     vxe::f64 m_sinceAutosave = 0.0;
     // How far the menu's panorama has turned, radians.
     vxe::f32 m_panoramaYaw = 0.0F;

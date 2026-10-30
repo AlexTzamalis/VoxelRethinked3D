@@ -147,6 +147,114 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                                           m_states.request(GameState::StartingIntegratedServer);
                                           return output;
                                       }});
+    // Drive the real input path from scripts: keys and buttons, mouse motion,
+    // and a pause between them. Startup commands run in order, so "wait" fails
+    // until its frame has come and holds back the ones after it.
+    context.commands.registerCommand(
+        {.name = "input",
+         .usage = "input <down|up|tap> <left|right|middle|wheelup|wheeldown|space|shift|ctrl|escape|a-z|1-9>",
+         .description = "Sends a key or mouse button as if pressed.",
+         .handler = [this, &context](std::span<const std::string> arguments) {
+             namespace platform = vxe::platform;
+             vxe::config::CommandOutput output;
+             if (arguments.size() != 2) {
+                 output.success = false;
+                 return output;
+             }
+             const std::string& name = arguments[1];
+             const auto send = [&](bool down, bool later) {
+                 std::optional<platform::PlatformEvent> event;
+                 if (name == "left" || name == "right" || name == "middle") {
+                     const platform::MouseButton button = name == "left"    ? platform::MouseButton::Left
+                                                          : name == "right" ? platform::MouseButton::Right
+                                                                            : platform::MouseButton::Middle;
+                     event = platform::MouseButtonEvent{.button = button, .down = down};
+                 } else if (name == "wheelup" || name == "wheeldown") {
+                     if (down) {
+                         event = platform::MouseWheelEvent{.y = name == "wheelup" ? 1.0F : -1.0F};
+                     }
+                 } else {
+                     vxe::u16 code = 0;
+                     if (name == "space") {
+                         code = 44;
+                     } else if (name == "shift") {
+                         code = 225;
+                     } else if (name == "ctrl") {
+                         code = 224;
+                     } else if (name == "escape") {
+                         code = 41;
+                     } else if (name.size() == 1 && name[0] >= 'a' && name[0] <= 'z') {
+                         code = static_cast<vxe::u16>(4 + (name[0] - 'a'));
+                     } else if (name.size() == 1 && name[0] >= '1' && name[0] <= '9') {
+                         code = static_cast<vxe::u16>(30 + (name[0] - '1'));
+                     }
+                     event = platform::KeyEvent{.scancode = code, .down = down};
+                 }
+                 if (event && later) {
+                     m_inputUps.push_back(*event);
+                 } else if (event) {
+                     context.platform.injectEvent(*event);
+                 }
+             };
+             if (arguments[0] == "tap") {
+                 send(true, false);
+                 send(false, true);
+             } else {
+                 send(arguments[0] == "down", false);
+             }
+             return output;
+         }});
+    context.commands.registerCommand({.name = "look",
+                                      .usage = "look <dx> <dy>",
+                                      .description = "Sends mouse motion, in pixels.",
+                                      .handler = [&context](std::span<const std::string> arguments) {
+                                          vxe::config::CommandOutput output;
+                                          if (arguments.size() != 2) {
+                                              output.success = false;
+                                              return output;
+                                          }
+                                          context.platform.injectEvent(vxe::platform::MouseMotionEvent{
+                                              .dx = std::stof(arguments[0]), .dy = std::stof(arguments[1])});
+                                          return output;
+                                      }});
+    context.commands.registerCommand(
+        {.name = "wait",
+         .usage = "wait <frames>",
+         .description = "Fails until this many frames have been played, holding back later startup commands.",
+         .handler = [this](std::span<const std::string> arguments) {
+             vxe::config::CommandOutput output;
+             if (m_waitUntil == 0 && m_states.current() == GameState::InGame && arguments.size() == 1) {
+                 m_waitUntil = m_inGameFrames + std::stoull(arguments[0]);
+             }
+             output.success = m_waitUntil != 0 && m_inGameFrames >= m_waitUntil;
+             if (output.success) {
+                 m_waitUntil = 0;
+             }
+             return output;
+         }});
+    context.commands.registerCommand(
+        {.name = "playerinfo",
+         .usage = "playerinfo",
+         .description = "Logs where the player is and what is targeted.",
+         .handler = [this](std::span<const std::string> /*arguments*/) {
+             vxe::config::CommandOutput output;
+             if (!m_player || !m_demo) {
+                 output.success = false;
+                 return output;
+             }
+             const PlayerState& state = m_player->state();
+             const auto& target = m_interaction->target();
+             std::string aimed = "nothing";
+             if (target) {
+                 aimed = std::format("{} at {} {} {}",
+                                     m_blocks->stateName(m_demo->world().getBlock(target->block)),
+                                     target->block.x, target->block.y, target->block.z);
+             }
+             VXE_LOG_INFO(gameLog, "Player feet {:.2f} {:.2f} {:.2f} ground {} flying {} target {} slot {}",
+                          state.position.x, state.position.y, state.position.z, state.onGround, state.flying,
+                          aimed, m_hotbar.selected + 1);
+             return output;
+         }});
     // Reads and changes single blocks, for scripted runs and debugging.
     context.commands.registerCommand(
         {.name = "setblock",
@@ -345,6 +453,12 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
              camera.yaw = glm::radians(static_cast<vxe::f32>(values[3]));
              camera.pitch = glm::radians(static_cast<vxe::f32>(values[4]));
              m_camera = camera;
+             if (m_player) {
+                 // Scripts place the eyes, and the player hovers there.
+                 constexpr vxe::f64 kEyes = 1.62;
+                 m_player->place(camera.position - vxe::DVec3(0.0, kEyes, 0.0), camera.yaw, camera.pitch,
+                                 true);
+             }
              m_cameraOverride = camera;
              output.lines.emplace_back("Camera moved");
              return output;
@@ -369,6 +483,7 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                  output.success = false;
                  return output;
              }
+             setFreeCamera(speed > 0.0);
              m_autoFlySpeed = speed;
              output.lines.push_back(std::format("Flying at {:.0f} blocks per second", m_autoFlySpeed));
              return output;
@@ -380,12 +495,9 @@ void VoxelRethinkedApp::onTransition(vxe::EngineContext& context, GameState from
     // Gameplay input only counts in the world; a menu over it blocks it.
     if (isWorldState(to) && !isWorldState(from)) {
         m_input->pushContext(m_actions->gameplay);
-        // Until the player controller (G6.1) the free camera flies, so its
-        // keys go first; pushing moves its context above Gameplay.
-        m_input->pushContext(m_flight->inputContext());
     } else if (!isWorldState(to) && isWorldState(from)) {
+        setFreeCamera(false);
         m_input->popContext(m_actions->gameplay);
-        m_input->popContext(m_flight->inputContext());
     }
     if (isMenuState(to) && !isMenuState(from)) {
         m_input->pushContext(m_actions->menu);
@@ -414,9 +526,16 @@ void VoxelRethinkedApp::onTransition(vxe::EngineContext& context, GameState from
 
 PlayerData VoxelRethinkedApp::playerData() const {
     PlayerData player;
-    player.position = m_camera.position;
-    player.yaw = m_camera.yaw;
-    player.pitch = m_camera.pitch;
+    player.position = m_player->state().position;
+    player.yaw = m_player->yaw();
+    player.pitch = m_player->pitch();
+    player.flying = m_player->state().flying;
+    player.hotbarSlot = static_cast<vxe::u8>(m_hotbar.selected);
+    for (vxe::usize index = 0; index < m_hotbar.slots.size(); ++index) {
+        if (m_hotbar.slots.at(index) != vxe::voxel::kAirState) {
+            player.hotbar.at(index) = std::string(m_blocks->stateName(m_hotbar.slots.at(index)));
+        }
+    }
     return player;
 }
 
@@ -518,6 +637,8 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
         return std::move(view).error();
     }
     m_blocks = std::move(catalog).value();
+    m_player = std::make_unique<PlayerController>(*m_input, *m_actions, *m_settings, *m_blocks);
+    m_interaction = std::make_unique<BlockInteraction>(*m_input, *m_actions, *m_blocks);
     m_blockRegistry = std::make_unique<vxe::voxel::BlockRegistry>(&context.stats);
     m_blockRegistry->publish(std::move(view).value());
     VXE_LOG_INFO(gameLog, "Loaded {} blocks with {} states and {} texture keys", m_blocks->blockCount(),
@@ -631,6 +752,11 @@ void VoxelRethinkedApp::handleGlobalActions(vxe::EngineContext& context) {
 }
 
 void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::FrameTime& time) {
+    for (const vxe::platform::PlatformEvent& event : m_inputUps) {
+        context.platform.injectEvent(event);
+    }
+    m_inputUps.clear();
+    m_inGameFrames += m_states.current() == GameState::InGame ? 1 : 0;
     if (m_states.current() == GameState::InGame) {
         if (m_input->isPressed(m_actions->pause)) {
             m_states.request(GameState::Paused);
@@ -643,8 +769,15 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
             const bool consoleOpen = context.console != nullptr && context.console->isOpen();
             const bool steering = !consoleOpen && !m_settings->freezeCamera.get();
             setMouseCaptured(context, steering);
-            if (steering) {
+            if (m_input->isPressed(m_actions->freeCamera)) {
+                setFreeCamera(!m_freeCamera);
+            }
+            if (steering && m_freeCamera) {
                 m_flight->update(m_camera, time.deltaSeconds);
+            } else if (steering && m_player && m_demo) {
+                m_player->update(m_camera, m_demo->world(), time.deltaSeconds,
+                                 vxe::i64{DemoWorld::kMinChunkY} * vxe::kChunkSize,
+                                 (vxe::i64{DemoWorld::kMaxChunkY} + 1) * vxe::kChunkSize);
             }
             if (m_autoFlySpeed > 0.0) {
                 // Level flight in the view direction, so looking down does
@@ -659,7 +792,8 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
     }
     // The free camera has its own field of view setting for debugging; in the
     // game the player's choice wins.
-    m_camera.fovYDegrees = static_cast<vxe::f32>(m_settings->fieldOfView.get());
+    const auto fieldOfView = static_cast<vxe::f32>(m_settings->fieldOfView.get());
+    m_camera.fovYDegrees = m_player ? m_player->fieldOfView(fieldOfView) : fieldOfView;
 
     if (context.renderer == nullptr) {
         return;
@@ -673,6 +807,17 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
             saveWorld(context, false);
         }
         m_demo->update(m_camera);
+        const bool playing = m_states.current() == GameState::InGame && !m_freeCamera &&
+                             !m_settings->freezeCamera.get() &&
+                             (context.console == nullptr || !context.console->isOpen());
+        if (playing && m_interaction) {
+            m_interaction->update(
+                m_camera, m_player->state(), m_demo->world(), m_hotbar,
+                [this](const vxe::BlockPos& position, vxe::voxel::BlockStateId state) {
+                    return m_demo->setBlock(position, state);
+                },
+                &renderer.debugDraw(), time.deltaSeconds);
+        }
         return;
     }
     // Without a world, a grid shows where the ground would be.
@@ -709,21 +854,46 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
     }
 }
 
+void VoxelRethinkedApp::setFreeCamera(bool on) {
+    if (on == m_freeCamera) {
+        return;
+    }
+    m_freeCamera = on;
+    // Pushing puts its keys above Gameplay; they would block the player's.
+    if (on) {
+        m_input->pushContext(m_flight->inputContext());
+    } else {
+        m_input->popContext(m_flight->inputContext());
+        m_autoFlySpeed = 0.0;
+    }
+}
+
 void VoxelRethinkedApp::placeSpawnCamera() {
     // Streaming centers on the camera, so it waits at the spawn while the
     // world loads around it.
+    m_hotbar = Hotbar{};
+    const auto slot = [this](vxe::usize index, std::string_view name) {
+        if (const auto state = m_blocks->stateId(name); state) {
+            m_hotbar.slots.at(index) = *state;
+        }
+    };
     if (m_world && m_world->player) {
-        m_camera.position = m_world->player->position;
-        m_camera.yaw = m_world->player->yaw;
-        m_camera.pitch = m_world->player->pitch;
+        const PlayerData& saved = *m_world->player;
+        m_player->place(saved.position, saved.yaw, saved.pitch, saved.flying);
+        m_hotbar.selected = saved.hotbarSlot;
+        for (vxe::usize index = 0; index < saved.hotbar.size(); ++index) {
+            slot(index, saved.hotbar.at(index));
+        }
     } else if (m_demo) {
-        m_camera.position = m_demo->spawnPosition();
-        m_camera.yaw = 0.0F;
-        m_camera.pitch = glm::radians(-25.0F);
+        m_player->place(m_demo->spawnGround(), 0.0F, glm::radians(-10.0F), false);
+        constexpr std::array<std::string_view, 9> kStartBlocks = {
+            "stone", "dirt",        "grass_block", "oak_log[axis=y]", "oak_leaves", "sand",
+            "glass", "lumen_block", "water"};
+        for (vxe::usize index = 0; index < kStartBlocks.size(); ++index) {
+            slot(index, kStartBlocks.at(index));
+        }
     }
-    if (m_cameraOverride) {
-        m_camera = *m_cameraOverride;
-    }
+    m_player->applyTo(m_camera);
 }
 
 // Hands newly loaded block textures to the chunk renderer and the far terrain.

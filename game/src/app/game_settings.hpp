@@ -65,6 +65,7 @@ struct GameActions {
     vxe::input::ActionId breakBlock;
     vxe::input::ActionId placeBlock;
     vxe::input::ActionId pickBlock;
+    vxe::input::ActionId zoom;
     // Inventory
     std::array<vxe::input::ActionId, 9> hotbar{};
     vxe::input::ActionId hotbarNext;

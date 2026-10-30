@@ -279,51 +279,53 @@ private:
 
 // EngineConfig::startupCommands, through the console when there is one (so
 // they show in its history) and straight to the command registry otherwise.
-// Returns the commands that failed: they may name settings or presets of
-// systems that only start later (a world), so the main loop tries them again.
-std::vector<std::string> runStartupCommands(EngineServices& services, std::span<const std::string> commands) {
-    std::vector<std::string> failed;
-    for (const std::string& command : commands) {
-        if (services.console) {
-            if (!services.console->execute(command)) {
-                failed.push_back(command);
-            }
-            continue;
-        }
-        const config::CommandOutput output = services.commands->execute(command);
-        for (const std::string& line : output.lines) {
-            VXE_LOG_INFO(log::core, "> {}: {}", command, line);
-        }
-        if (!output.success) {
-            failed.push_back(command);
-        }
+// A command that fails may name settings or presets of systems that only
+// start later (a world), so the main loop tries it again.
+// Runs one startup command. Through the console when there is one, so its
+// output shows there too.
+bool runStartupCommand(EngineServices& services, const std::string& command) {
+    if (services.console) {
+        return services.console->execute(command);
     }
-    return failed;
+    const config::CommandOutput output = services.commands->execute(command);
+    for (const std::string& line : output.lines) {
+        VXE_LOG_INFO(log::core, "> {}: {}", command, line);
+    }
+    return output.success;
 }
 
-// Tries failed startup commands again, quietly, until they work or
-// kStartupRetrySeconds have passed (then the failure is logged).
+// Startup commands run strictly in order: a command that fails waits, and the
+// ones after it wait behind it, so a script can rely on its own steps. Returns
+// the commands still to run.
+std::vector<std::string> runStartupCommands(EngineServices& services, std::span<const std::string> commands) {
+    usize done = 0;
+    while (done < commands.size() && runStartupCommand(services, commands[done])) {
+        ++done;
+    }
+    return {commands.begin() + static_cast<std::ptrdiff_t>(done), commands.end()};
+}
+
+// Tries the first waiting startup command again, quietly, until it works or
+// kStartupRetrySeconds have passed since the last one worked (then the
+// failure is logged and the next one gets its turn).
 constexpr f64 kStartupRetrySeconds = 10.0;
 
-void retryStartupCommands(EngineServices& services, std::vector<std::string>& pending,
-                          const Stopwatch& clock) {
-    if (pending.empty()) {
-        return;
-    }
-    const bool giveUp = clock.elapsedMilliseconds() > kStartupRetrySeconds * 1000.0;
-    std::erase_if(pending, [&](const std::string& command) {
+void retryStartupCommands(EngineServices& services, std::vector<std::string>& pending, Stopwatch& clock) {
+    while (!pending.empty()) {
+        const std::string& command = pending.front();
         const config::CommandOutput output = services.commands->execute(command);
         if (output.success) {
             VXE_LOG_INFO(log::core, "> {} (applied after {:.0f} ms, once its system started)", command,
                          clock.elapsedMilliseconds());
-            return true;
-        }
-        if (giveUp) {
+        } else if (clock.elapsedMilliseconds() > kStartupRetrySeconds * 1000.0) {
             VXE_LOG_WARN(log::core, "> {} still fails after {:.0f} s: {}", command, kStartupRetrySeconds,
                          output.lines.empty() ? std::string("no output") : output.lines.front());
+        } else {
+            return;
         }
-        return giveUp;
-    });
+        pending.erase(pending.begin());
+        clock.restart();
+    }
 }
 
 } // namespace
@@ -421,7 +423,7 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
 
     UserFiles files(services, bindByKeyName);
     std::vector<std::string> pendingCommands;
-    const Stopwatch startupClock;
+    Stopwatch startupClock;
     if (exitCode == 0) {
         files.load();
         pendingCommands = runStartupCommands(services, config.startupCommands);

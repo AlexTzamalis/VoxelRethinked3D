@@ -13,8 +13,11 @@ set(vrGameSources
     src/client/default_pack.hpp
     src/client/demo_world.cpp
     src/client/demo_world.hpp
+    src/client/player_controller.cpp
+    src/client/player_controller.hpp
     src/common/block_catalog.cpp
     src/common/block_catalog.hpp
+    src/common/player_physics.hpp
     src/server/world_saver.cpp
     src/server/world_saver.hpp
     src/server/world_store.cpp
