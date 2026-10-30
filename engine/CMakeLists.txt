@@ -238,10 +238,17 @@ vxe_add_shader_check(vxe_engine_shaders ROOT "${CMAKE_CURRENT_SOURCE_DIR}/shader
 vxe_add_module(ui
     SOURCES
         src/ui/pixel_font.cpp
+        src/ui/theme.cpp
+        src/ui/ui_context.cpp
         src/ui/ui_renderer.cpp
+        src/ui/widget.cpp
+        src/ui/widgets.cpp
     DEPENDS
         core
+        config
         rhi
+    PRIVATE_LIBS
+        tomlplusplus::tomlplusplus
 )
 
 # Debug: developer tools on Dear ImGui and ImPlot (E7, ADR-013), drawn

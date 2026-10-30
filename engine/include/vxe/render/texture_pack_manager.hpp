@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace vxe::render {
@@ -75,6 +76,11 @@ public:
     // A loaded image, or nothing (not requested, not loaded yet, or no pack
     // has a usable one). Changes when update() returns true.
     [[nodiscard]] const PackImage* image(std::string_view path) const noexcept;
+    // Other files to load with the textures, by path inside the packs (for
+    // example "ui/theme.toml"): the first pack that has one provides it.
+    void setFiles(std::vector<std::string> paths);
+    // A loaded file's bytes, or nothing. Changes when update() returns true.
+    [[nodiscard]] const std::vector<std::byte>* file(std::string_view path) const noexcept;
     // Looks for pack folders again and loads.
     void reload();
     // Swaps in a finished load. Returns true in the frame new textures
@@ -132,6 +138,8 @@ private:
     std::vector<std::string> m_keys;
     std::vector<std::string> m_imagePaths;
     std::vector<PackImage> m_images;
+    std::vector<std::string> m_filePaths;
+    std::vector<std::pair<std::string, std::vector<std::byte>>> m_files;
     std::unique_ptr<Load> m_load;
     bool m_loadAgain = false;
     u32 m_hotReloads = 0;

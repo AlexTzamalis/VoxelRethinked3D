@@ -2,6 +2,22 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#084] 2026-10-30, E12.2 Widget tree, layout, styling and theme files
+### Added
+- ui::Widget: the retained widget tree with a flexbox subset (row or column, justify, align and alignSelf, gap, padding, grow, shrink, fixed sizes, min and max), laid out in UI pixels and snapped to whole pixels; changes flag the root, so layout runs only when the tree, window, scale or font changed.
+- Widgets: Panel (theme background, border, padding, gap; blocks the pointer), Label (roles Normal, Muted, Title, alignment, word wrap to the given width) and Button (theme height and minimum width, hover, pressed and disabled looks with a one pixel bevel, click on press and release over it).
+- ui::Theme from ui/theme.toml in the texture packs ([colors] and [metrics], every value optional, bad entries warn and keep the default); the default pack's textures/default/ui/theme.toml states the built in look.
+- ui::UiContext: owns the tree and theme, picks the whole number UI scale (Interface.UiScale, 0 Auto: the largest that fits 320 x 240 UI pixels), routes the pointer (hover, press, click, safe when a click removes widgets) and draws through ui::UiRenderer. Stats Ui.Widgets, Ui.Scale, Ui.LayoutMs and Ui.Layouts.
+- TexturePackManager::setFiles and file(): pack files besides images (ui/theme.toml), reloaded with the packs.
+- Game: the theme comes from the pack stack and hot reloads; Debug.Ui.WidgetSample shows a sample screen with every widget; the mouse goes to the UI while the game does not capture it.
+- Benchmark: layout and drawing of a 162 widget menu (benchmarks/ui_bench.cpp); vxe_benchmarks takes a group name to run one group.
+- Tests: columns, rows, grow, shrink, justify, align, limits, hidden widgets, pixel snapping, wrapping labels, layout requests, theme parsing, the default theme, the automatic scale, and pointer hover, press, click, drag off, disabled buttons, captured mouse and a click that removes its own tree.
+### Performance
+- 162 widget menu: layout 0.025 ms (only on changes), drawing into quads 0.032 ms per frame (docs/perf/ui.md).
+### Changed
+- Interface.UiScale moved from the game into the engine UI and is now a whole number from 0 (Auto) to 8, so pixel art stays sharp (Section 19.1 allowed fractional scales). An older settings.toml with a fractional value logs one warning and uses Auto.
+- ui::rgba moved to vxe/ui/color.hpp.
+
 ## [#083] 2026-10-30, E12.1 Pixel font pipeline
 ### Added
 - An original pixel font (textures/default/ui/font.png): 128 x 128 sheet of 16 x 16 cells, every printable ASCII character, proportional widths, white on transparent so text takes any color. Packs replace it with their own ui/font.png.

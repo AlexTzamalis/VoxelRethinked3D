@@ -122,6 +122,7 @@ Result<void> UiRenderer::setFont(std::span<const u32> pixels, u32 width, u32 hei
     m_device.destroy(m_fontTexture); // Deferred until the GPU is done with it (E6.6).
     m_fontTexture = texture.value();
     m_font = std::move(font).value();
+    ++m_fontVersion;
     return {};
 }
 

@@ -8,6 +8,7 @@
 #include <vxe/app/application.hpp>
 #include <vxe/render/camera.hpp>
 #include <vxe/render/texture_pack_manager.hpp>
+#include <vxe/ui/ui_context.hpp>
 #include <vxe/ui/ui_renderer.hpp>
 #include <vxe/voxel/block_registry.hpp>
 
@@ -55,6 +56,8 @@ private:
     std::unique_ptr<vxe::render::TexturePackManager> m_texturePacks;
     // The game UI (E12); with a renderer only.
     std::unique_ptr<vxe::ui::UiRenderer> m_ui;
+    std::unique_ptr<vxe::ui::UiContext> m_uiContext;
+    bool m_widgetSampleShown = false;
     std::unique_ptr<GameSettings> m_settings;
     std::unique_ptr<GameActions> m_actions;
     vxe::render::Camera m_camera;

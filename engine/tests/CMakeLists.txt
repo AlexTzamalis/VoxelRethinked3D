@@ -50,6 +50,7 @@ add_executable(vxe_tests
     rhi/rhi_tests.cpp
     rhi/shader_source_tests.cpp
     ui/pixel_font_tests.cpp
+    ui/widget_tests.cpp
     voxel/light_tests.cpp
     voxel/block_registry_tests.cpp
     voxel/chunk_light_tests.cpp

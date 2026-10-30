@@ -6,6 +6,7 @@
 #include <vxe/rhi/command_list.hpp>
 #include <vxe/rhi/device.hpp>
 #include <vxe/rhi/shader_source.hpp>
+#include <vxe/ui/color.hpp>
 #include <vxe/ui/pixel_font.hpp>
 
 #include <array>
@@ -16,12 +17,6 @@
 #include <vector>
 
 namespace vxe::ui {
-
-// A color as the window shows it: red in the lowest byte, alpha in the
-// highest (the byte order unpackUnorm4x8 reads in the shader).
-[[nodiscard]] constexpr u32 rgba(u8 red, u8 green, u8 blue, u8 alpha = 255) noexcept {
-    return u32{red} | (u32{green} << 8U) | (u32{blue} << 16U) | (u32{alpha} << 24U);
-}
 
 // A rectangle in window pixels, origin at the top left, y down.
 struct Rect {
@@ -80,6 +75,8 @@ public:
     // valid until the GPU is done with it.
     [[nodiscard]] Result<void> setFont(std::span<const u32> pixels, u32 width, u32 height);
     [[nodiscard]] const PixelFont* font() const noexcept { return m_font ? &*m_font : nullptr; }
+    // Goes up with every setFont, so layouts know when text sizes changed.
+    [[nodiscard]] u64 fontVersion() const noexcept { return m_fontVersion; }
 
     // Starts a frame's UI for a window of this size; drops the last frame's quads.
     void begin(u32 width, u32 height);
@@ -127,6 +124,7 @@ private:
     rhi::SamplerHandle m_sampler;
     rhi::TextureHandle m_fontTexture;
     std::optional<PixelFont> m_font;
+    u64 m_fontVersion = 0;
     std::array<FrameBuffers, kFramesInFlight> m_frames{};
     usize m_frame = 0;
     bool m_recordedOnce = false;

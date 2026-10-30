@@ -49,14 +49,6 @@ GameSettings::GameSettings(vxe::config::SettingsRegistry& settings)
                                            .displayName = "Toggle crouch",
                                            .description = "Press crouch once to start and again to stop."},
                                           false}))
-    , uiScale(settings.registerFloat(
-          {{.id = "Interface.UiScale",
-            .displayName = "Interface scale",
-            .description = "Size of menus and the HUD. 0 picks one from the window size."},
-           0.0F,
-           0.0F,
-           4.0F,
-           0.25F}))
     , hudOpacity(settings.registerFloat({{.id = "Interface.HudOpacity",
                                           .displayName = "HUD opacity",
                                           .description = "How solid the HUD looks."},
@@ -73,6 +65,11 @@ GameSettings::GameSettings(vxe::config::SettingsRegistry& settings)
                                          .description = "Shows the UI font at scales 1 to 4.",
                                          .visibility = Visibility::Developer},
                                         false}))
+    , widgetSample(settings.registerBool({{.id = "Debug.Ui.WidgetSample",
+                                           .displayName = "Widget sample",
+                                           .description = "Shows a screen with every UI widget.",
+                                           .visibility = Visibility::Developer},
+                                          false}))
     , screenShake(settings.registerFloat({{.id = "Accessibility.ScreenShake",
                                            .displayName = "Screen shake",
                                            .description = "Strength of camera shake effects."},

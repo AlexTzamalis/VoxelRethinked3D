@@ -1,6 +1,7 @@
 #include "voxel_rethinked_app.hpp"
 
 #include "client/default_pack.hpp"
+#include "ui/screens/widget_sample.hpp"
 
 #include <vxe/core/log.hpp>
 #include <vxe/core/version.hpp>
@@ -11,11 +12,13 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cstddef>
 #include <filesystem>
 #include <format>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace vr {
 namespace {
@@ -23,8 +26,9 @@ namespace {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): the level changes at runtime.
 constinit vxe::log::Category gameLog{"game", vxe::log::Level::Info};
 
-// The UI font inside the texture packs (Section 15.1).
+// The UI font and theme inside the texture packs (Section 15.1).
 constexpr std::string_view kFontImage = "ui/font.png";
+constexpr std::string_view kThemeFile = "ui/theme.toml";
 
 // Debug.Ui.FontSample: the UI font at every whole scale over a dark panel,
 // to judge it at a glance.
@@ -239,6 +243,7 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
         m_texturePacks = std::move(packs).value();
         // The UI font comes from the packs too, so packs can replace it.
         m_texturePacks->setImages({std::string(kFontImage)});
+        m_texturePacks->setFiles({std::string(kThemeFile)});
         const auto keys = m_blocks->textureKeys();
         m_texturePacks->setKeys(std::vector<std::string>(keys.begin(), keys.end()));
 
@@ -249,6 +254,7 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
         }
         m_ui = std::move(ui).value();
         context.renderer->setUi([ui = m_ui.get()](vxe::rhi::CommandList& commands) { ui->record(commands); });
+        m_uiContext = vxe::ui::UiContext::create({.settings = &context.settings, .stats = &context.stats});
     }
     return {};
 }
@@ -401,6 +407,20 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
             VXE_LOG_WARN(gameLog, "UI font from pack '{}': {}", font->source, set.error().describe());
         }
     }
+    if (const std::vector<std::byte>* theme = m_texturePacks->file(kThemeFile);
+        theme != nullptr && m_uiContext) {
+        std::vector<std::string> warnings;
+        auto parsed = vxe::ui::Theme::parse(
+            std::string_view(reinterpret_cast<const char*>(theme->data()), theme->size()), warnings);
+        for (const std::string& warning : warnings) {
+            VXE_LOG_WARN(gameLog, "{}", warning);
+        }
+        if (parsed) {
+            m_uiContext->setTheme(parsed.value());
+        } else {
+            VXE_LOG_WARN(gameLog, "{}", parsed.error().describe());
+        }
+    }
 }
 
 // The game UI of this frame. Screens and the HUD arrive with E12.5 and G4
@@ -409,7 +429,28 @@ void VoxelRethinkedApp::drawUi(vxe::EngineContext& context) {
     if (!m_ui || context.device == nullptr) {
         return;
     }
-    m_ui->begin(context.device->backBufferWidth(), context.device->backBufferHeight());
+    const vxe::u32 width = context.device->backBufferWidth();
+    const vxe::u32 height = context.device->backBufferHeight();
+    if (m_uiContext && m_settings->widgetSample.get() != m_widgetSampleShown) {
+        m_widgetSampleShown = m_settings->widgetSample.get();
+        m_uiContext->root().clearChildren();
+        if (m_widgetSampleShown) {
+            buildWidgetSample(m_uiContext->root());
+        }
+    }
+    m_ui->begin(width, height);
+    if (m_uiContext) {
+        // The pointer belongs to the UI only while the game does not use the
+        // mouse for looking around.
+        vxe::ui::PointerInput pointer{.available = !m_mouseCaptured};
+        if (m_input != nullptr) {
+            pointer.x = m_input->mousePosition().x;
+            pointer.y = m_input->mousePosition().y;
+            pointer.primaryDown = m_input->isMouseButtonDown(vxe::platform::MouseButton::Left);
+        }
+        m_uiContext->update(width, height, pointer, *m_ui);
+        m_uiContext->draw(*m_ui);
+    }
     if (m_settings->fontSample.get()) {
         drawFontSample(*m_ui);
     }
@@ -446,6 +487,7 @@ void VoxelRethinkedApp::onShutdown(vxe::EngineContext& context) {
         context.renderer->chunks().setTextures({}, {});
         context.renderer->setUi({});
     }
+    m_uiContext.reset();
     m_ui.reset();
     m_texturePacks.reset();
     m_flight.reset();

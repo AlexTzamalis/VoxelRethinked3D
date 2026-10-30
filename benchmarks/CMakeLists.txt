@@ -12,9 +12,12 @@ add_executable(vxe_benchmarks
     meshing_bench.cpp
     region_bench.cpp
     storage_bench.cpp
+    ui_bench.cpp
     world_bench.cpp
 )
 target_link_libraries(vxe_benchmarks PRIVATE vxe::vxe nanobench::nanobench)
 # The synthetic terrain sample is shared with the unit tests.
 target_include_directories(vxe_benchmarks PRIVATE "${PROJECT_SOURCE_DIR}/engine/tests")
+# The UI benchmark compiles the real engine shaders on the Null device.
+target_compile_definitions(vxe_benchmarks PRIVATE "VXE_ENGINE_SHADER_DIR=\"${PROJECT_SOURCE_DIR}/engine/shaders\"")
 vxe_set_warnings(vxe_benchmarks)

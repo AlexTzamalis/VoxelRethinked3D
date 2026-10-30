@@ -1,0 +1,29 @@
+# The look of the game UI (Section 19.1). A pack restyles every menu by
+# putting its own ui/theme.toml next to its ui/font.png; it only needs the
+# values it changes. Colors are "#RRGGBB" or "#RRGGBBAA", sizes are UI pixels
+# (the interface scale multiplies them; one font pixel is one UI pixel).
+
+[colors]
+text = "#F0F0F0"
+text_muted = "#A8A8A8"
+text_disabled = "#707070"
+title = "#FFFFFF"
+panel = "#181A20D8"
+panel_border = "#08080A"
+button = "#4A4A52"
+button_hover = "#5E6470"
+button_pressed = "#35363C"
+button_disabled = "#2C2C30"
+button_border = "#0C0C0E"
+button_highlight = "#FFFFFF40"
+button_shadow = "#00000060"
+focus = "#E8C860"
+backdrop = "#00000090"
+
+[metrics]
+button_height = 20
+button_min_width = 80
+button_padding = 8
+panel_padding = 8
+gap = 4
+border = 1

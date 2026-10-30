@@ -423,7 +423,10 @@ TEST_CASE("Pack images come from the first pack with a usable one") {
     render::TexturePackManager& manager = *created.value();
     REQUIRE(settings.set("Graphics.Textures.Packs", config::SettingValue{std::string("low")}).hasValue());
     settings.dispatchChanges();
+    const std::string theme = "[colors]\n";
+    REQUIRE(io::writeFile(root / "low" / "ui" / "theme.toml", std::as_bytes(std::span(theme))).hasValue());
     manager.setImages({"ui/font.png"});
+    manager.setFiles({"ui/theme.toml", "ui/missing.toml"});
     manager.setKeys({"stone"});
     const Stopwatch clock;
     while (!manager.update() && clock.elapsedMilliseconds() < 10000.0) {
@@ -433,4 +436,8 @@ TEST_CASE("Pack images come from the first pack with a usable one") {
     REQUIRE(font != nullptr);
     CHECK(font->source == "low");
     CHECK(manager.image("ui/other.png") == nullptr);
+    const std::vector<std::byte>* file = manager.file("ui/theme.toml");
+    REQUIRE(file != nullptr);
+    CHECK(file->size() == theme.size());
+    CHECK(manager.file("ui/missing.toml") == nullptr);
 }

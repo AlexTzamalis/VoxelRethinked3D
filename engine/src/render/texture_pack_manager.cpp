@@ -17,10 +17,12 @@ struct TexturePackManager::Load {
     std::vector<std::string> stackIds;
     std::vector<std::string> keys;
     std::vector<std::string> imagePaths;
+    std::vector<std::string> filePaths;
     BlockTextureOptions options;
     std::vector<std::string> problems; // Found while building the stack.
     BlockTextureData result;
     std::vector<PackImage> images;
+    std::vector<std::pair<std::string, std::vector<std::byte>>> files;
     f64 milliseconds = 0.0;
     std::atomic<bool> done{false};
 };
@@ -180,6 +182,17 @@ const PackImage* TexturePackManager::image(std::string_view path) const noexcept
     return found == m_images.end() ? nullptr : &*found;
 }
 
+void TexturePackManager::setFiles(std::vector<std::string> paths) {
+    m_filePaths = std::move(paths);
+    startLoad();
+}
+
+const std::vector<std::byte>* TexturePackManager::file(std::string_view path) const noexcept {
+    const auto found =
+        std::ranges::find(m_files, path, [](const auto& entry) { return std::string_view(entry.first); });
+    return found == m_files.end() ? nullptr : &found->second;
+}
+
 void TexturePackManager::reload() {
     scanPacks();
     startLoad();
@@ -199,6 +212,7 @@ void TexturePackManager::startLoad() {
     load->packs = m_packs;
     load->keys = m_keys;
     load->imagePaths = m_imagePaths;
+    load->filePaths = m_filePaths;
     load->options.maxResolution = static_cast<u32>(m_maxResolution.get());
     load->problems = m_scanProblems;
     // The enabled packs in order, then "default", then the built in pack.
@@ -245,6 +259,18 @@ void TexturePackManager::startLoad() {
                     job->problems.push_back(std::format("No pack has a usable {}", path));
                 }
             }
+            for (const std::string& path : job->filePaths) {
+                const auto found = std::ranges::find_if(job->stack, [&](const PackSource* pack) {
+                    if (auto bytes = pack->read(path)) {
+                        job->files.emplace_back(path, std::move(*bytes));
+                        return true;
+                    }
+                    return false;
+                });
+                if (found == job->stack.end()) {
+                    job->problems.push_back(std::format("No pack has {}", path));
+                }
+            }
             job->milliseconds = stopwatch.elapsedMilliseconds();
             job->done.store(true, std::memory_order_release);
         },
@@ -268,6 +294,7 @@ bool TexturePackManager::update() {
         swapped = true;
         m_animations = std::move(load->result.animations);
         m_images = std::move(load->images);
+        m_files = std::move(load->files);
         m_warnings = std::move(load->problems);
         m_warnings.insert(m_warnings.end(), load->result.warnings.begin(), load->result.warnings.end());
         m_activeStack = std::move(load->stackIds);

@@ -18,12 +18,15 @@ TEST_CASE("Game settings register in their categories with their defaults") {
     CHECK(game.showHud.get());
     for (const std::string_view id :
          {"Gameplay.FieldOfView", "Gameplay.ViewBobbing", "Controls.MouseSensitivity", "Controls.InvertY",
-          "Controls.ToggleSprint", "Controls.ToggleCrouch", "Interface.UiScale", "Interface.HudOpacity",
-          "Interface.ShowHud", "Accessibility.ScreenShake", "Accessibility.FovEffects", "Server.TickRate",
-          "Server.AutosaveIntervalMinutes", "Server.SimulationDistance"}) {
+          "Controls.ToggleSprint", "Controls.ToggleCrouch", "Interface.HudOpacity", "Interface.ShowHud",
+          "Accessibility.ScreenShake", "Accessibility.FovEffects", "Server.TickRate",
+          "Server.AutosaveIntervalMinutes", "Server.SimulationDistance", "Debug.Ui.FontSample",
+          "Debug.Ui.WidgetSample"}) {
         INFO(id);
         CHECK(settings.value(id).hasValue());
     }
+    // The interface scale belongs to the engine UI (ui::UiContext) since E12.2.
+    CHECK_FALSE(settings.value("Interface.UiScale").hasValue());
     // Values are clamped like every setting.
     REQUIRE(settings.set("Gameplay.FieldOfView", vxe::config::SettingValue{500}).hasValue());
     CHECK(game.fieldOfView.get() == 110);
