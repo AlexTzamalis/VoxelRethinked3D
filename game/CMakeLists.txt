@@ -15,6 +15,8 @@ set(vrGameSources
     src/client/demo_world.hpp
     src/common/block_catalog.cpp
     src/common/block_catalog.hpp
+    src/ui/screens/pause_screen.cpp
+    src/ui/screens/pause_screen.hpp
     src/ui/screens/widget_sample.cpp
     src/ui/screens/widget_sample.hpp
     src/worldgen/demo_lod_sampler.cpp

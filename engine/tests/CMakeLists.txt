@@ -52,6 +52,7 @@ add_executable(vxe_tests
     ui/focus_tests.cpp
     ui/pixel_font_tests.cpp
     ui/quad_batch_tests.cpp
+    ui/screen_tests.cpp
     ui/widget_tests.cpp
     voxel/light_tests.cpp
     voxel/block_registry_tests.cpp

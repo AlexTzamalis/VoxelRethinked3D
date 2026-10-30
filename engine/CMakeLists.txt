@@ -240,6 +240,7 @@ vxe_add_module(ui
         src/ui/dialog.cpp
         src/ui/pixel_font.cpp
         src/ui/quad_batch.cpp
+        src/ui/screen.cpp
         src/ui/theme.cpp
         src/ui/ui_context.cpp
         src/ui/ui_input.cpp

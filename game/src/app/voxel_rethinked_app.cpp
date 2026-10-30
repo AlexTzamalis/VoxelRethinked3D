@@ -1,6 +1,7 @@
 #include "voxel_rethinked_app.hpp"
 
 #include "client/default_pack.hpp"
+#include "ui/screens/pause_screen.hpp"
 #include "ui/screens/widget_sample.hpp"
 
 #include <vxe/core/log.hpp>
@@ -117,6 +118,21 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                  .lines = {
                      std::format("{} ({} transitions)", nameOf(m_states.current()), m_states.transitions())}};
          }});
+    // Pauses like Escape does, for captures of the pause screen.
+    context.commands.registerCommand({.name = "pause",
+                                      .usage = "pause",
+                                      .description = "Pauses the game and opens the pause menu.",
+                                      .handler = [this](std::span<const std::string> /*arguments*/) {
+                                          vxe::config::CommandOutput output;
+                                          if (m_states.current() != GameState::InGame) {
+                                              output.lines.emplace_back(
+                                                  "Only a running world can be paused.");
+                                              output.success = false;
+                                              return output;
+                                          }
+                                          m_states.request(GameState::Paused);
+                                          return output;
+                                      }});
     // Opens the sample confirmation dialog, to look at dialogs while the
     // game holds the mouse (captures, theme work).
     context.commands.registerCommand(
@@ -220,6 +236,23 @@ void VoxelRethinkedApp::onTransition(vxe::EngineContext& context, GameState from
     if (to == GameState::Paused) {
         setMouseCaptured(context, false);
     }
+    if (to == GameState::Paused || from == GameState::Paused) {
+        rebuildScreens(context);
+    }
+}
+
+void VoxelRethinkedApp::rebuildScreens(vxe::EngineContext& context) {
+    if (!m_screens) {
+        return;
+    }
+    m_screens->clear();
+    if (m_settings->widgetSample.get()) {
+        m_screens->push(std::make_unique<WidgetSampleScreen>(*m_uiContext));
+    }
+    if (m_states.current() == GameState::Paused) {
+        m_screens->push(std::make_unique<PauseScreen>([this] { m_states.request(GameState::InGame); },
+                                                      [this, &context] { onQuitRequested(context); }));
+    }
 }
 
 vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context) {
@@ -281,6 +314,7 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
         m_ui = std::move(ui).value();
         context.renderer->setUi([ui = m_ui.get()](vxe::rhi::CommandList& commands) { ui->record(commands); });
         m_uiContext = vxe::ui::UiContext::create({.settings = &context.settings, .stats = &context.stats});
+        m_screens = std::make_unique<vxe::ui::ScreenManager>(*m_uiContext, &context.stats);
     }
     return {};
 }
@@ -363,8 +397,6 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
                 }
             }
         }
-    } else if (m_states.current() == GameState::Paused && m_input->isPressed(m_uiActions->back)) {
-        m_states.request(GameState::InGame);
     }
     // The free camera has its own field of view setting for debugging; in the
     // game the player's choice wins.
@@ -460,8 +492,8 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
     }
 }
 
-// The game UI of this frame. Screens and the HUD arrive with E12.5 and G4
-// to G6; for now only the developer font sample.
+// The game UI of this frame: the screen stack (the pause menu, the debug
+// samples); the main menu comes with G4.1 and the HUD with G6.5.
 void VoxelRethinkedApp::drawUi(vxe::EngineContext& context, const vxe::FrameTime& time) {
     if (!m_ui || context.device == nullptr) {
         return;
@@ -470,10 +502,7 @@ void VoxelRethinkedApp::drawUi(vxe::EngineContext& context, const vxe::FrameTime
     const vxe::u32 height = context.device->backBufferHeight();
     if (m_uiContext && m_settings->widgetSample.get() != m_widgetSampleShown) {
         m_widgetSampleShown = m_settings->widgetSample.get();
-        m_uiContext->root().clearChildren();
-        if (m_widgetSampleShown) {
-            buildWidgetSample(*m_uiContext);
-        }
+        rebuildScreens(context);
     }
     m_ui->begin(width, height);
     if (m_uiContext) {
@@ -489,6 +518,7 @@ void VoxelRethinkedApp::drawUi(vxe::EngineContext& context, const vxe::FrameTime
             input.navigation = m_uiActions->navigation(*m_input);
             input.text = vxe::ui::UiActions::textEditing(*m_input);
         }
+        m_screens->update(input.deltaSeconds);
         m_uiContext->update(width, height, input, *m_ui);
         m_uiContext->draw(*m_ui);
         if (context.window != nullptr) {
@@ -531,6 +561,7 @@ void VoxelRethinkedApp::onShutdown(vxe::EngineContext& context) {
         context.renderer->chunks().setTextures({}, {});
         context.renderer->setUi({});
     }
+    m_screens.reset();
     m_uiContext.reset();
     m_ui.reset();
     m_texturePacks.reset();

@@ -26,7 +26,10 @@ inline constexpr f32 kUnbounded = std::numeric_limits<f32>::infinity();
 
 enum class Direction : u8 {
     Row,
-    Column
+    Column,
+    // Children overlap: each gets the whole inner rectangle (screens on top
+    // of each other, a label over an image).
+    Stack
 };
 // Where children sit along the main axis when they do not fill it.
 enum class Justify : u8 {
@@ -187,6 +190,8 @@ public:
     }
     Widget& addChild(std::unique_ptr<Widget> child);
     void clearChildren();
+    // Removes and destroys one child; nothing when it is not a child.
+    void removeChild(const Widget& child);
     [[nodiscard]] std::span<const std::unique_ptr<Widget>> children() const noexcept { return m_children; }
     [[nodiscard]] Widget* parent() const noexcept { return m_parent; }
 
@@ -196,6 +201,10 @@ public:
     void setTooltip(std::string tooltip) { m_tooltip = std::move(tooltip); }
     [[nodiscard]] const std::string& tooltip() const noexcept { return m_tooltip; }
     void setVisible(bool visible);
+    // An inert widget and its children still draw but ignore the pointer,
+    // focus and tooltips (a screen below the top one).
+    void setInteractive(bool interactive);
+    [[nodiscard]] bool interactive() const noexcept { return m_interactive; }
     // Where the last layout put the widget, in UI pixels.
     [[nodiscard]] const UiRect& rect() const noexcept { return m_rect; }
 
@@ -263,6 +272,7 @@ private:
     UiRect m_rect{};
     std::string m_tooltip;
     bool m_visible = true;
+    bool m_interactive = true;
     bool m_layoutRequested = true;
     bool m_redrawRequested = true;
     bool m_structureChanged = false;

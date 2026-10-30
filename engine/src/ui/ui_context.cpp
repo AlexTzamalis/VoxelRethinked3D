@@ -25,7 +25,7 @@ constexpr f32 kTooltipOffsetY = 12.0F;
 template <typename Accept>
 // NOLINTNEXTLINE(misc-no-recursion)
 Widget* findAt(Widget& widget, f32 x, f32 y, Accept accept) {
-    if (!widget.visible() || !widget.rect().contains(x, y)) {
+    if (!widget.visible() || !widget.interactive() || !widget.rect().contains(x, y)) {
         return nullptr;
     }
     for (const auto& child : std::views::reverse(widget.children())) {
@@ -39,7 +39,7 @@ Widget* findAt(Widget& widget, f32 x, f32 y, Accept accept) {
 // Every visible focusable widget, in tree order (the Tab order).
 // NOLINTNEXTLINE(misc-no-recursion): bounded by the depth of the widget tree.
 void collectFocusable(Widget& widget, std::vector<Widget*>& out) {
-    if (!widget.visible()) {
+    if (!widget.visible() || !widget.interactive()) {
         return;
     }
     if (widget.focusable()) {

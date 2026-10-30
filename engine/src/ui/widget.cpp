@@ -81,6 +81,25 @@ void Widget::clearChildren() {
     invalidateLayout();
 }
 
+void Widget::removeChild(const Widget& child) {
+    const auto found =
+        std::ranges::find_if(m_children, [&child](const auto& entry) { return entry.get() == &child; });
+    if (found == m_children.end()) {
+        return;
+    }
+    m_children.erase(found);
+    root().m_structureChanged = true;
+    invalidateLayout();
+}
+
+void Widget::setInteractive(bool interactive) {
+    if (m_interactive != interactive) {
+        m_interactive = interactive;
+        root().m_structureChanged = true; // Its widgets can no longer be hovered or focused.
+        invalidateVisual();
+    }
+}
+
 void Widget::setVisible(bool visible) {
     if (m_visible != visible) {
         m_visible = visible;
@@ -146,8 +165,15 @@ Size Widget::measure(const UiEnvironment& environment, f32 availableWidth) const
     usize shown = 0;
     f32 main = 0.0F;
     f32 cross = 0.0F;
+    if (direction == Direction::Stack) {
+        // Overlapping children: the largest of them.
+        for (const auto& child : m_children) {
+            const Size size = child->measure(environment, innerWidth);
+            content = {std::max(content.width, size.width), std::max(content.height, size.height)};
+        }
+    }
     for (const auto& child : m_children) {
-        if (!child->m_visible) {
+        if (!child->m_visible || direction == Direction::Stack) {
             continue;
         }
         // In a column every child may use the full inner width; in a row
@@ -227,6 +253,12 @@ void Widget::arrange(const UiEnvironment& environment, const UiRect& rect) {
     const UiRect inner{rect.x + pad.left, rect.y + pad.top, std::max(0.0F, rect.width - pad.left - pad.right),
                        std::max(0.0F, rect.height - pad.top - pad.bottom)};
     const Direction direction = m_style.direction;
+    if (direction == Direction::Stack) {
+        for (const auto& child : m_children) {
+            child->arrange(environment, child->m_visible ? inner : UiRect{});
+        }
+        return;
+    }
     const bool row = direction == Direction::Row;
     const f32 innerMain = row ? inner.width : inner.height;
     const f32 innerCross = row ? inner.height : inner.width;

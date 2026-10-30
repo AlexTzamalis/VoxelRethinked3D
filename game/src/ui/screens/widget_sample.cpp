@@ -8,9 +8,9 @@
 
 namespace vr {
 
-void buildWidgetSample(vxe::ui::UiContext& context) {
+void WidgetSampleScreen::build(vxe::ui::Widget& root) {
     using namespace vxe::ui;
-    Widget& root = context.root();
+    UiContext& context = m_context;
     LayoutStyle& rootStyle = root.style();
     rootStyle.justify = Justify::Center;
     rootStyle.align = Align::Center;

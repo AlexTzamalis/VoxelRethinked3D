@@ -8,6 +8,7 @@
 #include <vxe/app/application.hpp>
 #include <vxe/render/camera.hpp>
 #include <vxe/render/texture_pack_manager.hpp>
+#include <vxe/ui/screen.hpp>
 #include <vxe/ui/ui_context.hpp>
 #include <vxe/ui/ui_input.hpp>
 #include <vxe/ui/ui_renderer.hpp>
@@ -48,6 +49,8 @@ private:
     void startDemoWorld(vxe::EngineContext& context);
     void updateTextures(vxe::EngineContext& context);
     void drawUi(vxe::EngineContext& context, const vxe::FrameTime& time);
+    // Puts the screens the game state and the debug settings ask for on the stack.
+    void rebuildScreens(vxe::EngineContext& context);
 
     GameStateMachine m_states;
     std::optional<BlockCatalog> m_blocks;
@@ -58,6 +61,7 @@ private:
     // The game UI (E12); with a renderer only.
     std::unique_ptr<vxe::ui::UiRenderer> m_ui;
     std::unique_ptr<vxe::ui::UiContext> m_uiContext;
+    std::unique_ptr<vxe::ui::ScreenManager> m_screens;
     // Menu navigation (Tab, arrows, Enter, Escape) in the menu context.
     std::unique_ptr<vxe::ui::UiActions> m_uiActions;
     bool m_widgetSampleShown = false;

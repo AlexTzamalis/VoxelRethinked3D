@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#087] 2026-10-30, E12.5 Screen manager and screen stack
+### Added
+- ui::Screen and ui::ScreenManager (Section 19.2): screens build their widgets once into a full window root and keep them while covered; push, pop, replace and clear wait for the next update, so a button may replace its own screen; the top screen takes the pointer and keyboard, screens below are hidden or, under a screen with drawBelow, drawn but inert; Back pops unless the screen handles it or is the last one; options for a backdrop and the mouse cursor; exactly one onEnter per onLeave. Stat Ui.Screens.
+- Widget layout direction Stack (children overlap and fill the parent), Widget::removeChild and Widget::setInteractive (inert widgets draw but ignore the pointer, focus and tooltips).
+- Game: the pause menu is a screen (Back to game, Settings disabled until G4.2 with a tooltip, Quit game); Escape on it returns to the game. The widget sample is a screen too. Console command pause.
+- Tests: the stack, hidden and inert screens below, drawBelow with a backdrop, Back handled, popped and kept for the last screen, a button replacing its own screen, clear, and enter and leave order.
+### Changed
+- The game no longer reads Back itself while paused; the pause screen handles it.
+
 ## [#086] 2026-10-30, E12.4 Focus, keyboard navigation, text fields, dialogs and tooltips
 ### Added
 - Keyboard focus in ui::UiContext: Tab and Shift+Tab walk the focusable widgets in tree order, the arrows move to the nearest one in that direction, Enter activates, Escape closes the top dialog or is handed to the screen (takeBack). Hover moves the focus (a text field keeps it until something else is clicked); clicks focus what they hit.
