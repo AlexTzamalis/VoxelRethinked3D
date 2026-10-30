@@ -2,6 +2,22 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#101] 2026-10-30, Add the changelog entry of #100
+### Docs
+- The entry of #100 below was missing from that commit. Its message also says 74 blocks; the right number is 76.
+
+## [#100] 2026-10-30, G1.3 G1.4 New blocks, crossed plants and advanced leaves
+### Added
+- 76 new block files from the reorganized texture folder, 71 of them in the inventory: rocks, soils, six new tree types (acacia, birch, dark oak, jungle, pale oak, spruce: log, leaves, planks), and 25 plants, 5 of those the hidden tops of tall plants.
+- Crossed plants: `layer = "plant"` draws two diagonal planes in a new render pass with no culling by direction. You walk through them, placing a block replaces them, they go when the block below goes, and they cannot be placed in water.
+- Variations: `variations` lists textures, and the world seed plus X and Z pick one, so a spot always looks the same and nothing is stored. Both halves of a tall plant match.
+- Graphics.Terrain.AdvancedLeaves (off by default): bushy planes past the leaf blocks.
+- Texture keys with a folder ("foliage/poppy"), 16 tint kinds, overlay_tint, variation_overlays, flat plant icons, a Plants tab and a placeon console command.
+- water_still.anim.toml: 2 ticks per frame.
+### Changed
+- The default pack is reorganized by folder: blocks, foliage, advanced_leaves, colormap, environment.
+- The GPU culling test now has a chunk with every render pass, so a pass that stops drawing fails a test.
+
 ## [#099] 2026-10-30, G6.4 G6.4b G6.5 Hotbar, HUD and creative inventory
 ### Added
 - HUD: crosshair and a nine slot hotbar drawn from pack images (ui/crosshair.png, ui/hotbar_slot.png, ui/hotbar_selected.png), with the block's name above the bar when it changes. Interface.ShowHud (F1) and Interface.HudOpacity work.
