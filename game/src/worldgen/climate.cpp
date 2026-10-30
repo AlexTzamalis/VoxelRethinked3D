@@ -16,10 +16,7 @@ using vxe::noise::smooth;
 
 constexpr f64 kMeanWarmth = 15.0;  // Degrees at sea level, on average.
 constexpr f64 kWarmthSwing = 46.0; // Reach of the noise around it, about 18 either way.
-constexpr f64 kCoolPerBlock = 0.022;
-constexpr int kWindSteps = 9;    // Samples upwind.
-constexpr f64 kWindStep = 900.0; // Blocks between them, so wind sees about 8 km.
-constexpr f64 kFacingReach = 1200.0;
+constexpr int kWindSteps = 6;      // Samples upwind.
 
 u64 stream(u64 seed, u64 salt) noexcept {
     return vxe::noise::hash2(seed, static_cast<i64>(salt), 0xC11A);
@@ -33,17 +30,23 @@ Climate::Climate(u64 seed, const Planet& planet) noexcept
     , m_detail(stream(seed, 2))
     , m_rain(stream(seed, 3))
     , m_windX(stream(seed, 4))
-    , m_windZ(stream(seed, 5)) {}
+    , m_windZ(stream(seed, 5))
+    , m_variety(stream(seed, 6)) {}
 
 Climate::Field Climate::field(f64 x, f64 z) const noexcept {
-    const Fractal warmthShape{.octaves = 3, .frequency = 1.0 / 60000.0};
+    // Climate follows the size of the world: a preset with small continents
+    // gets its climates close together, and low ranges still cool and shade.
+    const PlanetPreset& preset = m_planet->preset();
+    const f64 reach = preset.continentSize / 70000.0;
+    const f64 tall = preset.rangeHeight / 620.0;
+    const Fractal warmthShape{.octaves = 3, .frequency = 1.0 / (60000.0 * reach)};
     const f64 temperature =
         kMeanWarmth + (vxe::noise::fbm2(m_warmth, x, z, warmthShape).value * kWarmthSwing) +
-        (vxe::noise::fbm2(m_detail, x, z, {.octaves = 2, .frequency = 1.0 / 3000.0}).value * 3.0);
+        (vxe::noise::fbm2(m_detail, x, z, {.octaves = 2, .frequency = 1.0 / (9000.0 * reach)}).value * 3.0);
 
     // The wind turns slowly across the world. The steady part keeps it from
     // ever dying, which would have no direction.
-    const Fractal windShape{.octaves = 2, .frequency = 1.0 / 90000.0};
+    const Fractal windShape{.octaves = 2, .frequency = 1.0 / (90000.0 * reach)};
     const f64 rawX = (vxe::noise::fbm2(m_windX, x, z, windShape).value * 2.0) + 0.45;
     const f64 rawZ = vxe::noise::fbm2(m_windZ, x, z, windShape).value * 2.0;
     const f64 speed = std::sqrt((rawX * rawX) + (rawZ * rawZ));
@@ -54,30 +57,38 @@ Climate::Field Climate::field(f64 x, f64 z) const noexcept {
     // tallest matters, since rain that fell does not fall twice.
     f64 blocked = 0.0;
     for (int step = 1; step <= kWindSteps; ++step) {
-        const f64 distance = static_cast<f64>(step) * kWindStep;
+        const f64 distance = static_cast<f64>(step) * 1400.0 * reach;
         const f64 fade = 1.0 - (static_cast<f64>(step - 1) / static_cast<f64>(kWindSteps));
         blocked = std::max(blocked, m_planet->barrier(x - (windX * distance), z - (windZ * distance)) * fade);
     }
-    const f64 shadow = smooth(60.0, 520.0, blocked);
+    const f64 shadow = smooth(60.0 * tall, 520.0 * tall, blocked);
     // Air forced up the near side of a range rains out there.
+    const f64 ahead = 1200.0 * reach;
     const f64 facing =
-        smooth(50.0, 420.0, m_planet->barrier(x + (windX * kFacingReach), z + (windZ * kFacingReach)));
+        smooth(50.0 * tall, 420.0 * tall, m_planet->barrier(x + (windX * ahead), z + (windZ * ahead)));
 
-    const Fractal rainShape{.octaves = 5, .frequency = 1.0 / 16000.0, .gain = 0.55};
+    const Fractal rainShape{.octaves = 5, .frequency = 1.0 / (16000.0 * reach), .gain = 0.55};
     const f64 wet = 0.47 + (vxe::noise::fbm2(m_rain, x, z, rainShape).value * 0.85);
     const f64 coast = 1.0 - smooth(0.0, 0.3, m_planet->landMass(x, z));
     // Hot air sinks and dries the land, as around the tropics on Earth, which
     // is what gives a world its great deserts.
     const f64 baked = smooth(19.0, 31.0, temperature) * 0.24;
     const f64 rainfall = wet + (coast * 0.14) + (facing * (1.0 - shadow) * 0.22) - (shadow * 0.55) - baked;
-    return {.temperature = temperature, .rainfall = std::clamp(rainfall, 0.0, 1.0), .shadow = shadow};
+    const f64 variety =
+        smooth(-0.3, 0.3,
+               vxe::noise::fbm2(m_variety, x, z, {.octaves = 3, .frequency = 1.0 / (10000.0 * reach)}).value);
+    return {.temperature = temperature,
+            .rainfall = std::clamp(rainfall, 0.0, 1.0),
+            .shadow = shadow,
+            .variety = variety};
 }
 
 Climate::Cell Climate::cell(f64 x, f64 z) const noexcept {
     const auto size = static_cast<f64>(kGridSize);
     const f64 cornerX = std::floor(x / size) * size;
     const f64 cornerZ = std::floor(z / size) * size;
-    return {.cornerX = cornerX,
+    return {.coolPerBlock = 13.6 / m_planet->preset().rangeHeight,
+            .cornerX = cornerX,
             .cornerZ = cornerZ,
             .a = field(cornerX, cornerZ),
             .b = field(cornerX + size, cornerZ),
@@ -95,9 +106,10 @@ ClimateSample Climate::sample(const Cell& cell, f64 x, f64 z, f64 elevation) noe
         return top + ((bottom - top) * tz);
     };
     // Height cools from sea level only: the sea floor is not colder than the sea.
-    return {.temperature = blend(&Field::temperature) - (std::max(elevation, 0.0) * kCoolPerBlock),
+    return {.temperature = blend(&Field::temperature) - (std::max(elevation, 0.0) * cell.coolPerBlock),
             .rainfall = blend(&Field::rainfall),
-            .shadow = blend(&Field::shadow)};
+            .shadow = blend(&Field::shadow),
+            .variety = blend(&Field::variety)};
 }
 
 ClimateSample Climate::sample(f64 x, f64 z, f64 elevation) const noexcept {
@@ -107,44 +119,60 @@ ClimateSample Climate::sample(f64 x, f64 z, f64 elevation) const noexcept {
 Biome Climate::biome(const PlanetSample& ground, const ClimateSample& climate) noexcept {
     const f64 heat = climate.temperature;
     const f64 rain = climate.rainfall;
+    const f64 variety = climate.variety;
     if (ground.elevation < 0.0) {
         if (heat < -1.0) {
             return Biome::FrozenOcean;
         }
-        if (ground.elevation < -70.0) {
+        if (ground.elevation < -38.0) {
             return Biome::DeepOcean;
         }
         return heat > 23.0 ? Biome::WarmOcean : Biome::Ocean;
     }
-    if (ground.elevation < 3.0 && ground.mountain < 0.1) {
-        return Biome::Beach;
+    if (ground.elevation < 4.0) {
+        if (ground.mountain > 0.03 || ground.rough > 0.8) {
+            return Biome::StonyShore;
+        }
+        return heat < 0.0 ? Biome::SnowyBeach : Biome::Beach;
     }
-    if (ground.mountain > 0.22) {
-        if (heat < -3.0) {
+    // Up a mountain the climate gets colder by itself, so these bands follow
+    // the height: wooded slopes or meadows, bare rock, then snow.
+    if (ground.mountain > 0.12) {
+        if (heat < -2.0) {
             return Biome::SnowyPeaks;
         }
-        return heat < 7.0 || rain < 0.3 ? Biome::RockyPeaks : Biome::AlpineMeadow;
+        if (heat < 4.0 || rain < 0.22) {
+            return Biome::RockyPeaks;
+        }
+        return rain > 0.42 && variety > 0.35 ? Biome::WoodedSlopes : Biome::Meadow;
     }
-    if (ground.elevation < 16.0 && rain > 0.7 && heat > 6.0) {
+    if (ground.elevation < 14.0 && rain > 0.68 && heat > 8.0 && ground.rough < 0.5) {
         return Biome::Swamp;
     }
     if (heat < -1.0) {
-        return rain < 0.42 ? Biome::Tundra : Biome::SnowyTaiga;
+        return rain < 0.42 ? Biome::SnowyPlains : Biome::SnowyTaiga;
     }
     if (heat < 8.0) {
-        return rain < 0.34 ? Biome::Steppe : Biome::Taiga;
+        return rain < 0.3 ? Biome::Shrubland : Biome::Taiga;
     }
     if (heat < 21.0) {
-        if (rain < 0.3) {
-            return Biome::Steppe;
+        if (rain < 0.28) {
+            return Biome::Shrubland;
         }
-        if (rain < 0.5) {
-            return Biome::Plains;
+        if (rain < 0.48) {
+            return variety > 0.72 ? Biome::FlowerPlains : Biome::Plains;
         }
-        return rain < 0.68 ? Biome::Forest : Biome::DenseForest;
+        if (rain < 0.66) {
+            if (variety < 0.4) {
+                return Biome::Forest;
+            }
+            return variety < 0.75 ? Biome::BirchForest : Biome::FlowerForest;
+        }
+        return variety < 0.6 ? Biome::DarkForest : Biome::PaleForest;
     }
     if (rain < 0.26) {
-        return ground.mountain > 0.03 || ground.rift > 0.2 ? Biome::Badlands : Biome::Desert;
+        return ground.mountain > 0.03 || ground.rift > 0.2 || ground.rough > 0.7 ? Biome::Badlands
+                                                                                 : Biome::Desert;
     }
     return rain < 0.56 ? Biome::Savanna : Biome::Jungle;
 }

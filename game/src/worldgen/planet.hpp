@@ -7,16 +7,40 @@ namespace vr {
 // What decides a world's large shapes. World types are presets of these
 // (G3.8). Lengths and heights are in blocks.
 struct PlanetPreset {
-    vxe::f64 continentSize = 70000.0; // Across a typical continent.
-    vxe::f64 landBias = -0.1;         // More land above 0, more ocean below.
-    vxe::f64 plateSize = 24000.0;     // Across a tectonic plate.
-    vxe::f64 rangeWidth = 3400.0;     // A mountain range's reach from its plate border.
-    vxe::f64 rangeHeight = 620.0;     // The crests of a normal range.
-    vxe::f64 giantFactor = 1.8;       // How much higher the rare giants stand.
-    vxe::f64 peakKnee = 760.0;        // Heights above this are held back more and more...
-    vxe::f64 peakCeiling = 1100.0;    // ...so nothing passes this.
-    vxe::f64 oceanDepth = 300.0;
-    vxe::f64 hillHeight = 46.0;
+    vxe::f64 continentSize = 9000.0; // Across a typical landmass.
+    vxe::f64 landBias = 0.1;         // More land above 0, more ocean below.
+    vxe::f64 plateSize = 3400.0;     // Across a tectonic plate.
+    vxe::f64 rangeWidth = 620.0;     // A mountain range's reach from its plate border.
+    vxe::f64 rangeHeight = 300.0;    // The crests of a normal range.
+    vxe::f64 giantFactor = 1.7;      // How much higher the rare giants stand.
+    vxe::f64 peakKnee = 380.0;       // Heights above this are held back more and more...
+    vxe::f64 peakCeiling = 640.0;    // ...so nothing passes this.
+    vxe::f64 oceanDepth = 80.0;
+    vxe::f64 inlandHeight = 26.0; // How far land climbs by itself towards the interior.
+    vxe::f64 riftDepth = 14.0;
+    vxe::f64 hillHeight = 34.0; // Of the roughest hills. Plains stay almost flat.
+    vxe::f64 hillSize = 520.0;
+    vxe::u32 ridgeOctaves = 6;
+
+    // Continents of about 70 km divided by oceans hundreds of kilometers wide,
+    // and ranges almost 1,000 blocks tall. Grand from far above but a long
+    // walk between things, so a world type of its own, never the default.
+    [[nodiscard]] static constexpr PlanetPreset realistic() noexcept {
+        return {.continentSize = 70000.0,
+                .landBias = -0.1,
+                .plateSize = 24000.0,
+                .rangeWidth = 3400.0,
+                .rangeHeight = 620.0,
+                .giantFactor = 1.8,
+                .peakKnee = 760.0,
+                .peakCeiling = 1100.0,
+                .oceanDepth = 300.0,
+                .inlandHeight = 90.0,
+                .riftDepth = 46.0,
+                .hillHeight = 46.0,
+                .hillSize = 1500.0,
+                .ridgeOctaves = 8};
+    }
 };
 
 // One position of the world, seen from far above. Everything further down
@@ -26,6 +50,7 @@ struct PlanetSample {
     vxe::f64 continent = 0.0; // Below 0 is ocean, far inland about 0.5.
     vxe::f64 mountain = 0.0;  // 0 to 1: how much of a range stands here.
     vxe::f64 rift = 0.0;      // 0 to 1: how much plates pull apart here.
+    vxe::f64 rough = 0.0;     // 0 is flat plains, 1 the roughest hills.
 };
 
 // The planet layer (G3.1): continents, tectonic plates, and mountain ranges
@@ -33,10 +58,9 @@ struct PlanetSample {
 // purposeful instead of sitting around as noise blobs, and near the coasts
 // the same collisions raise island arcs. The open ocean stays open.
 //
-// Direction from Alex (2026-10-31): long, wide, steady ranges rather than tall
-// lone spikes, below 1,000 blocks with the 1,000 mark a rare event, and whole
-// continents divided by vast oceans. Land climbs gently from the coast to the
-// interior, so the rivers of G3.5 always find a way down to the sea.
+// Land climbs gently from the coast to the interior, so the rivers of G3.5
+// always find a way down to the sea. Sizes come from the preset, and a default
+// world keeps things close together: see Section 27, Phase G3.
 //
 // Plates are cells of a jittered grid, each moving its own way. Two plates
 // that meet head on raise a range along their border, and two that part open

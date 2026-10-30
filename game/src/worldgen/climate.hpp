@@ -16,29 +16,37 @@ enum class Biome : vxe::u8 {
     WarmOcean,
     FrozenOcean,
     Beach,
+    SnowyBeach,
+    StonyShore,
     Swamp,
     SnowyPeaks,
     RockyPeaks,
-    AlpineMeadow,
-    Tundra,
+    WoodedSlopes,
+    Meadow,
+    SnowyPlains,
     SnowyTaiga,
     Taiga,
-    Steppe,
+    Shrubland,
     Plains,
+    FlowerPlains,
     Forest,
-    DenseForest,
+    BirchForest,
+    FlowerForest,
+    DarkForest,
+    PaleForest,
     Savanna,
     Desert,
     Badlands,
     Jungle,
 };
-inline constexpr vxe::usize kBiomeCount = 20;
+inline constexpr vxe::usize kBiomeCount = 27;
 
 // Biome names for tools and logs.
 inline constexpr std::array<std::string_view, kBiomeCount> kBiomeNames = {
-    "Deep Ocean",  "Ocean",         "Warm Ocean", "Frozen Ocean", "Beach",    "Swamp",  "Snowy Peaks",
-    "Rocky Peaks", "Alpine Meadow", "Tundra",     "Snowy Taiga",  "Taiga",    "Steppe", "Plains",
-    "Forest",      "Dense Forest",  "Savanna",    "Desert",       "Badlands", "Jungle",
+    "Deep Ocean",  "Ocean",       "Warm Ocean",  "Frozen Ocean",  "Beach",    "Snowy Beach",  "Stony Shore",
+    "Swamp",       "Snowy Peaks", "Rocky Peaks", "Wooded Slopes", "Meadow",   "Snowy Plains", "Snowy Taiga",
+    "Taiga",       "Shrubland",   "Plains",      "Flower Plains", "Forest",   "Birch Forest", "Flower Forest",
+    "Dark Forest", "Pale Forest", "Savanna",     "Desert",        "Badlands", "Jungle",
 };
 
 // The weather of one position.
@@ -46,6 +54,7 @@ struct ClimateSample {
     vxe::f64 temperature = 0.0; // Degrees Celsius at this height.
     vxe::f64 rainfall = 0.0;    // 0 is bone dry, 1 is the wettest.
     vxe::f64 shadow = 0.0;      // 0 to 1: how much mountains upwind take away.
+    vxe::f64 variety = 0.0;     // 0 to 1: picks among biomes of the same climate.
 };
 
 // The climate layer (G3.2): temperature and rain, and the biome they make.
@@ -74,12 +83,14 @@ public:
         vxe::f64 temperature = 0.0; // At sea level.
         vxe::f64 rainfall = 0.0;
         vxe::f64 shadow = 0.0;
+        vxe::f64 variety = 0.0;
     };
 
     // The four corners of a grid cell. A chunk column lies inside one cell
     // (32 is a multiple of the chunk size, and both start at 0), so generating
     // it computes a cell once, the costly part, and then samples it for free.
     struct Cell {
+        vxe::f64 coolPerBlock = 0.0;
         vxe::f64 cornerX = 0.0;
         vxe::f64 cornerZ = 0.0;
         Field a;
@@ -108,6 +119,7 @@ private:
     vxe::u64 m_rain;
     vxe::u64 m_windX;
     vxe::u64 m_windZ;
+    vxe::u64 m_variety;
 };
 
 } // namespace vr

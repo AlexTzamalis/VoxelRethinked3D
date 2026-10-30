@@ -23,12 +23,12 @@ struct Survey {
     f64 longestSea = 0.0; // Blocks of unbroken water along a straight line.
 };
 
-// A sample of the planet on a coarse grid, 550 km across.
+// A sample of the planet on a coarse grid, 55 km across.
 Survey survey(u64 seed) {
     const Planet planet(seed, PlanetPreset{});
     Survey result;
     constexpr int kSteps = 220;
-    constexpr f64 kSpacing = 2500.0;
+    constexpr f64 kSpacing = 250.0;
     for (int z = -kSteps / 2; z < kSteps / 2; ++z) {
         f64 sea = 0.0;
         for (int x = -kSteps / 2; x < kSteps / 2; ++x) {
@@ -64,36 +64,46 @@ TEST_CASE("A planet is the same for the same seed, whatever the order") {
     CHECK(different > 490);
 }
 
-TEST_CASE("Every seed has vast oceans, whole continents and ranges below the ceiling") {
+TEST_CASE("Every seed has oceans, land and mountains close together") {
     for (const u64 seed : {1ULL, 2ULL, 3ULL, 12345ULL, 987654321ULL, 18446744073709551557ULL}) {
         const Survey world = survey(seed);
         MESSAGE("seed " << seed << ": land " << world.land << ", highest " << world.highest << ", deepest "
                         << world.deepest << ", longest sea " << world.longestSea / 1000.0 << " km");
-        CHECK(world.land > 0.2);
-        CHECK(world.land < 0.6);
-        CHECK(world.highest > 450.0);
-        CHECK(world.highest < 1100.0);
-        CHECK(world.deepest < -200.0);
-        CHECK(world.longestSea > 40000.0);
+        CHECK(world.land > 0.4);
+        CHECK(world.land < 0.85);
+        CHECK(world.highest > 250.0);
+        CHECK(world.highest < 640.0);
+        CHECK(world.deepest < -50.0);
     }
 }
 
-TEST_CASE("Heights near 1000 are rare") {
+TEST_CASE("Tall peaks are rare") {
     usize mountains = 0;
     usize towering = 0;
     for (const u64 seed : {1ULL, 2ULL, 3ULL}) {
         const Planet planet(seed, PlanetPreset{});
         for (int z = -250; z < 250; ++z) {
             for (int x = -250; x < 250; ++x) {
-                const f64 height = planet.sample(x * 907.0, z * 907.0).elevation;
-                mountains += height > 300.0 ? 1U : 0U;
-                towering += height > 900.0 ? 1U : 0U;
+                const f64 height = planet.sample(x * 97.0, z * 97.0).elevation;
+                mountains += height > 150.0 ? 1U : 0U;
+                towering += height > 480.0 ? 1U : 0U;
             }
         }
     }
-    MESSAGE(mountains << " samples above 300, " << towering << " above 900");
+    MESSAGE(mountains << " samples above 150, " << towering << " above 480");
     REQUIRE(mountains > 500);
     CHECK(towering * 25 < mountains);
+}
+
+TEST_CASE("The realistic preset keeps continents apart") {
+    const Planet planet(3, PlanetPreset::realistic());
+    usize land = 0;
+    for (int z = -110; z < 110; ++z) {
+        for (int x = -110; x < 110; ++x) {
+            land += planet.sample(x * 2500.0, z * 2500.0).elevation > 0.0 ? 1U : 0U;
+        }
+    }
+    CHECK(land < 220 * 220 / 2);
 }
 
 TEST_CASE("The planet has no cuts, only slopes") {
@@ -147,7 +157,7 @@ TEST_CASE("The planet has no cuts, only slopes") {
         }
         MESSAGE("seed " << seed << ": steepest over 16 blocks " << worst << ", over 1 block there "
                         << worstBlock);
-        CHECK(worst < 120.0);
+        CHECK(worst < 140.0);
         CHECK(worstBlock < 16.0);
     }
 }

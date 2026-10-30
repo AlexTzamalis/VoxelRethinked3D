@@ -30,13 +30,13 @@ namespace {
 constexpr i64 kGridStep = 4;         // Blocks between the heights a column blends.
 constexpr usize kGridPoints = 5;     // Per side of a chunk, both edges included.
 constexpr f64 kSlopeReach = 6.0;     // Blocks over which the planet's slope is measured.
-constexpr f64 kGullyWidest = 180.0;  // Blocks across the widest gullies.
+constexpr f64 kGullyWidest = 90.0;   // Blocks across the widest gullies.
 constexpr f64 kGullyStrength = 0.15; // Depth of a gully, as a part of its width.
 constexpr int kGullyOctaves = 3;
 constexpr f64 kRockSlope = 1.25;     // Steeper ground than this holds no soil.
-constexpr f64 kRockLine = 470.0;     // Blocks above the sea where soil ends.
-constexpr f64 kSnowLine = 720.0;     // Blocks above the sea where snow stays.
-constexpr f64 kLineWander = 46.0;    // Blocks the two lines wander, so they are no contours.
+constexpr f64 kRockLine = 230.0;     // Blocks above the sea where soil ends.
+constexpr f64 kSnowLine = 300.0;     // Blocks above the sea where snow stays.
+constexpr f64 kLineWander = 24.0;    // Blocks the two lines wander, so they are no contours.
 constexpr f64 kOverhangMost = 14.0;  // Blocks a rock face leans at most.
 constexpr i64 kTreeHeadroom = 24;    // Trees on higher neighbors can reach this far above a column.
 constexpr usize kCacheColumns = 256; // Per thread, a power of two.
@@ -286,9 +286,9 @@ Surface Terrain::surfaceAt(i64 x, i64 z) const {
 }
 
 vxe::BlockPos Terrain::spawnColumn() const {
-    // Rings around the origin, each 640 blocks further out: the origin can lie
-    // in the middle of an ocean, so this reaches about 150 km.
-    constexpr i64 kRingStep = 640;
+    // Rings around the origin, each 64 blocks further out: the origin can lie
+    // in the middle of an ocean, so this reaches about 15 km.
+    constexpr i64 kRingStep = 64;
     constexpr i64 kRings = 240;
     for (i64 ring = 0; ring < kRings; ++ring) {
         const i64 reach = ring * kRingStep;

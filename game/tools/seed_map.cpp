@@ -68,17 +68,24 @@ constexpr std::array<Color, vr::kBiomeCount> kBiomeColors = {{
     {38, 130, 170},  // Warm Ocean
     {170, 200, 226}, // Frozen Ocean
     {226, 214, 164}, // Beach
+    {232, 232, 220}, // Snowy Beach
+    {136, 136, 132}, // Stony Shore
     {74, 96, 62},    // Swamp
     {244, 246, 252}, // Snowy Peaks
     {128, 118, 112}, // Rocky Peaks
-    {132, 164, 104}, // Alpine Meadow
-    {186, 196, 186}, // Tundra
+    {70, 120, 84},   // Wooded Slopes
+    {150, 190, 110}, // Meadow
+    {214, 224, 222}, // Snowy Plains
     {150, 176, 168}, // Snowy Taiga
     {62, 104, 88},   // Taiga
-    {178, 170, 104}, // Steppe
+    {178, 170, 104}, // Shrubland
     {132, 186, 84},  // Plains
+    {190, 190, 90},  // Flower Plains
     {64, 136, 60},   // Forest
-    {32, 96, 44},    // Dense Forest
+    {112, 160, 96},  // Birch Forest
+    {150, 110, 150}, // Flower Forest
+    {32, 96, 44},    // Dark Forest
+    {120, 130, 124}, // Pale Forest
     {192, 176, 80},  // Savanna
     {236, 206, 130}, // Desert
     {196, 104, 58},  // Badlands

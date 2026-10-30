@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#108] 2026-10-31, G3 World at Minecraft scale
+### Changed
+- The default world keeps things close: a new biome every few hundred blocks, mountains and oceans a short walk away, peaks of 400 to 460 blocks, rare ones higher.
+- Plains stay flat: hills come and go by a roughness field.
+- 27 biomes, among them birch, flower, dark and pale forests, meadows, wooded slopes, stony shores.
+- Planet and climate sizes follow the preset. The continents of #107 stay as PlanetPreset::realistic.
+
 ## [#107] 2026-10-31, G3.1 Continents, vast oceans and steady ranges
 ### Changed
 - Continents about 70 km across, 32 to 36% land, oceans of 230 to 390 km between them, sea floor 300 blocks deep. Island arcs stay near coasts.

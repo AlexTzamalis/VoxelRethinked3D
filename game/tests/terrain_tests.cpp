@@ -89,19 +89,19 @@ TEST_CASE("Gullies carve the land: slopes are rougher than the planet alone") {
     f64 lowered = 0.0;
     for (i64 z = 0; z < 300; ++z) {
         for (i64 x = 0; x < 300; ++x) {
-            const auto wx = static_cast<f64>(x * 700);
-            const auto wz = static_cast<f64>(z * 700);
+            const auto wx = static_cast<f64>(x * 70);
+            const auto wz = static_cast<f64>(z * 70);
             const f64 plain =
                 terrain.planet().sample(wx, wz).elevation + static_cast<f64>(Terrain::kSeaLevel);
             const f64 carved = terrain.farGround(wx, wz, 1.0).height;
-            if (plain > 200.0) {
+            if (plain > 170.0) {
                 ++steep;
                 lowered += plain - carved;
                 changed += std::abs(plain - carved) > 1.0 ? 1U : 0U;
             }
         }
     }
-    REQUIRE(steep > 100);
+    REQUIRE(steep > 50);
     MESSAGE(steep << " high samples, " << changed << " changed, lowered " << lowered / static_cast<f64>(steep)
                   << " on average");
     CHECK(changed * 2 > steep);
