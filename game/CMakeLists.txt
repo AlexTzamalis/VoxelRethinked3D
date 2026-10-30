@@ -47,6 +47,8 @@ set(vrGameSources
     src/worldgen/demo_lod_sampler.hpp
     src/worldgen/demo_terrain.cpp
     src/worldgen/demo_terrain.hpp
+    src/worldgen/planet.cpp
+    src/worldgen/planet.hpp
 )
 
 find_package(tomlplusplus CONFIG REQUIRED)
@@ -72,6 +74,12 @@ add_library(vr_game STATIC ${vrGameSources} "${vrDefaultPackSource}")
 target_include_directories(vr_game PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(vr_game PUBLIC vxe::vxe PRIVATE tomlplusplus::tomlplusplus)
 vxe_set_warnings(vr_game)
+
+# The seed map: a world as a picture, without the game (G3.0).
+find_package(Stb REQUIRED)
+add_executable(vr_seed_map tools/seed_map.cpp)
+target_link_libraries(vr_seed_map PRIVATE vr_game)
+target_include_directories(vr_seed_map SYSTEM PRIVATE ${Stb_INCLUDE_DIR})
 
 add_executable(voxel_rethinked src/app/main.cpp)
 target_link_libraries(voxel_rethinked PRIVATE vr_game)

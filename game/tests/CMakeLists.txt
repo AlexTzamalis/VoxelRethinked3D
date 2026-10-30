@@ -9,6 +9,7 @@ add_executable(vr_tests
     demo_world_tests.cpp
     game_settings_tests.cpp
     game_state_tests.cpp
+    planet_tests.cpp
     player_physics_tests.cpp
     world_store_tests.cpp
 )

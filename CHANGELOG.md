@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#104] 2026-10-30, G3.0 G3.1 Planet and seed map
+### Added
+- vr::Planet: continents, tectonic plates, mountain ranges where plates collide, rifts where they part, island arcs at sea, rare giants.
+- vr_seed_map: a world as a picture from above, without starting the game.
+- Tests: same world for the same seed, oceans, land and mountains on every seed, no cuts in the height, the same behaviour 30 million blocks out.
+
+### Performance
+- Planet::sample: about 2.5 us, about 63 us for a chunk column.
+
 ## [#103] 2026-10-30, G3.0 Noise core
 ### Added
 - vxe::noise: gradient noise in 2D and 3D with exact derivatives, fractal and ridged noise, Worley cells, using only operations IEEE 754 fixes exactly, on doubles.
