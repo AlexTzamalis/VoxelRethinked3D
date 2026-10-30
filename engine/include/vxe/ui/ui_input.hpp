@@ -12,6 +12,7 @@ struct PointerInput {
     f32 x = 0.0F; // Window pixels from the top left.
     f32 y = 0.0F;
     bool primaryDown = false; // The left mouse button (later a gamepad's confirm).
+    f32 wheel = 0.0F;         // Wheel lines this frame, positive away from the user.
     bool available = true;    // False while the game captures the mouse for looking around.
 };
 

@@ -12,7 +12,7 @@ namespace {
 
 // The keys of a theme file and the fields they set. One table each, so
 // adding a field is one line here.
-const std::array<std::pair<std::string_view, u32 Theme::Colors::*>, 19> kColorKeys = {{
+const std::array<std::pair<std::string_view, u32 Theme::Colors::*>, 20> kColorKeys = {{
     {"text", &Theme::Colors::text},
     {"text_muted", &Theme::Colors::textMuted},
     {"text_disabled", &Theme::Colors::textDisabled},
@@ -32,6 +32,7 @@ const std::array<std::pair<std::string_view, u32 Theme::Colors::*>, 19> kColorKe
     {"field_border", &Theme::Colors::fieldBorder},
     {"tooltip", &Theme::Colors::tooltip},
     {"tooltip_border", &Theme::Colors::tooltipBorder},
+    {"accent", &Theme::Colors::accent},
 }};
 
 const std::array<std::pair<std::string_view, f32 Theme::Metrics::*>, 7> kMetricKeys = {{

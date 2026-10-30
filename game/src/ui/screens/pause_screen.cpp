@@ -1,6 +1,10 @@
 #include "pause_screen.hpp"
 
+#include "settings_screen.hpp"
+
 #include <vxe/ui/widgets.hpp>
+
+#include <memory>
 
 namespace vr {
 
@@ -12,9 +16,7 @@ void PauseScreen::build(vxe::ui::Widget& root) {
     panel.style().width = 200.0F;
     panel.add<Label>("Game paused", TextRole::Title).setAlign(TextAlign::Center);
     panel.add<Button>("Back to game", [this] { m_resume(); });
-    auto& settings = panel.add<Button>("Settings");
-    settings.setEnabled(false);
-    settings.setTooltip("The settings screen comes next. Until then, the console (`) changes every setting.");
+    panel.add<Button>("Settings", [this] { manager()->push(std::make_unique<SettingsScreen>(m_settings)); });
     panel.add<Button>("Quit game", [this] { m_quit(); });
 }
 

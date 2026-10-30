@@ -303,7 +303,15 @@ void UiContext::routePointer(const PointerInput& pointer) {
             setFocus(nullptr);
         }
     }
+    if (pointer.available && pointer.wheel != 0.0F) {
+        if (Widget* scroller = findAt(root, x, y, [](const Widget& widget) { return widget.takesWheel(); })) {
+            scroller->onWheel(pointer.wheel);
+        }
+    }
     const bool down = pointer.available && pointer.primaryDown;
+    if (down && m_wasDown && moved && m_pressed != nullptr) {
+        m_pressed->onDrag(x, y);
+    }
     if (down && !m_wasDown) {
         setFocus(target != nullptr && target->focusable() ? target : nullptr);
         m_focusFromPointer = target != nullptr && !target->capturesText();
@@ -370,6 +378,11 @@ bool UiContext::moveFocus(const NavigationInput& keys, const std::vector<Widget*
             index = (at + (keys.next ? 1 : focusable.size() - 1)) % focusable.size();
         }
         setFocus(focusable[index]);
+        focusable[index]->revealInParents();
+        return true;
+    }
+    // A focused slider or choice uses Left and Right itself.
+    if ((keys.left || keys.right) && hasFocus && !textFocus && m_focused->onAdjust(keys.right ? 1 : -1)) {
         return true;
     }
     // Left and Right move a text field's caret instead.
@@ -386,6 +399,9 @@ bool UiContext::moveFocus(const NavigationInput& keys, const std::vector<Widget*
         setFocus(focusable.front());
     } else if (Widget* next = nearestInDirection(focusable, *m_focused, dx, dy)) {
         setFocus(next);
+    }
+    if (m_focused != nullptr) {
+        m_focused->revealInParents();
     }
     return true;
 }

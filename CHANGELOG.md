@@ -2,6 +2,18 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#088] 2026-10-30, E12.6 Settings UI generated from the registry
+### Added
+- ui::SettingsView: the settings UI built from the SettingsRegistry (Section 16.1): top level groups in a list (Video, Graphics, World, ... in a fixed order), the chosen group's settings in a scroll view under sub category headers; each row has the name (ending in "..." when long, the whole name and description in its tooltip), an (i) badge with the description, a Reload or Restart tag for settings that do not apply live, the control for its type and a Reset button enabled while the value differs from the default. Changes are written at once (text on Enter or focus loss); refresh() follows changes made elsewhere; a filter searches names, descriptions and ids across groups; developer settings show only on request.
+- Controls: ui::Toggle (switch), ui::Slider (drag, click, arrows, snapping, value written on it), ui::CycleButton (choices with click, Enter and arrows), ui::InfoBadge (an "i" with a tooltip) and ui::ScrollView (clipping, mouse wheel, scroll bar, keeps the keyboard focus in view).
+- Widget hooks: drag, wheel, Left and Right adjusting a focused control, reveal for scroll views, and replaceable child measure, arrange and draw; PixelFont::ellipsize; Button::setSelected; theme color accent; UiInput pointer wheel.
+- Game: the pause menu's Settings opens a settings screen generated from every registered setting, with Done (developer settings in debug builds); console command settings [group].
+- Tests: toggles, sliders, cycle buttons, ellipsis, scroll view clipping, wheel and focus, and the settings view's groups, rows, writes, refresh, reset and search.
+### Changed
+- Button::setEnabled only redraws when the state changes.
+### Performance
+- SettingsView::refresh with 60 settings: 0.0048 ms per frame (docs/perf/ui.md).
+
 ## [#087] 2026-10-30, E12.5 Screen manager and screen stack
 ### Added
 - ui::Screen and ui::ScreenManager (Section 19.2): screens build their widgets once into a full window root and keep them while covered; push, pop, replace and clear wait for the next update, so a button may replace its own screen; the top screen takes the pointer and keyboard, screens below are hidden or, under a screen with drawBelow, drawn but inert; Back pops unless the screen handles it or is the last one; options for a backdrop and the mouse cursor; exactly one onEnter per onLeave. Stat Ui.Screens.

@@ -4,7 +4,9 @@
 
 #include "benchmarks.hpp"
 
+#include <vxe/config/settings.hpp>
 #include <vxe/rhi_null/null_device.hpp>
+#include <vxe/ui/settings_view.hpp>
 #include <vxe/ui/ui_renderer.hpp>
 #include <vxe/ui/widgets.hpp>
 
@@ -12,6 +14,7 @@
 
 #include <format>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace vxe::bench {
@@ -96,6 +99,25 @@ void runUiBenchmarks() {
         renderer.value()->begin(1440, 3600);
         renderer.value()->frame().append(kept);
         ankerl::nanobench::doNotOptimizeAway(renderer.value()->quadCount());
+    });
+
+    // The settings screen syncs its controls with the registry every frame.
+    config::SettingsRegistry settings;
+    std::vector<config::Setting<i32>> handles;
+    handles.reserve(60);
+    std::vector<std::string> ids;
+    ids.reserve(60);
+    for (int i = 0; i < 60; ++i) {
+        ids.push_back(std::format("Graphics.Group{}.Setting{}", i / 10, i));
+        handles.push_back(settings.registerInt(
+            {{.id = ids.back(), .displayName = "A setting", .description = "What it does."}, 5, 0, 10, 1}));
+    }
+    ui::SettingsView view(settings);
+    view.showGroup("Graphics");
+    bench.title("SettingsView (60 settings)").unit("refresh");
+    bench.run("refresh", [&] {
+        view.refresh();
+        ankerl::nanobench::doNotOptimizeAway(view.rowCount());
     });
 }
 

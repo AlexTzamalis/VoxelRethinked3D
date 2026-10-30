@@ -148,6 +148,31 @@ void PixelFont::layout(std::string_view text, std::vector<GlyphQuad>& out) const
     }
 }
 
+std::string PixelFont::ellipsize(std::string_view text, f32 maxWidth) const {
+    if (measure(text).width <= maxWidth) {
+        return std::string(text);
+    }
+    constexpr std::string_view kDots = "...";
+    // Widths add up glyph by glyph: the prefix width plus the dots' width.
+    const f32 dots = measure(kDots).width + kGlyphSpacing;
+    f32 width = 0.0F;
+    usize fits = 0;
+    for (usize position = 0; position < text.size();) {
+        const usize begin = position;
+        width += advanceOf(nextCodePoint(text, position));
+        if (width + dots - kGlyphSpacing > maxWidth) {
+            break;
+        }
+        fits = position;
+        static_cast<void>(begin);
+    }
+    // No space before the dots: "Frame rate in the..." reads better than "the ...".
+    while (fits > 0 && text[fits - 1] == ' ') {
+        --fits;
+    }
+    return std::string(text.substr(0, fits)) + std::string(kDots);
+}
+
 std::string PixelFont::wrap(std::string_view text, f32 maxWidth) const {
     std::string result;
     result.reserve(text.size() + 8);

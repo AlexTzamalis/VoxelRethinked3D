@@ -49,6 +49,7 @@ add_executable(vxe_tests
     rhi/null_device_tests.cpp
     rhi/rhi_tests.cpp
     rhi/shader_source_tests.cpp
+    ui/controls_tests.cpp
     ui/focus_tests.cpp
     ui/pixel_font_tests.cpp
     ui/quad_batch_tests.cpp

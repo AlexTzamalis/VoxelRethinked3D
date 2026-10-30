@@ -46,6 +46,7 @@ struct Theme {
         u32 fieldBorder = rgba(70, 72, 80);
         u32 tooltip = rgba(16, 16, 22, 240);
         u32 tooltipBorder = rgba(90, 84, 112);
+        u32 accent = rgba(96, 156, 84); // Switches that are on, filled slider tracks.
     } colors;
 
     struct Metrics {

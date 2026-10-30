@@ -88,6 +88,9 @@ public:
     // where possible (a word longer than a line is split). Existing '\n's are
     // kept.
     [[nodiscard]] std::string wrap(std::string_view text, f32 maxWidth) const;
+    // The text as is when it fits `maxWidth` font pixels, else the longest
+    // start of it that fits with "..." after it.
+    [[nodiscard]] std::string ellipsize(std::string_view text, f32 maxWidth) const;
 
 private:
     PixelFont() = default;

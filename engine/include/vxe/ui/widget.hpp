@@ -240,6 +240,13 @@ public:
     virtual void onPress(f32 /*x*/, f32 /*y*/) {}
     // `inside`: the pointer went up over the widget, which makes it a click.
     virtual void onRelease(bool /*inside*/) {}
+    // The pointer moved to (x, y), UI pixels, while pressed on the widget
+    // (sliders follow it).
+    virtual void onDrag(f32 /*x*/, f32 /*y*/) {}
+    // A widget that scrolls takes the mouse wheel over it (and its children).
+    [[nodiscard]] virtual bool takesWheel() const noexcept { return false; }
+    // Wheel lines, positive away from the user (scroll up).
+    virtual void onWheel(f32 /*lines*/) {}
 
     // Keyboard focus (E12.4). UiContext moves focus with Tab, the arrows,
     // clicks and hovering; the focused widget gets Enter and, if it captures
@@ -254,11 +261,23 @@ public:
     virtual void onTextInput(const TextEditInput& /*text*/) {}
     // Every frame while focused, for animations like a blinking caret.
     virtual void onFocusedFrame(f32 /*deltaSeconds*/) {}
+    // Left or Right (-1 or 1) on the focused widget. Return true to use them
+    // (a slider steps, a choice cycles) instead of moving the focus.
+    virtual bool onAdjust(i32 /*direction*/) { return false; }
+    // Asks the parents to show `rect` (a widget that got the keyboard focus);
+    // scroll views scroll it into view.
+    void revealInParents();
+    virtual void reveal(const UiRect& /*rect*/) {}
 
     // The layout pass (widget.cpp); UiContext calls them on the root.
     [[nodiscard]] Size measure(const UiEnvironment& environment, f32 availableWidth) const;
     void arrange(const UiEnvironment& environment, const UiRect& rect);
     void drawTree(DrawContext& context) const;
+    // The parts of the pass a container may replace (a scroll view lays its
+    // content out taller than itself, clips it and draws a scroll bar).
+    [[nodiscard]] virtual Size measureChildren(const UiEnvironment& environment, f32 innerWidth) const;
+    virtual void arrangeChildren(const UiEnvironment& environment, const UiRect& inner);
+    virtual void drawChildren(DrawContext& context) const;
     [[nodiscard]] usize countVisible() const noexcept;
 
 private:

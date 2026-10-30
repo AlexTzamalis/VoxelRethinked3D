@@ -81,6 +81,12 @@ void Label::draw(DrawContext& context) const {
     }
     // Centered vertically, so a label lines up with the buttons of its row.
     const f32 y = box.y + std::max(0.0F, std::floor((box.height - m_linesSize.height) / 2.0F));
+    const PixelFont* font = context.font();
+    if (!m_wrap && font != nullptr && m_linesSize.width > box.width) {
+        // Squeezed by its row: cut with "..." instead of running into neighbors.
+        context.text(font->ellipsize(m_lines, box.width), x, y, color, m_shadow);
+        return;
+    }
     context.text(m_lines, x, y, color, m_shadow);
 }
 
@@ -111,7 +117,7 @@ void Button::draw(DrawContext& context) const {
         image = "button_disabled";
     } else if (down) {
         image = "button_pressed";
-    } else if (m_hovered || m_focused) {
+    } else if (m_hovered || m_focused || m_selected) {
         image = "button_hover";
     }
     if (!context.nineSlice(box, image, theme.slices.button)) {
@@ -133,7 +139,7 @@ void Button::drawFlat(DrawContext& context) const {
         fill = theme.colors.buttonDisabled;
     } else if (m_pressed && m_hovered) {
         fill = theme.colors.buttonPressed;
-    } else if (m_hovered || m_focused) {
+    } else if (m_hovered || m_focused || m_selected) {
         fill = theme.colors.buttonHover;
     }
     context.fillRect(box, theme.colors.buttonBorder);
@@ -148,7 +154,7 @@ void Button::drawFlat(DrawContext& context) const {
         context.fillRect({face.x, face.y + face.height - 1.0F, face.width, 1.0F},
                          down ? theme.colors.buttonHighlight : theme.colors.buttonShadow);
     }
-    if ((m_hovered || m_focused) && m_enabled) {
+    if ((m_hovered || m_focused || m_selected) && m_enabled) {
         context.frameRect(box, theme.colors.focus, border);
     }
 }

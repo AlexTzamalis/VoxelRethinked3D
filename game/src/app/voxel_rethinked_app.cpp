@@ -2,6 +2,7 @@
 
 #include "client/default_pack.hpp"
 #include "ui/screens/pause_screen.hpp"
+#include "ui/screens/settings_screen.hpp"
 #include "ui/screens/widget_sample.hpp"
 
 #include <vxe/core/log.hpp>
@@ -133,6 +134,22 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                                           m_states.request(GameState::Paused);
                                           return output;
                                       }});
+    // Opens the settings screen over the pause menu (captures, quick access).
+    context.commands.registerCommand(
+        {.name = "settings",
+         .usage = "settings [group]",
+         .description = "Opens the settings screen at a group (pause the game first).",
+         .handler = [this, &context](std::span<const std::string> arguments) {
+             vxe::config::CommandOutput output;
+             if (m_states.current() != GameState::Paused || !m_screens || m_screens->empty()) {
+                 output.lines.emplace_back("Pause the game first (pause).");
+                 output.success = false;
+                 return output;
+             }
+             m_screens->push(std::make_unique<SettingsScreen>(
+                 context.settings, arguments.empty() ? std::string() : arguments.front()));
+             return output;
+         }});
     // Opens the sample confirmation dialog, to look at dialogs while the
     // game holds the mouse (captures, theme work).
     context.commands.registerCommand(
@@ -250,8 +267,9 @@ void VoxelRethinkedApp::rebuildScreens(vxe::EngineContext& context) {
         m_screens->push(std::make_unique<WidgetSampleScreen>(*m_uiContext));
     }
     if (m_states.current() == GameState::Paused) {
-        m_screens->push(std::make_unique<PauseScreen>([this] { m_states.request(GameState::InGame); },
-                                                      [this, &context] { onQuitRequested(context); }));
+        m_screens->push(std::make_unique<PauseScreen>(
+            context.settings, [this] { m_states.request(GameState::InGame); },
+            [this, &context] { onQuitRequested(context); }));
     }
 }
 
@@ -515,6 +533,7 @@ void VoxelRethinkedApp::drawUi(vxe::EngineContext& context, const vxe::FrameTime
             input.pointer.x = m_input->mousePosition().x;
             input.pointer.y = m_input->mousePosition().y;
             input.pointer.primaryDown = m_input->isMouseButtonDown(vxe::platform::MouseButton::Left);
+            input.pointer.wheel = m_input->wheelDelta().y;
             input.navigation = m_uiActions->navigation(*m_input);
             input.text = vxe::ui::UiActions::textEditing(*m_input);
         }

@@ -160,6 +160,22 @@ Size Widget::measure(const UiEnvironment& environment, f32 availableWidth) const
         m_style.width != kAuto ? m_style.width : std::min(availableWidth, m_style.maxWidth);
     const f32 innerWidth = std::max(0.0F, outerWidth - pad.left - pad.right);
     Size content = measureContent(environment, innerWidth);
+    const Size children = measureChildren(environment, innerWidth);
+    content = {std::max(content.width, children.width), std::max(content.height, children.height)};
+    Size size{content.width + pad.left + pad.right, content.height + pad.top + pad.bottom};
+    if (m_style.width != kAuto) {
+        size.width = m_style.width;
+    }
+    if (m_style.height != kAuto) {
+        size.height = m_style.height;
+    }
+    return clampSize(size, m_style);
+}
+
+// The children's size in a row, a column or a stack.
+// NOLINTNEXTLINE(misc-no-recursion): bounded by the depth of the widget tree.
+Size Widget::measureChildren(const UiEnvironment& environment, f32 innerWidth) const {
+    Size content{};
     const Direction direction = m_style.direction;
     const f32 spacing = gap(environment.theme);
     usize shown = 0;
@@ -189,14 +205,7 @@ Size Widget::measure(const UiEnvironment& environment, f32 availableWidth) const
         const Size children = direction == Direction::Row ? Size{main, cross} : Size{cross, main};
         content = {std::max(content.width, children.width), std::max(content.height, children.height)};
     }
-    Size size{content.width + pad.left + pad.right, content.height + pad.top + pad.bottom};
-    if (m_style.width != kAuto) {
-        size.width = m_style.width;
-    }
-    if (m_style.height != kAuto) {
-        size.height = m_style.height;
-    }
-    return clampSize(size, m_style);
+    return content;
 }
 
 namespace {
@@ -252,6 +261,12 @@ void Widget::arrange(const UiEnvironment& environment, const UiRect& rect) {
     const Edges pad = padding(environment.theme);
     const UiRect inner{rect.x + pad.left, rect.y + pad.top, std::max(0.0F, rect.width - pad.left - pad.right),
                        std::max(0.0F, rect.height - pad.top - pad.bottom)};
+    arrangeChildren(environment, inner);
+}
+
+// The flex layout of the children inside the padding (LayoutStyle).
+// NOLINTNEXTLINE(misc-no-recursion): bounded by the depth of the widget tree.
+void Widget::arrangeChildren(const UiEnvironment& environment, const UiRect& inner) {
     const Direction direction = m_style.direction;
     if (direction == Direction::Stack) {
         for (const auto& child : m_children) {
@@ -337,8 +352,20 @@ void Widget::drawTree(DrawContext& context) const {
         return;
     }
     draw(context);
+    drawChildren(context);
+}
+
+// NOLINTNEXTLINE(misc-no-recursion): bounded by the depth of the widget tree.
+void Widget::drawChildren(DrawContext& context) const {
     for (const auto& child : m_children) {
         child->drawTree(context);
+    }
+}
+
+void Widget::revealInParents() {
+    const UiRect target = m_rect;
+    for (Widget* node = m_parent; node != nullptr; node = node->m_parent) {
+        node->reveal(target);
     }
 }
 

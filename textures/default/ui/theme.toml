@@ -23,6 +23,7 @@ field = "#101114"
 field_border = "#464850"
 tooltip = "#101016F0"
 tooltip_border = "#5A5470"
+accent = "#609C54"
 
 [metrics]
 button_height = 20

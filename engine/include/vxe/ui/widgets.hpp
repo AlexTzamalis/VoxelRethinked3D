@@ -107,8 +107,17 @@ public:
     [[nodiscard]] const std::string& text() const noexcept { return m_text; }
     void setOnClick(std::function<void()> onClick) { m_onClick = std::move(onClick); }
     void setEnabled(bool enabled) {
-        m_enabled = enabled;
-        invalidateVisual();
+        if (enabled != m_enabled) {
+            m_enabled = enabled;
+            invalidateVisual();
+        }
+    }
+    // Shows the button highlighted while selected (the chosen tab or group).
+    void setSelected(bool selected) {
+        if (selected != m_selected) {
+            m_selected = selected;
+            invalidateVisual();
+        }
     }
     [[nodiscard]] bool enabled() const noexcept { return m_enabled; }
     [[nodiscard]] bool hovered() const noexcept { return m_hovered; }
@@ -148,6 +157,7 @@ private:
     bool m_hovered = false;
     bool m_pressed = false;
     bool m_focused = false;
+    bool m_selected = false;
 };
 
 // A one line text input (world names, seeds): click or Tab to focus, type,

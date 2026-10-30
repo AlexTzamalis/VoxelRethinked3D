@@ -25,3 +25,9 @@ quads until something changes (layout, hover, text, theme, scale or atlas).
 
 The rebuild got slower than E12.2's direct drawing (0.032 ms) because every quad goes through the clip test
 and glyph coordinates are mapped into the atlas; it runs on changes only, so a still menu costs 0.0022 ms.
+
+## Settings view (E12.6)
+
+| Case | Budget | Measured |
+|------|--------|----------|
+| `SettingsView::refresh` with 60 settings (every frame the settings screen shows) | 0.05 ms | 0.0048 ms |
