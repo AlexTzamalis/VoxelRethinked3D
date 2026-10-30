@@ -96,6 +96,20 @@ TEST_CASE("The frame constant ring hands out a different buffer each frame") {
     CHECK(device->liveResources().empty());
 }
 
+TEST_CASE("With always look the mouse steers without a button, and no button is taken") {
+    config::SettingsRegistry settings;
+    input::InputSystem input;
+    render::FreeCameraController controller({.input = &input, .settings = &settings, .alwaysLook = true});
+    Camera camera;
+    CHECK(controller.isLooking());
+    CHECK_FALSE(input.findAction("debug.camera.look").isValid());
+    const std::vector<platform::PlatformEvent> moved{platform::MouseMotionEvent{.dx = 100.0F, .dy = -50.0F}};
+    input.update(moved);
+    controller.update(camera, 0.016);
+    CHECK(camera.yaw == doctest::Approx(glm::radians(15.0F)));
+    CHECK(camera.pitch == doctest::Approx(glm::radians(7.5F)));
+}
+
 TEST_CASE("The free camera flies and looks with its actions") {
     config::SettingsRegistry settings;
     input::InputSystem input;

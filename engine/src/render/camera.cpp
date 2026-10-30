@@ -48,7 +48,8 @@ Mat4 Camera::projection(f32 aspect) const noexcept {
 
 FreeCameraController::FreeCameraController(const FreeCameraDesc& desc)
     : m_input(*desc.input)
-    , m_settings(*desc.settings) {
+    , m_settings(*desc.settings)
+    , m_alwaysLook(desc.alwaysLook) {
     m_context = m_input.registerContext({.name = "Free camera"});
     m_input.pushContext(m_context);
     const auto action = [this](std::string_view id, std::string_view name, input::Binding binding) {
@@ -65,8 +66,10 @@ FreeCameraController::FreeCameraController(const FreeCameraDesc& desc)
     m_up = action("debug.camera.up", "Fly up", input::Binding::key(kKeySpace));
     m_down = action("debug.camera.down", "Fly down", input::Binding::key(kKeyLeftShift));
     m_fast = action("debug.camera.fast", "Fly fast", input::Binding::key(kKeyLeftCtrl));
-    m_look = action("debug.camera.look", "Look around (hold)",
-                    input::Binding::mouse(platform::MouseButton::Right));
+    if (!m_alwaysLook) {
+        m_look = action("debug.camera.look", "Look around (hold)",
+                        input::Binding::mouse(platform::MouseButton::Right));
+    }
     m_faster =
         action("debug.camera.faster", "Fly speed up", input::Binding::wheel(input::BindingKind::WheelUp));
     m_slower =
@@ -113,7 +116,7 @@ FreeCameraController::~FreeCameraController() {
 }
 
 bool FreeCameraController::isLooking() const noexcept {
-    return m_input.isHeld(m_look);
+    return m_alwaysLook || m_input.isHeld(m_look);
 }
 
 void FreeCameraController::update(Camera& camera, f64 deltaSeconds) {

@@ -46,14 +46,18 @@ struct Camera {
 struct FreeCameraDesc {
     input::InputSystem* input = nullptr;
     config::SettingsRegistry* settings = nullptr;
+    // The mouse always steers (a game with a captured cursor). Otherwise it
+    // steers while the right button is held, which leaves the cursor free for
+    // tools. With this on, no mouse button is taken by the camera.
+    bool alwaysLook = false;
 };
 
 // Flies a Camera with the keyboard and mouse, for debugging and test scenes:
 // W, A, S, D move, Space and Left Shift go up and down, Left Ctrl is fast,
-// the mouse looks while the right button is held and the wheel changes the
-// speed. Registers its own input context "Free camera" (not blocking) and
-// the settings Debug.FreeCamera.* (speed, fast multiplier, sensitivity,
-// field of view), all live.
+// the mouse looks (always, or while the right button is held, see
+// FreeCameraDesc) and the wheel changes the speed. Registers its own input context "Free camera" (not
+// blocking) and the settings Debug.FreeCamera.* (speed, fast multiplier, sensitivity, field of view), all
+// live.
 //
 // Thread safety: main thread only.
 class FreeCameraController {
@@ -67,8 +71,8 @@ public:
 
     // Applies this frame's input. Call after InputSystem::update.
     void update(Camera& camera, f64 deltaSeconds);
-    // True while the mouse is steering the camera (right button held), so
-    // the program can hide the cursor and lock it to the window.
+    // True while the mouse is steering the camera, so the program can hide
+    // the cursor and lock it to the window.
     [[nodiscard]] bool isLooking() const noexcept;
     [[nodiscard]] input::InputContextId inputContext() const noexcept { return m_context; }
 
@@ -76,6 +80,7 @@ private:
     input::InputSystem& m_input;
     config::SettingsRegistry& m_settings;
     input::InputContextId m_context;
+    bool m_alwaysLook;
     input::ActionId m_forward;
     input::ActionId m_back;
     input::ActionId m_left;

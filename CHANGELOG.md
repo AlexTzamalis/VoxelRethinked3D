@@ -2,6 +2,12 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#091] 2026-10-30, Free camera follows the mouse
+### Changed
+- In the game the mouse always turns the camera, with no button held (FreeCameraDesc::alwaysLook), so the right mouse button is free for placing blocks. The console gets the cursor back while open. The developer demo keeps right button look.
+### Added
+- Test: with always look the mouse steers without a button and no mouse button is bound.
+
 ## [#090] 2026-10-30, G4.1 Main menu
 ### Added
 - The game opens on a main menu (Section 19.3): the title, Singleplayer, Multiplayer (disabled, "Coming later"), Settings, Resource Packs (disabled until G4.4) and Quit, with the version in a corner.

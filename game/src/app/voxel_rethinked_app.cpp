@@ -9,6 +9,7 @@
 
 #include <vxe/core/log.hpp>
 #include <vxe/core/version.hpp>
+#include <vxe/debug/developer_console.hpp>
 #include <vxe/debug/overlay.hpp>
 #include <vxe/render/debug_draw.hpp>
 #include <vxe/render/renderer.hpp>
@@ -100,8 +101,8 @@ vxe::Result<void> VoxelRethinkedApp::onInit(vxe::EngineContext& context) {
     m_actions = std::make_unique<GameActions>(context.input);
     m_uiActions = std::make_unique<vxe::ui::UiActions>(context.input, m_actions->menu);
     m_input->pushContext(m_actions->global);
-    m_flight = std::make_unique<vxe::render::FreeCameraController>(
-        vxe::render::FreeCameraDesc{.input = &context.input, .settings = &context.settings});
+    m_flight = std::make_unique<vxe::render::FreeCameraController>(vxe::render::FreeCameraDesc{
+        .input = &context.input, .settings = &context.settings, .alwaysLook = true});
     m_camera.position = vxe::DVec3(8.5, kGridHeight + 6.0, 8.5);
     m_camera.pitch = glm::radians(-20.0F);
     m_states.setListener([this, &context](GameState from, GameState to) { onTransition(context, from, to); });
@@ -484,8 +485,13 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
             if (m_input->isPressed(m_actions->toggleHud)) {
                 static_cast<void>(m_settings->showHud.set(!m_settings->showHud.get()));
             }
-            m_flight->update(m_camera, time.deltaSeconds);
-            setMouseCaptured(context, m_flight->isLooking());
+            // The mouse looks around whenever the world has the input; the
+            // open console needs the cursor instead.
+            const bool consoleOpen = context.console != nullptr && context.console->isOpen();
+            setMouseCaptured(context, !consoleOpen);
+            if (!consoleOpen) {
+                m_flight->update(m_camera, time.deltaSeconds);
+            }
             if (m_autoFlySpeed > 0.0) {
                 // Level flight in the view direction, so looking down does
                 // not fly into the ground.
