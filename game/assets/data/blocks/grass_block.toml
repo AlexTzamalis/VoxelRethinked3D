@@ -4,8 +4,13 @@ name = "grass_block"
 display_name = "Grass Block"
 layer = "opaque"
 tint = 1
+tint_color = "#8DBB5A"
+tint_faces = ["top", "side"]
 
 [textures]
 top = "grass_top"
 bottom = "dirt"
 side = "grass_side"
+
+[overlays]
+side = "grass_side_overlay"

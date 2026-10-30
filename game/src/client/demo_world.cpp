@@ -102,7 +102,7 @@ void DemoWorld::setTextureColors(std::span<const vxe::u32> averageColors) {
     if (m_lodRenderer != nullptr) {
         // What each texture looks like from far away, plus the far terrain's
         // own blends, so far terrain matches the chunks (Section 13.2).
-        m_lodRenderer->setMaterialColors(m_lodSampler.materialColors(averageColors));
+        m_lodRenderer->setMaterialColors(m_lodSampler.materialColors(m_catalog.shownColors(averageColors)));
     }
 }
 

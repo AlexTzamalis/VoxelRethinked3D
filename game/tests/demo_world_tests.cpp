@@ -196,6 +196,8 @@ TEST_CASE("Far terrain carries the demo trees: crowns in fine levels, a leaf tin
     const auto& view = built.value();
     const auto layers = static_cast<vxe::u16>(catalog().textureKeys().size());
     vr::DemoLodSampler sampler(terrain, ids, *view, layers, 12345);
+    // Another texture layout means other material numbers, so old tiles must not load.
+    CHECK(vr::DemoLodSampler(terrain, ids, *view, layers + 1, 12345).worldHash() != sampler.worldHash());
     const vxe::u16 leaves = view->info(ids.leaves).textureLayer(vxe::voxel::BlockFace::PosY);
 
     // The first tree that grows near the origin.

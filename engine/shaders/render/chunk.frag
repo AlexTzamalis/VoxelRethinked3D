@@ -1,5 +1,5 @@
-// Chunk quads (render::ChunkRenderer): the block texture times the face
-// shading. Built three times: plain for opaque blocks, with
+// Chunk quads (render::ChunkRenderer): the block texture with its tint and
+// overlay (voxel::textureLook), times the face shading. Built three times: plain for opaque blocks, with
 // VXE_CHUNK_CUTOUT for alpha tested ones (leaves) and with
 // VXE_CHUNK_TRANSLUCENT for blended ones (water, glass).
 #include "include/bindings.glsl"
@@ -15,10 +15,19 @@ VXE_BINDING(2, 2) uniform sampler2DArray blockTextures;
 layout(location = 0) in vec3 vUvLayer;
 layout(location = 1) in vec3 vShade;
 layout(location = 2) in vec3 vRelative;
+layout(location = 3) flat in vec3 vTint;
+layout(location = 4) flat in vec3 vOverlayTint;
+layout(location = 5) flat in uint vOverlayLayer;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    const vec4 albedo = texture(blockTextures, vUvLayer);
+    vec4 albedo = texture(blockTextures, vUvLayer);
+    albedo.rgb *= vTint;
+    if (vOverlayLayer != 0u) {
+        const vec4 overlay = texture(blockTextures, vec3(vUvLayer.xy, float(vOverlayLayer - 1u)));
+        albedo.rgb = mix(albedo.rgb, overlay.rgb * vOverlayTint, overlay.a);
+        albedo.a = max(albedo.a, overlay.a);
+    }
 #ifdef VXE_CHUNK_CUTOUT
     if (albedo.a < 0.5) {
         discard;

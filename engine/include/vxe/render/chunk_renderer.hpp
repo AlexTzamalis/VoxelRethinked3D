@@ -141,6 +141,9 @@ struct ChunkCullingCounts {
 // Render.Chunks and Render.Culling.
 //
 // Thread safety: main thread only, like the device.
+// Tint kinds of block textures, kind 0 being no tint (voxel::kTintCount).
+inline constexpr usize kBlockTintKinds = 4;
+
 class ChunkRenderer {
 public:
     [[nodiscard]] static Result<std::unique_ptr<ChunkRenderer>> create(const ChunkRendererDesc& desc);
@@ -164,8 +167,15 @@ public:
     // one entry per texture key layer; 0 for still textures). Animated layers
     // show their frames in turn, 20 game ticks per second.
     void setTextureAnimations(std::span<const u32> animations);
+    // The look of each texture layer (voxel::textureLook): its overlay and tints.
+    void setTextureLooks(std::span<const u32> looks);
+    // The color of each tint kind, 0xAABBGGRR in sRGB like texture colors.
+    // Kind 0 stays white. Biomes replace this with a color per column (G3.7).
+    void setTintColors(std::span<const u32> colors);
     // Graphics.Lighting.Brightness, for other renderers that light terrain alike.
     [[nodiscard]] f32 brightness() const { return m_brightness.get(); }
+    // 1 with the classic face shading, 0 with Graphics.Lighting.NoShading.
+    [[nodiscard]] f32 faceShading() const { return m_noShading.get() ? 0.0F : 1.0F; }
     // Multiplies World.Streaming.MaxUploadKBPerFrame, still capped by the
     // staging memory per frame. Streaming raises it in burst mode while the
     // loading screen shows (Section 11.6).
@@ -306,6 +316,8 @@ private:
     rhi::BufferHandle m_survivors;  // What the GPU culling kept.
     rhi::BufferHandle m_params;     // Per pass uniforms (AO strength), rewritten when a setting changes.
     rhi::BufferHandle m_animations; // One u32 per texture layer (setTextureAnimations).
+    rhi::BufferHandle m_looks;      // One u32 per texture layer (setTextureLooks).
+    std::array<Vec4, kBlockTintKinds> m_tints{};
     Vec4 m_lastParams{-1.0F};
     usize m_drawCapacity = 0; // Indirect commands the draw buffers hold.
     std::array<rhi::PipelineHandle, kChunkPassCount> m_pipelines{};
@@ -383,6 +395,7 @@ private:
     config::Setting<i32> m_uploadBudgetKb;
     config::Setting<f32> m_aoStrength;
     config::Setting<f32> m_brightness;
+    config::Setting<bool> m_noShading;
     f32 m_daylight = 1.0F;
     config::Setting<bool> m_wireframe;
     config::Setting<bool> m_frustumCulling;

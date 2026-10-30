@@ -4,7 +4,7 @@
 #include "include/frame.glsl"
 
 VXE_BINDING_STD140(1, 0) uniform LodParams {
-    vec4 params; // x: daylight, y: darkest brightness, z: coverage (0 off, 1 discard, 2 show), w: color by level.
+    vec4 params; // x: daylight, y: darkest brightness, z: coverage (0 off, 1 discard, 2 show), w: flags (lod.vert).
 } lodParams;
 
 // One texel per chunk column; columns wrap around the 128 x 128 map.

@@ -342,8 +342,9 @@ void LodRenderer::beginFrame(const Camera& camera) {
     if (m_coverageDiscard.get()) {
         coverage = m_showCoverage.get() ? 2.0F : 1.0F;
     }
-    const LodParams params{.params =
-                               Vec4(m_daylight, m_brightness, coverage, m_colorLevels.get() ? 1.0F : 0.0F)};
+    // w: bit 0 color by level, bit 1 face shading.
+    const f32 flags = (m_colorLevels.get() ? 1.0F : 0.0F) + (m_faceShading > 0.5F ? 2.0F : 0.0F);
+    const LodParams params{.params = Vec4(m_daylight, m_brightness, coverage, flags)};
     if (params.params != m_lastParams) {
         m_lastParams = params.params;
         static_cast<void>(m_device.updateBuffer(m_params, 0, std::as_bytes(std::span(&params, 1))));

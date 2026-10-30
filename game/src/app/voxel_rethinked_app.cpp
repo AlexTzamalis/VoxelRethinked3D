@@ -575,6 +575,8 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
     const vxe::render::BlockTextures* textures = m_texturePacks->textures();
     context.renderer->chunks().setTextures(textures->texture, textures->sampler);
     context.renderer->chunks().setTextureAnimations(m_texturePacks->animations());
+    context.renderer->chunks().setTextureLooks(m_blocks->textureLooks());
+    context.renderer->chunks().setTintColors(m_blocks->tintColors());
     if (m_demo) {
         m_demo->setTextureColors(textures->averageColors);
     }

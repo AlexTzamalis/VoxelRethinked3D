@@ -95,6 +95,38 @@ TEST_CASE("State ids follow file names and names map both ways") {
     CHECK(catalog.value().textureKeys().size() == 2);
 }
 
+TEST_CASE("Tints and overlays color the faces their block names") {
+    const std::vector<BlockSource> sources = {
+        {.file = "grass.toml",
+         .text = "name = \"grass\"\ndisplay_name = \"Grass\"\nlayer = \"opaque\"\ntint = 1\n"
+                 "tint_color = \"#804020\"\ntint_faces = [\"top\", \"side\"]\n"
+                 "[textures]\ntop = \"g_top\"\nside = \"g_side\"\nbottom = \"dirt\"\n"
+                 "[overlays]\nside = \"g_fringe\""},
+    };
+    const auto catalog = BlockCatalog::load(sources);
+    REQUIRE(catalog.hasValue());
+    const auto keys = catalog.value().textureKeys();
+    const auto layer = [&](std::string_view key) {
+        return static_cast<vxe::usize>(std::ranges::find(keys, key) - keys.begin());
+    };
+    const auto looks = catalog.value().textureLooks();
+    REQUIRE(looks.size() == keys.size());
+    CHECK(looks[layer("g_top")] == vxe::voxel::textureLook(0, 1, 0));
+    CHECK(looks[layer("dirt")] == 0); // The underside stays plain.
+    CHECK(looks[layer("g_side")] ==
+          vxe::voxel::textureLook(static_cast<vxe::u32>(layer("g_fringe")) + 1, 0, 1)); // Only the fringe.
+    CHECK(catalog.value().tintColors()[1] == 0xFF204080U);
+
+    // Far away, a tinted texture shows its tint, and half an overlay shows half of it.
+    std::vector<vxe::u32> average(keys.size(), 0xFFFFFFFFU);
+    average[layer("g_fringe")] = 0x80FFFFFFU;
+    average[layer("g_side")] = 0xFF000000U;
+    const std::vector<vxe::u32> shown = catalog.value().shownColors(average);
+    CHECK(shown[layer("g_top")] == 0xFF204080U);
+    CHECK(shown[layer("dirt")] == 0xFFFFFFFFU);
+    CHECK((shown[layer("g_side")] & 0xFFU) == 0x40U);
+}
+
 TEST_CASE("Invalid block files report every problem with file and field") {
     // Syntax errors name the line.
     CHECK(errorOf({{.file = "broken.toml", .text = "name = \"x\nlayer = "}})
@@ -125,6 +157,25 @@ TEST_CASE("Invalid block files report every problem with file and field") {
     CHECK(message.find("four.toml: state 'four' has no texture for its down face") != std::string::npos);
     CHECK(message.find("five.toml: unknown field 'colour'") != std::string::npos);
     CHECK(message.find("five.toml: textures: unknown face 'front'") != std::string::npos);
+
+    const std::string tints = errorOf({
+        {.file = "a.toml",
+         .text = "name = \"a\"\ndisplay_name = \"A\"\nlayer = \"opaque\"\ntint = 1\n"
+                 "tint_color = \"green\"\n[textures]\nall = \"x\""},
+        {.file = "b.toml",
+         .text = "name = \"b\"\ndisplay_name = \"B\"\nlayer = \"opaque\"\ntint = 1\n"
+                 "tint_faces = [\"front\"]\n[textures]\nall = \"x\""},
+        {.file = "c.toml",
+         .text = "name = \"c\"\ndisplay_name = \"C\"\nlayer = \"opaque\"\ntint = 1\n"
+                 "[textures]\nall = \"shared\""},
+        {.file = "d.toml",
+         .text = "name = \"d\"\ndisplay_name = \"D\"\nlayer = \"opaque\"\n[textures]\nall = \"shared\""},
+    });
+    MESSAGE(tints);
+    CHECK(tints.find("a.toml: 'tint_color' must look like") != std::string::npos);
+    CHECK(tints.find("b.toml: tint_faces: unknown face 'front'") != std::string::npos);
+    CHECK(tints.find("d.toml: texture 'shared' is tinted or overlaid in two different ways") !=
+          std::string::npos);
 
     // Duplicates and empty folders.
     const BlockSource stone{

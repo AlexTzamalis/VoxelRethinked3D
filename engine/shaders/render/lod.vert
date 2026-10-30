@@ -23,7 +23,7 @@ VXE_BINDING_STD430(2, 2) readonly buffer Materials {
 };
 
 VXE_BINDING_STD140(1, 0) uniform LodParams {
-    vec4 params; // x: daylight, y: darkest brightness, z: coverage (0 off, 1 discard, 2 show), w: color by level.
+    vec4 params; // x: daylight, y: darkest brightness, z: coverage (0 off, 1 discard, 2 show), w: flags (bit 0 color by level, bit 1 face shading).
 } lodParams;
 
 layout(location = 0) out vec3 vColor;
@@ -93,10 +93,12 @@ void main() {
     gl_Position = frame.viewProjection * vec4(relative, 1.0);
 
     vec3 albedo = srgbToLinear(unpackUnorm4x8(materials[w2 >> 20u]).rgb);
-    if (lodParams.params.w > 0.5) {
+    const uint flags = uint(lodParams.params.w);
+    if ((flags & 1u) != 0u) {
         // The cell size is 2^level.
         albedo = kLevelColors[clamp(findMSB(uint(tile.origin.w)) - 1, 0, 5)];
     }
     const float sky = lightCurve(float((w1 >> 24u) & 15u)) * lodParams.params.x;
-    vColor = albedo * kFaceShade[face] * mix(lodParams.params.y, 1.0, sky);
+    const float shade = (flags & 2u) != 0u ? kFaceShade[face] : 1.0;
+    vColor = albedo * shade * mix(lodParams.params.y, 1.0, sky);
 }

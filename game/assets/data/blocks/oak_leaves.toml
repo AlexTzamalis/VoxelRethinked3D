@@ -8,6 +8,10 @@ layer = "cutout"
 light_opacity = 1
 culls_same_type = false
 tint = 2
+tint_color = "#6FA32E"
 
 [textures]
 all = "oak_leaves"
+
+[overlays]
+all = "oak_leaves_overlay"

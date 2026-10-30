@@ -8,7 +8,8 @@
 #include "include/frame.glsl"
 
 VXE_BINDING_STD140(1, 0) uniform ChunkParams {
-    vec4 params; // x: AO strength (0 none, 1 full), y: daylight (0 to 1), z: darkest brightness.
+    vec4 params; // x: AO strength (0 none, 1 full), y: daylight (0 to 1), z: darkest brightness, w: face shading.
+    vec4 tints[4]; // Linear color per tint kind; kind 0 is white.
 } chunkParams;
 
 VXE_BINDING_STD430(2, 0) readonly buffer Quads {
@@ -22,6 +23,12 @@ VXE_BINDING_STD430(2, 3) readonly buffer Animations {
     uint animations[];
 };
 
+// Per texture layer, voxel::textureLook: bits 0..15 the layer drawn over it
+// plus 1 (0 for none), 16..17 its tint, 18..19 the overlay's tint.
+VXE_BINDING_STD430(2, 4) readonly buffer TextureLooks {
+    uint textureLooks[];
+};
+
 struct ChunkInfo {
     ivec4 position; // xyz: chunk position, w: unused.
 };
@@ -33,6 +40,9 @@ VXE_BINDING_STD430(2, 1) readonly buffer Chunks {
 layout(location = 0) out vec3 vUvLayer; // xy: texture coordinates in blocks, z: texture array layer.
 layout(location = 1) out vec3 vShade;   // Face brightness, ambient occlusion and light.
 layout(location = 2) out vec3 vRelative; // Camera relative position (translucent fog).
+layout(location = 3) flat out vec3 vTint;        // Multiplies the block texture.
+layout(location = 4) flat out vec3 vOverlayTint; // Multiplies the overlay texture.
+layout(location = 5) flat out uint vOverlayLayer; // The overlay's layer plus 1, 0 for none.
 
 // Per face (+X, -X, +Y, -Y, +Z, -Z) the U and V axes (voxel::faceAxes) and
 // the brightness of the classic directional shading (lighting stage A,
@@ -85,6 +95,10 @@ void main() {
     const float u = (mirrorU ? 1.0 - cornerU : cornerU) * width;
     // Animated textures step through their frames at 20 game ticks per second.
     uint layer = quad.y & 0x3FFFu;
+    const uint look = textureLooks[layer];
+    vTint = chunkParams.tints[(look >> 16u) & 3u].rgb;
+    vOverlayTint = chunkParams.tints[(look >> 18u) & 3u].rgb;
+    vOverlayLayer = look & 0xFFFFu;
     const uint animation = animations[layer];
     if ((animation & 0xFFu) > 1u) {
         const uint ticks = uint(frame.time.x * 20.0) / max((animation >> 8u) & 0xFFu, 1u);
@@ -99,5 +113,5 @@ void main() {
     const float sky = lightCurve(float((quad.y >> 22u) & 15u)) * chunkParams.params.y;
     const vec3 block = lightCurve(float((quad.y >> 26u) & 15u)) * kBlockLightTint;
     const vec3 light = mix(vec3(chunkParams.params.z), vec3(1.0), max(vec3(sky), block));
-    vShade = kFaceShade[face] * occlusion * light;
+    vShade = mix(1.0, kFaceShade[face], chunkParams.params.w) * occlusion * light;
 }

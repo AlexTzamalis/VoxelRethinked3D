@@ -5,6 +5,7 @@
 #include <vxe/core/types.hpp>
 #include <vxe/voxel/block_registry.hpp>
 
+#include <array>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -70,6 +71,15 @@ public:
 
     // Texture array layer i shows textureKeys()[i].
     [[nodiscard]] std::span<const std::string> textureKeys() const noexcept { return m_textureKeys; }
+    // How each texture layer is colored, voxel::textureLook, for
+    // ChunkRenderer::setTextureLooks.
+    [[nodiscard]] std::span<const vxe::u32> textureLooks() const noexcept { return m_textureLooks; }
+    // The color of each tint kind from the block files, 0xAABBGGRR. Biome
+    // files replace this (G3.7).
+    [[nodiscard]] std::span<const vxe::u32> tintColors() const noexcept { return m_tintColors; }
+    // Each texture's average color (from the pack) as it shows on blocks,
+    // with its tint and overlay, so far terrain matches the chunks.
+    [[nodiscard]] std::vector<vxe::u32> shownColors(std::span<const vxe::u32> averageColors) const;
 
     // The engine's table of every state's render info, ready for
     // voxel::BlockRegistry::publish.
@@ -82,6 +92,9 @@ private:
     std::vector<std::string> m_stateNames;
     std::vector<vxe::voxel::BlockRenderInfo> m_renderInfos;
     std::vector<std::string> m_textureKeys;
+    std::vector<vxe::u32> m_textureLooks;
+    std::array<vxe::u32, vxe::voxel::kTintCount> m_tintColors{0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU,
+                                                              0xFFFFFFFFU};
     vxe::StringMap<vxe::voxel::BlockStateId> m_stateIds;
     vxe::StringMap<vxe::usize> m_blockIndex;
 };

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstring>
 #include <format>
 #include <utility>
@@ -40,7 +41,9 @@ struct ChunkInfo {
 static_assert(sizeof(ChunkInfo) == 16);
 
 struct ChunkParams {
-    Vec4 params{1.0F, 1.0F, 0.0F, 0.0F}; // x: AO strength, y: daylight, z: darkest brightness.
+    // x: AO strength, y: daylight, z: darkest brightness, w: face shading (1 on, 0 off).
+    Vec4 params{1.0F, 1.0F, 0.0F, 1.0F};
+    std::array<Vec4, kBlockTintKinds> tints{}; // Linear colors per tint kind.
 };
 
 // The uniforms of render/chunk_cull.comp (std140; every member a 16 byte multiple).
@@ -112,6 +115,11 @@ ChunkRenderer::ChunkRenderer(const ChunkRendererDesc& desc)
                                                  0.0F,
                                                  0.5F,
                                                  0.01F}))
+    , m_noShading(desc.settings->registerBool(
+          {{.id = "Graphics.Lighting.NoShading",
+            .displayName = "No shading",
+            .description = "Removes block shading and makes the game more vibrant."},
+           false}))
     , m_wireframe(desc.settings->registerBool({{.id = "Debug.Terrain.Wireframe",
                                                 .displayName = "Terrain wireframe",
                                                 .description = "Draws chunk quads as lines.",
@@ -239,6 +247,15 @@ Result<std::unique_ptr<ChunkRenderer>> ChunkRenderer::create(const ChunkRenderer
     r.m_animations = animations.value();
     const std::vector<u32> still(kMaxTextureLayers, 0);
     VXE_TRY(device.updateBuffer(r.m_animations, 0, std::as_bytes(std::span(still))));
+    auto looks = device.createBuffer({.sizeBytes = kMaxTextureLayers * sizeof(u32),
+                                      .usage = BufferUsage::Storage | BufferUsage::TransferDst,
+                                      .debugName = "Block texture looks"});
+    if (!looks) {
+        return looks.error().withContext("Chunk renderer");
+    }
+    r.m_looks = looks.value();
+    VXE_TRY(device.updateBuffer(r.m_looks, 0, std::as_bytes(std::span(still))));
+    r.m_tints.fill(Vec4(1.0F));
     VXE_TRY(r.m_staging.create(device, desc.stagingBytesPerFrame, BufferUsage::TransferSrc,
                                "Chunk upload staging"));
 
@@ -453,8 +470,9 @@ ChunkRenderer::~ChunkRenderer() {
             m_device.destroy(readback.buffer);
         }
     }
-    for (const rhi::BufferHandle buffer : {m_arena, m_metadata, m_indices, m_draws, m_drawFaces, m_survivors,
-                                           m_params, m_animations, m_caveBitsBuffer, m_cullCounts, m_zeros}) {
+    for (const rhi::BufferHandle buffer :
+         {m_arena, m_metadata, m_indices, m_draws, m_drawFaces, m_survivors, m_params, m_animations, m_looks,
+          m_caveBitsBuffer, m_cullCounts, m_zeros}) {
         if (buffer.isValid()) {
             m_device.destroy(buffer);
         }
@@ -470,6 +488,26 @@ void ChunkRenderer::setTextureAnimations(std::span<const u32> animations) {
     std::vector<u32> table(kMaxTextureLayers, 0);
     std::ranges::copy(animations.first(std::min(animations.size(), kMaxTextureLayers)), table.begin());
     static_cast<void>(m_device.updateBuffer(m_animations, 0, std::as_bytes(std::span(table))));
+}
+
+void ChunkRenderer::setTextureLooks(std::span<const u32> looks) {
+    std::vector<u32> table(kMaxTextureLayers, 0);
+    std::ranges::copy(looks.first(std::min(looks.size(), kMaxTextureLayers)), table.begin());
+    static_cast<void>(m_device.updateBuffer(m_looks, 0, std::as_bytes(std::span(table))));
+}
+
+void ChunkRenderer::setTintColors(std::span<const u32> colors) {
+    // The exact sRGB curve, as the GPU decodes block textures.
+    const auto linear = [](u32 value) {
+        const f32 c = static_cast<f32>(value & 255U) / 255.0F;
+        return c <= 0.04045F ? c / 12.92F : std::pow((c + 0.055F) / 1.055F, 2.4F);
+    };
+    m_tints.fill(Vec4(1.0F));
+    for (usize kind = 1; kind < std::min(colors.size(), m_tints.size()); ++kind) {
+        const u32 color = colors[kind];
+        m_tints.at(kind) = Vec4(linear(color), linear(color >> 8U), linear(color >> 16U), 1.0F);
+    }
+    m_lastParams = Vec4(-1.0F); // Written with the next frame's parameters.
 }
 
 void ChunkRenderer::setDaylight(f32 daylight) noexcept {
@@ -524,7 +562,8 @@ void ChunkRenderer::beginFrame(const Camera& camera) {
     } else {
         m_frozenCamera.reset();
     }
-    const ChunkParams params{.params = Vec4(m_aoStrength.get(), m_daylight, m_brightness.get(), 0.0F)};
+    const ChunkParams params{
+        .params = Vec4(m_aoStrength.get(), m_daylight, m_brightness.get(), faceShading()), .tints = m_tints};
     if (params.params != m_lastParams) {
         m_lastParams = params.params;
         static_cast<void>(m_device.updateBuffer(m_params, 0, std::as_bytes(std::span(&params, 1))));
@@ -1132,6 +1171,7 @@ void ChunkRenderer::record(rhi::CommandList& commands, ChunkPass pass) {
     commands.bindStorageBuffer(2, 1, m_metadata, 0, usize{m_maxChunks} * sizeof(ChunkInfo));
     commands.bindTexture(2, 2, m_textures, m_sampler);
     commands.bindStorageBuffer(2, 3, m_animations, 0, kMaxTextureLayers * sizeof(u32));
+    commands.bindStorageBuffer(2, 4, m_looks, 0, kMaxTextureLayers * sizeof(u32));
     commands.bindIndexBuffer(m_indices, rhi::IndexType::Uint16);
     const usize offset = usize{m_drawFirst.at(index)} * sizeof(IndirectDraw);
     switch (m_cullPath) {

@@ -79,7 +79,7 @@ private:
 
     const DemoTerrain& m_terrain;
     Materials m_materials;
-    vxe::u64 m_hash;
+    vxe::u64 m_hash = 0;
 };
 
 } // namespace vr

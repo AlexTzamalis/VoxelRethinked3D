@@ -10,10 +10,15 @@
 #                    blocks, 0 for the others.
 #   culls_same_type  Hide the face between two blocks of the same state (glass next
 #                    to glass). Default true.
-#   tint             0 for none, otherwise a biome tint table index. Default 0.
+#   tint             Colored by the biome: 0 none, 1 grass, 2 foliage, 3 water. Default 0.
+#   tint_color       The tint's color like "#8DBB5A", until biomes set it (G3.7). One
+#                    block per tint is enough.
+#   tint_faces       Which faces the tint colors, like ["top", "side"]. Default all.
 #   [textures]       Texture keys from the texture pack (G2): all, side, top, bottom,
 #                    or one face: east (+X), west (-X), up, down, south (+Z),
 #                    north (-Z). The most specific one wins.
+#   [overlays]       Optional, by face like [textures]: a texture drawn over the
+#                    block's texture. With one, the tint colors only the overlay.
 #   [[variants]]     Optional. Each variant is one block state with its own
 #                    properties and texture overrides (see oak_log.toml).
 

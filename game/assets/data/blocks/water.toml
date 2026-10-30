@@ -5,6 +5,8 @@ display_name = "Water"
 layer = "translucent"
 light_opacity = 2
 culls_same_type = true
+tint = 3
+tint_color = "#3F76E4"
 
 [textures]
 all = "water_still"

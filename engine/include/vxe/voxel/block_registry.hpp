@@ -43,6 +43,20 @@ inline constexpr usize kBlockFaceCount = 6;
 
 inline constexpr u8 kMaxLightLevel = 15;
 
+// Tint kinds: 0 none, then what the game means by them (grass, foliage, water).
+inline constexpr usize kTintCount = 4;
+
+// How one texture layer is colored, one u32 per layer in the renderer's table
+// (ChunkRenderer::setTextureLooks). A tint belongs to a texture and not to a
+// quad, so a block can tint its top but not its underside, faces merge as
+// before and quads stay 8 bytes. `overlayLayer` is the layer drawn over this
+// one on the same face, plus 1 (0 for none); with one, usually only the
+// overlay is tinted, so a grey fringe colors a plain dirt side.
+//   bits 0..15 overlayLayer, 16..17 tint, 18..19 overlayTint
+[[nodiscard]] constexpr u32 textureLook(u32 overlayLayer, u32 tint, u32 overlayTint) noexcept {
+    return overlayLayer | (tint << 16U) | (overlayTint << 18U);
+}
+
 // Everything the engine needs to know about a block state to mesh and light
 // it (Section 6.3). The game fills these in from its data files; the engine
 // never needs the block's name.
@@ -52,7 +66,7 @@ struct BlockRenderInfo {
     u8 lightOpacity = kMaxLightLevel;                    // Light lost passing through, 15 blocks it fully.
     bool cullsSameType = true;                           // Glass next to glass hides the shared face.
     std::array<u16, kBlockFaceCount> faceTextureLayer{}; // Texture array layer per face (BlockFace order).
-    u8 tintIndex = 0; // 0 is no tint, otherwise an index into the biome tint table.
+    u8 tintIndex = 0; // 0 is no tint, otherwise the block's tint kind (textureLook).
 
     [[nodiscard]] constexpr bool isOpaque() const noexcept { return layer == RenderLayer::Opaque; }
     [[nodiscard]] constexpr bool isVisible() const noexcept { return layer != RenderLayer::Invisible; }

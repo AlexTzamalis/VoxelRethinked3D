@@ -124,12 +124,13 @@ public:
     [[nodiscard]] rhi::TextureHandle coverageTexture() const noexcept { return m_coverage; }
     // Tile borders (Debug.LOD.TileBorders). Call after the debug draw's beginFrame.
     void drawDebug(DebugDraw& draw) const;
-    // Sky light strength (as ChunkRenderer::setDaylight) and the darkest
-    // brightness (Graphics.Lighting.Brightness), so far and near terrain
-    // are lit alike.
-    void setLight(f32 daylight, f32 brightness) noexcept {
+    // Sky light strength (as ChunkRenderer::setDaylight), the darkest
+    // brightness (Graphics.Lighting.Brightness) and the face shading
+    // (ChunkRenderer::faceShading), so far and near terrain are lit alike.
+    void setLight(f32 daylight, f32 brightness, f32 faceShading) noexcept {
         m_daylight = daylight;
         m_brightness = brightness;
+        m_faceShading = faceShading;
     }
     void setViewSize(u32 width, u32 height) noexcept;
 
@@ -211,6 +212,7 @@ private:
     u64 m_coverageVersion = 1; // Changes with every coverage change; 0 means never checked.
     f32 m_daylight = 1.0F;
     f32 m_brightness = 0.08F;
+    f32 m_faceShading = 1.0F;
     Camera m_camera;
     u32 m_viewWidth = 1;
     u32 m_viewHeight = 1;

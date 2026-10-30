@@ -2,6 +2,18 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#095] 2026-10-30, G2.5 G2.6 Block tints, overlays and the No shading option
+### Added
+- Block textures can be tinted and can have an overlay drawn over them, set per texture layer (voxel::textureLook), so a block tints its top but not its underside. Grass, oak leaves and water now take their color from the block files: tint_color, tint_faces and [overlays]. Biome files replace these colors later (G3.7).
+- Graphics.Lighting.NoShading: "Removes block shading and makes the game more vibrant". It changes chunks and far terrain together.
+- BlockCatalog::shownColors, so far terrain shows tinted colors.
+### Changed
+- Default pack textures this needs: grey grass top and water, and the oak leaves overlay.
+### Fixed
+- Far terrain could show wrong colors after a block or texture was added: cached tiles store material numbers, and the cache key now covers them.
+### Performance
+- GPU 0.58 ms with tints against 0.63 ms before on the same view, so no measurable cost.
+
 ## [#094] 2026-10-30, One command build and building guide
 ### Added
 - build.cmd: builds, tests, runs, repairs or packages any preset from any terminal, with the newest Visual Studio.

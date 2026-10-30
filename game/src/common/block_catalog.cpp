@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <format>
 #include <initializer_list>
 #include <map>
@@ -19,6 +20,7 @@ using vxe::Error;
 using vxe::ErrorCode;
 using vxe::Result;
 using vxe::u16;
+using vxe::u32;
 using vxe::usize;
 using vxe::voxel::BlockFace;
 using vxe::voxel::BlockRenderInfo;
@@ -69,11 +71,16 @@ private:
     // One state per [[variants]] table; returns how many were added.
     u16 addVariants(std::string_view file, const std::string& name, const toml::array& variants,
                     const BlockRenderInfo& info, const FaceKeys& baseKeys);
+    bool readTintFaces(const BlockSource& source, const toml::table& root);
+    void setLook(std::string_view file, u16 layer, u32 look);
     u16 layerOf(const std::string& key);
 
     BlockCatalog m_catalog;
     std::vector<std::string> m_problems;
     vxe::StringMap<u16> m_layers;
+    std::vector<bool> m_lookSet;       // Per layer: a block has chosen its look.
+    FaceKeys m_overlays;               // Of the block being read.
+    std::array<bool, 6> m_tintFaces{}; // Of the block being read.
 };
 
 Result<BlockCatalog> BlockCatalogLoader::run(std::span<const BlockSource> sources) {
@@ -118,9 +125,9 @@ void BlockCatalogLoader::loadFile(const BlockSource& source) {
         return;
     }
     for (const auto& [key, node] : root) {
-        static constexpr std::array<std::string_view, 9> kKnown = {
-            "name", "display_name", "layer",   "emitted_light", "light_opacity", "culls_same_type",
-            "tint", "textures",     "variants"};
+        static constexpr std::array<std::string_view, 12> kKnown = {
+            "name", "display_name", "layer",      "emitted_light", "light_opacity", "culls_same_type",
+            "tint", "tint_color",   "tint_faces", "textures",      "overlays",      "variants"};
         if (std::ranges::find(kKnown, key.str()) == kKnown.end()) {
             problem(source.file, std::format("unknown field '{}'", key.str()));
         }
@@ -145,6 +152,11 @@ void BlockCatalogLoader::loadFile(const BlockSource& source) {
     }
     FaceKeys baseKeys;
     if (!applyTextures(source.file, "textures", root.get("textures"), baseKeys)) {
+        return;
+    }
+    m_overlays = {};
+    if (!applyTextures(source.file, "overlays", root.get("overlays"), m_overlays) ||
+        !readTintFaces(source, root)) {
         return;
     }
 
@@ -244,7 +256,27 @@ bool BlockCatalogLoader::readCommon(const BlockSource& source, const toml::table
     info.lightOpacity =
         integer("light_opacity", info.layer == RenderLayer::Opaque ? vxe::voxel::kMaxLightLevel : 0,
                 vxe::voxel::kMaxLightLevel);
-    info.tintIndex = integer("tint", 0, 255);
+    info.tintIndex = integer("tint", 0, vxe::voxel::kTintCount - 1);
+    if (const auto color = root["tint_color"]; color) {
+        const std::string text = color.value_or(std::string());
+        u32 value = 0;
+        const char* end = text.data() + text.size();
+        const bool isColor = text.size() == 7 && text.front() == '#' &&
+                             std::from_chars(text.data() + 1, end, value, 16).ptr == end;
+        if (!isColor || info.tintIndex == 0) {
+            problem(source.file, "'tint_color' must look like \"#8DBB5A\", on a block with a tint");
+            valid = false;
+        } else {
+            // From 0xRRGGBB to the 0xAABBGGRR of texture colors.
+            const u32 tint = 0xFF000000U | ((value & 0xFFU) << 16U) | (value & 0xFF00U) | (value >> 16U);
+            u32& stored = m_catalog.m_tintColors.at(info.tintIndex);
+            if (stored != 0xFFFFFFFFU && stored != tint) {
+                problem(source.file, std::format("tint {} has two different colors", info.tintIndex));
+                valid = false;
+            }
+            stored = tint;
+        }
+    }
     if (const auto culls = root["culls_same_type"]; culls) {
         if (!culls.is_boolean()) {
             problem(source.file, "'culls_same_type' must be true or false");
@@ -254,6 +286,57 @@ bool BlockCatalogLoader::readCommon(const BlockSource& source, const toml::table
         }
     }
     return valid;
+}
+
+// tint_faces: which faces the block's tint colors. Default: all of them.
+bool BlockCatalogLoader::readTintFaces(const BlockSource& source, const toml::table& root) {
+    m_tintFaces.fill(true);
+    const toml::node* node = root.get("tint_faces");
+    if (node == nullptr) {
+        return true;
+    }
+    const toml::array* faces = node->as_array();
+    if (faces == nullptr) {
+        problem(source.file, R"('tint_faces' must be a list like ["top", "side"])");
+        return false;
+    }
+    m_tintFaces.fill(false);
+    for (const toml::node& entry : *faces) {
+        const std::string field = entry.value_or(std::string());
+        if (field == "all") {
+            m_tintFaces.fill(true);
+        } else if (field == "top" || field == "bottom" || field == "side") {
+            const auto mark = [this](BlockFace face) { m_tintFaces.at(static_cast<usize>(face)) = true; };
+            if (field == "top") {
+                mark(BlockFace::PosY);
+            } else if (field == "bottom") {
+                mark(BlockFace::NegY);
+            } else {
+                for (const BlockFace face :
+                     {BlockFace::PosX, BlockFace::NegX, BlockFace::PosZ, BlockFace::NegZ}) {
+                    mark(face);
+                }
+            }
+        } else if (const auto known =
+                       std::ranges::find(kFaceFields, field, [](const auto& pair) { return pair.first; });
+                   known != kFaceFields.end()) {
+            m_tintFaces.at(static_cast<usize>(known->second)) = true;
+        } else {
+            problem(source.file, std::format("tint_faces: unknown face '{}'", field));
+            return false;
+        }
+    }
+    return true;
+}
+
+// A texture has one look: two blocks may share it only if they color it alike.
+void BlockCatalogLoader::setLook(std::string_view file, u16 layer, u32 look) {
+    if (m_lookSet.at(layer) && m_catalog.m_textureLooks.at(layer) != look) {
+        problem(file, std::format("texture '{}' is tinted or overlaid in two different ways",
+                                  m_catalog.m_textureKeys.at(layer)));
+    }
+    m_lookSet.at(layer) = true;
+    m_catalog.m_textureLooks.at(layer) = look;
 }
 
 bool BlockCatalogLoader::applyTextures(std::string_view file, std::string_view where, const toml::node* node,
@@ -324,6 +407,11 @@ void BlockCatalogLoader::addState(std::string_view file, std::string name, const
                 return;
             }
             info.faceTextureLayer.at(face) = layerOf(keys.at(face));
+            const u32 tint = m_tintFaces.at(face) ? info.tintIndex : 0U;
+            const std::string& overlay = m_overlays.at(face);
+            setLook(file, info.faceTextureLayer.at(face),
+                    overlay.empty() ? vxe::voxel::textureLook(0, tint, 0)
+                                    : vxe::voxel::textureLook(u32{layerOf(overlay)} + 1U, 0, tint));
         }
     }
     const auto id = static_cast<BlockStateId>(m_catalog.m_stateNames.size());
@@ -342,8 +430,44 @@ u16 BlockCatalogLoader::layerOf(const std::string& key) {
     }
     const auto layer = static_cast<u16>(m_catalog.m_textureKeys.size());
     m_catalog.m_textureKeys.push_back(key);
+    m_catalog.m_textureLooks.push_back(0);
+    m_lookSet.push_back(false);
     m_layers.emplace(key, layer);
     return layer;
+}
+
+// A channel of a color times the same channel of a tint. Multiplying sRGB
+// values is close to multiplying linear ones, since the curve is nearly a
+// power, and these colors are averages seen from far away.
+std::vector<u32> BlockCatalog::shownColors(std::span<const u32> averageColors) const {
+    const auto multiply = [](u32 color, u32 tint) {
+        u32 result = color & 0xFF000000U;
+        for (const u32 shift : {0U, 8U, 16U}) {
+            const u32 channel = (((color >> shift) & 255U) * ((tint >> shift) & 255U)) / 255U;
+            result |= channel << shift;
+        }
+        return result;
+    };
+    std::vector<u32> shown(averageColors.begin(), averageColors.end());
+    const usize count = std::min(shown.size(), m_textureLooks.size());
+    for (usize layer = 0; layer < count; ++layer) {
+        const u32 look = m_textureLooks[layer];
+        shown[layer] = multiply(averageColors[layer], m_tintColors.at((look >> 16U) & 3U));
+        const u32 overlayLayer = look & 0xFFFFU;
+        if (overlayLayer != 0 && overlayLayer - 1 < averageColors.size()) {
+            const u32 overlay =
+                multiply(averageColors[overlayLayer - 1], m_tintColors.at((look >> 18U) & 3U));
+            const u32 cover = overlay >> 24U;
+            u32 mixed = shown[layer] & 0xFF000000U;
+            for (const u32 shift : {0U, 8U, 16U}) {
+                const u32 base = (shown[layer] >> shift) & 255U;
+                const u32 top = (overlay >> shift) & 255U;
+                mixed |= (((base * (255U - cover)) + (top * cover)) / 255U) << shift;
+            }
+            shown[layer] = mixed;
+        }
+    }
+    return shown;
 }
 
 Result<BlockCatalog> BlockCatalog::load(std::span<const BlockSource> sources) {

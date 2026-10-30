@@ -1,5 +1,7 @@
 #include "demo_lod_sampler.hpp"
 
+#include <vxe/core/hash.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -63,8 +65,7 @@ u32 blend(u32 a, f64 weightA, u32 b, f64 weightB) noexcept {
 DemoLodSampler::DemoLodSampler(const DemoTerrain& terrain, const DemoBlocks& blocks,
                                const vxe::voxel::BlockRegistryView& view, vxe::u16 layerCount,
                                vxe::u64 seed) noexcept
-    : m_terrain(terrain)
-    , m_hash(vxe::voxel::lodWorldHash(seed, kDemoGeneratorVersion, 0)) {
+    : m_terrain(terrain) {
     m_materials.grass = view.info(blocks.grass).textureLayer(BlockFace::PosY);
     m_materials.grassSide = view.info(blocks.grass).textureLayer(BlockFace::PosX);
     m_materials.sand = view.info(blocks.sand).textureLayer(BlockFace::PosY);
@@ -76,6 +77,11 @@ DemoLodSampler::DemoLodSampler(const DemoTerrain& terrain, const DemoBlocks& blo
     for (u32 k = 0; k + 1 < kBlendSteps; ++k) {
         m_materials.grassLeaves.at(k) = static_cast<vxe::u16>(layerCount + 1 + k);
     }
+    // Cached tiles store these numbers, and a new block or texture moves them.
+    // Part of the hash, so old tiles are sampled again instead of showing the
+    // wrong materials.
+    m_hash = vxe::voxel::lodWorldHash(seed, kDemoGeneratorVersion,
+                                      vxe::hashBytes(std::as_bytes(std::span(&m_materials, 1))));
 }
 
 std::vector<u32> DemoLodSampler::materialColors(std::span<const u32> layerColors) const {
