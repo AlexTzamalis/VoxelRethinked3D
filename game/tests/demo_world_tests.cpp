@@ -1,8 +1,8 @@
 #include "client/demo_world.hpp"
 #include "common/block_catalog.hpp"
 #include "common/catalog_state_names.hpp"
-#include "worldgen/demo_lod_sampler.hpp"
-#include "worldgen/demo_terrain.hpp"
+#include "worldgen/terrain.hpp"
+#include "worldgen/terrain_lod_sampler.hpp"
 
 #include <vxe/config/settings.hpp>
 #include <vxe/core/time.hpp>
@@ -38,21 +38,22 @@ const vr::BlockCatalog& catalog() {
     return kCatalog;
 }
 
-vr::DemoBlocks blocks() {
-    auto found = vr::DemoBlocks::fromCatalog(catalog());
+vr::TerrainBlocks blocks() {
+    auto found = vr::TerrainBlocks::fromCatalog(catalog());
     REQUIRE(found.hasValue());
     return found.value();
 }
 
 } // namespace
 
-TEST_CASE("Demo terrain is deterministic and depends on the seed") {
-    const vr::DemoTerrain terrain(blocks(), 12345);
-    const vr::DemoTerrain other(blocks(), 999);
+TEST_CASE("Terrain is deterministic and depends on the seed") {
+    const vr::Terrain terrain(blocks(), 12345);
+    const vr::Terrain other(blocks(), 999);
     auto first = std::make_unique<States>();
     auto second = std::make_unique<States>();
     auto third = std::make_unique<States>();
-    const vxe::ChunkPos chunk{.x = 3, .y = 3, .z = -2};
+    const vxe::BlockPos land = terrain.spawnColumn();
+    const vxe::ChunkPos chunk = vxe::toChunk(land);
     terrain.generate(chunk, *first);
     terrain.generate(chunk, *second);
     other.generate(chunk, *third);
@@ -60,16 +61,19 @@ TEST_CASE("Demo terrain is deterministic and depends on the seed") {
     CHECK(*first != *third);
 }
 
-TEST_CASE("Demo terrain has a floor, a surface on its height and water at sea level") {
-    const vr::DemoBlocks ids = blocks();
-    const vr::DemoTerrain terrain(ids, 12345);
+TEST_CASE("Terrain has a surface on its height and trees standing on it") {
+    const vr::TerrainBlocks ids = blocks();
+    const vr::Terrain terrain(ids, 12345);
     vxe::voxel::VoxelWorld world;
     auto states = std::make_unique<States>();
-    // A 3 x 8 x 3 block of chunks around the origin, as one world, so trees
-    // and columns can be checked across chunk borders.
-    for (vxe::i32 z = -1; z <= 1; ++z) {
-        for (vxe::i32 x = -1; x <= 1; ++x) {
-            for (vxe::i32 y = 0; y < 8; ++y) {
+    // A block of chunks around the land, as one world, so trees and columns
+    // can be checked across chunk borders.
+    const vxe::ChunkPos middle = vxe::toChunk(terrain.spawnColumn());
+    const vxe::i64 startX = (vxe::i64{middle.x} - 1) * 16;
+    const vxe::i64 startZ = (vxe::i64{middle.z} - 1) * 16;
+    for (vxe::i32 z = middle.z - 1; z <= middle.z + 1; ++z) {
+        for (vxe::i32 x = middle.x - 1; x <= middle.x + 1; ++x) {
+            for (vxe::i32 y = middle.y - 3; y <= middle.y + 3; ++y) {
                 terrain.generate({.x = x, .y = y, .z = z}, *states);
                 vxe::voxel::ChunkStorage storage;
                 storage.assign(*states);
@@ -79,21 +83,19 @@ TEST_CASE("Demo terrain has a floor, a surface on its height and water at sea le
     }
     vxe::usize logs = 0;
     vxe::usize crowns = 0;
-    vxe::usize water = 0;
-    for (vxe::i64 z = -16; z < 32; ++z) {
-        for (vxe::i64 x = -16; x < 32; ++x) {
-            CHECK(world.getBlock({.x = x, .y = 0, .z = z}) == ids.floor);
+    for (vxe::i64 z = startZ; z < startZ + 48; ++z) {
+        for (vxe::i64 x = startX; x < startX + 48; ++x) {
             const vxe::i64 height = terrain.surfaceHeight(x, z);
             const BlockStateId surface = world.getBlock({.x = x, .y = height, .z = z});
             // The surface block is grass, sand or snow unless a cave or a
             // trunk took its place.
-            const bool natural = surface == ids.grass || surface == ids.sand || surface == ids.snow;
+            const bool natural =
+                surface == ids.grass || surface == ids.sand || surface == ids.snow || surface == ids.stone;
             CHECK((natural || surface == vxe::voxel::kAirState || surface == ids.log));
-            if (height < vr::DemoTerrain::kSeaLevel) {
-                CHECK(world.getBlock({.x = x, .y = vr::DemoTerrain::kSeaLevel, .z = z}) == ids.water);
-                ++water;
+            if (height < vr::Terrain::kSeaLevel) {
+                CHECK(world.getBlock({.x = x, .y = vr::Terrain::kSeaLevel, .z = z}) == ids.water);
             }
-            for (vxe::i64 y = 1; y < 127; ++y) {
+            for (vxe::i64 y = (vxe::i64{middle.y} - 3) * 16; y < (vxe::i64{middle.y} + 4) * 16; ++y) {
                 if (world.getBlock({.x = x, .y = y, .z = z}) != ids.log) {
                     continue;
                 }
@@ -106,7 +108,7 @@ TEST_CASE("Demo terrain has a floor, a surface on its height and water at sea le
             }
         }
     }
-    MESSAGE(logs << " log blocks, " << crowns << " tree crowns, " << water << " water columns");
+    MESSAGE(logs << " log blocks, " << crowns << " tree crowns");
     CHECK(crowns > 0);
 }
 
@@ -130,17 +132,18 @@ TEST_CASE("The demo world streams in around the camera without a renderer") {
     }
     CHECK(demo.isLoaded());
     REQUIRE(demo.streaming().isSettled());
-    // Within render distance + 2 sideways, all 8 layers of the world.
-    CHECK(demo.world().chunkCount() == 9 * 9 * 8);
-    CHECK(demo.spawnPosition().y > vr::DemoTerrain::kSeaLevel);
+    // Within render distance + 2 sideways, in whole layers around the camera.
+    CHECK(demo.world().chunkCount() >= 9 * 9 * 8);
+    CHECK(demo.world().chunkCount() % (9 * 9) == 0);
+    CHECK(demo.spawnPosition().y > vr::Terrain::kSeaLevel);
     demo.shutdown();
     CHECK(demo.world().chunkCount() == 0);
 }
 
-TEST_CASE("Demo terrain chunks round trip through the chunk codec and region files by state name") {
-    const auto ids = vr::DemoBlocks::fromCatalog(catalog());
+TEST_CASE("Terrain chunks round trip through the chunk codec and region files by state name") {
+    const auto ids = vr::TerrainBlocks::fromCatalog(catalog());
     REQUIRE(ids.hasValue());
-    const vr::DemoTerrain terrain(ids.value(), 777);
+    const vr::Terrain terrain(ids.value(), 777);
     const vr::CatalogStateNames names(catalog());
     const auto folder = std::filesystem::temp_directory_path() / "vr_tests" / "regions";
     std::error_code error;
@@ -189,29 +192,31 @@ TEST_CASE("Demo terrain chunks round trip through the chunk codec and region fil
 }
 
 TEST_CASE("Far terrain carries the demo trees: crowns in fine levels, a leaf tint in coarse ones") {
-    const vr::DemoBlocks ids = blocks();
-    const vr::DemoTerrain terrain(ids, 12345);
+    const vr::TerrainBlocks ids = blocks();
+    const vr::Terrain terrain(ids, 12345);
     auto built = catalog().buildRegistry();
     REQUIRE(built.hasValue());
     const auto& view = built.value();
     const auto layers = static_cast<vxe::u16>(catalog().textureKeys().size());
-    vr::DemoLodSampler sampler(terrain, ids, *view, layers, 12345);
+    vr::TerrainLodSampler sampler(terrain, ids, *view, layers, 12345);
     // Another texture layout means other material numbers, so old tiles must not load.
-    CHECK(vr::DemoLodSampler(terrain, ids, *view, layers + 1, 12345).worldHash() != sampler.worldHash());
+    CHECK(vr::TerrainLodSampler(terrain, ids, *view, layers + 1, 12345).worldHash() != sampler.worldHash());
     const vxe::u16 leaves = view->info(ids.leaves).textureLayer(vxe::voxel::BlockFace::PosY);
 
     // The first tree that grows near the origin.
-    std::optional<vr::DemoTerrain::TreeSpot> tree;
+    std::optional<vr::Terrain::TreeSpot> tree;
     vxe::i64 ground = 0;
+    const vxe::BlockPos land = terrain.spawnColumn();
     for (vxe::i64 cell = 0; !tree && cell < 400; ++cell) {
-        const auto spot = terrain.treeSpot(cell % 20, cell / 20);
-        if (spot && vr::DemoTerrain::treeGrows(terrain.surfaceHeight(spot->x, spot->z))) {
+        const auto spot = terrain.treeSpot((land.x / vr::Terrain::kTreeCell) + (cell % 20),
+                                           (land.z / vr::Terrain::kTreeCell) + (cell / 20));
+        if (spot && vr::Terrain::treeGrows(terrain.surfaceAt(spot->x, spot->z))) {
             tree = spot;
             ground = terrain.surfaceHeight(spot->x, spot->z);
         }
     }
     REQUIRE(tree.has_value());
-    const vr::DemoTerrain::TreeSpot spot = tree.value_or(vr::DemoTerrain::TreeSpot{});
+    const vr::Terrain::TreeSpot spot = tree.value_or(vr::Terrain::TreeSpot{});
     const std::atomic<bool> cancelled{false};
     const vxe::voxel::LodTileKey fine = vxe::voxel::lodTileAt(1, spot.x, spot.z);
     vxe::voxel::LodTileBuilder builder(fine);

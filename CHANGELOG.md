@@ -2,6 +2,20 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#106] 2026-10-31, G3.3 Real terrain in the game
+### Added
+- vr::Terrain replaces the demo terrain: the planet's heights, an erosion filter that carves branching gullies per point, rock overhangs on steep faces, a column cache per thread.
+- The far terrain reads the same ground, so it matches chunks.
+- Players start on dry land. The world is 4096 blocks tall.
+- vr_seed_map: terrain and chunks views, a center position, the position of the highest peak.
+
+### Changed
+- Spawn readiness waits for the 4 chunk layers around the player instead of the whole vertical range.
+
+### Performance
+- 208 us per chunk on one core through the surface band (budget 250 us).
+- Playable after 3.0 s cold and 1.9 s warm (targets 2.0 s and 1.0 s, not met).
+
 ## [#105] 2026-10-30, G3.2 Climate and biome map
 ### Added
 - vr::Climate: temperature that falls with height, rain carried on a turning wind, real rain shadows behind ranges, hot belts that dry the land.

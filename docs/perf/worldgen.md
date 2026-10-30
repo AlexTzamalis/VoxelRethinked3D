@@ -54,3 +54,20 @@ A `Climate::Cell` (four grid corners, each looking 4 km upwind) costs about
 one cell, so a column costs about 130 us with the planet, whatever its height,
 and every chunk of the column shares that. A cache of cells can cut it further,
 since four columns share one cell.
+
+## Terrain (G3.3)
+
+`vr_seed_map 12345 out.png 16 1 chunks`, relwithdebinfo, one core: 208 us per
+chunk over 3200 chunks, each column from 4 chunks below its surface to 3 above.
+Budget 250 us. Without the column cache each chunk would pay for its whole column.
+
+Entering the world, no frame cap, render distance 16 by 8, 2026-10-30:
+
+| Run | Playable | Target |
+|-----|----------|--------|
+| Cold, 304 far tiles to sample (1.17 s of it) | 3.0 s | 2.0 s |
+| Warm, far tiles cached | 1.9 s | 1.0 s |
+
+Not met. Streaming refills its job slots once per frame, so a frame limit caps
+its rate (60 FPS gave 2,600 chunks per second), and hidden rock is still meshed
+and lit. Both are worth a look in G9.3.

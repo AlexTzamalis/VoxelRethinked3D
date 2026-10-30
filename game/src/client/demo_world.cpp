@@ -27,10 +27,11 @@ void DemoChunkSource::produce(const vxe::voxel::ChunkRequest& request, vxe::voxe
         (vxe::i64{position.x} * vxe::kChunkSize) + 8, (vxe::i64{position.z} * vxe::kChunkSize) + 8));
 }
 
-DemoWorld::DemoWorld(const DemoWorldDesc& desc, const DemoBlocks& blocks)
+DemoWorld::DemoWorld(const DemoWorldDesc& desc, const TerrainBlocks& blocks)
     : m_chunks(desc.chunks)
     , m_catalog(*desc.catalog)
     , m_terrain(blocks, desc.seed)
+    , m_spawn(m_terrain.spawnColumn())
     , m_world({}, desc.stats)
     , m_source(m_terrain)
     , m_names(*desc.catalog)
@@ -99,7 +100,7 @@ vxe::Result<std::unique_ptr<DemoWorld>> DemoWorld::create(const DemoWorldDesc& d
     VXE_ASSERT(desc.jobs != nullptr && desc.settings != nullptr && desc.catalog != nullptr &&
                    desc.blocks != nullptr,
                "DemoWorld needs jobs, settings and blocks");
-    auto blocks = DemoBlocks::fromCatalog(*desc.catalog);
+    auto blocks = TerrainBlocks::fromCatalog(*desc.catalog);
     if (!blocks) {
         return std::move(blocks).error();
     }
@@ -206,7 +207,7 @@ void DemoWorld::update(const vxe::render::Camera& camera) {
                      m_loadClock.elapsedMilliseconds(), m_lod->counts().ready);
     }
     const vxe::i32 radius = std::min(kSpawnRadius, m_streaming->renderDistance());
-    if (m_streaming->isAreaReady(radius) && (m_lodReady || m_lodRenderer == nullptr)) {
+    if (m_streaming->isAreaReady(radius, kSpawnLayers) && (m_lodReady || m_lodRenderer == nullptr)) {
         m_loaded = true;
         VXE_LOG_INFO(vxe::log::core, "Demo world playable after {:.0f} ms: {} chunks loaded, {} meshed",
                      m_loadClock.elapsedMilliseconds(), m_streaming->counts().loaded,
@@ -233,8 +234,8 @@ vxe::DVec3 DemoWorld::spawnGround() const {
 }
 
 vxe::DVec3 DemoWorld::spawnPosition() const {
-    const auto ground = static_cast<vxe::f64>(m_terrain.surfaceHeight(8, 40));
-    return {8.5, std::max(ground, static_cast<vxe::f64>(DemoTerrain::kSeaLevel)) + 24.0, 40.5};
+    return {static_cast<vxe::f64>(m_spawn.x) + 0.5, static_cast<vxe::f64>(m_spawn.y) + 24.0,
+            static_cast<vxe::f64>(m_spawn.z) + 0.5};
 }
 
 } // namespace vr

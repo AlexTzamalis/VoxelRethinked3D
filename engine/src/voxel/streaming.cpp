@@ -1414,12 +1414,12 @@ bool StreamingManager::isSettled() const noexcept {
            m_busyMeshSlots.empty() && m_uploadQueue.empty() && m_meshQueue.empty();
 }
 
-bool StreamingManager::isAreaReady(i32 radius) const {
+bool StreamingManager::isAreaReady(i32 radius, i32 layers) const {
     if (!m_hasCenter) {
         return false;
     }
     const i32 horizontal = std::clamp(radius, 0, renderDistance());
-    const i32 vertical = verticalRenderDistance();
+    const i32 vertical = layers < 0 ? verticalRenderDistance() : std::min(layers, verticalRenderDistance());
     for (i32 dy = -vertical; dy <= vertical; ++dy) {
         for (i32 dz = -horizontal; dz <= horizontal; ++dz) {
             for (i32 dx = -horizontal; dx <= horizontal; ++dx) {

@@ -293,11 +293,12 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
              const vxe::i64 x = std::stoll(arguments[0]);
              const vxe::i64 z = std::stoll(arguments[1]);
              constexpr vxe::i64 kTop = (vxe::i64{DemoWorld::kMaxChunkY} + 1) * vxe::kChunkSize;
-             for (vxe::i64 y = kTop - 2; y >= 0; --y) {
+             constexpr vxe::i64 kBottom = vxe::i64{DemoWorld::kMinChunkY} * vxe::kChunkSize;
+             // Only the chunks around the camera are loaded, so missing ones are skipped.
+             for (vxe::i64 y = kTop - 2; y >= kBottom; --y) {
                  const vxe::BlockPos ground{.x = x, .y = y, .z = z};
                  if (m_demo->world().findChunk(vxe::toChunk(ground)) == nullptr) {
-                     output.success = false;
-                     return output;
+                     continue;
                  }
                  if (m_blocks->isSolid(m_demo->world().getBlock(ground))) {
                      output.success = m_demo->setBlock({.x = x, .y = y + 1, .z = z}, *state);
@@ -307,6 +308,7 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                      return output;
                  }
              }
+             output.success = false;
              return output;
          }});
     context.commands.registerCommand(

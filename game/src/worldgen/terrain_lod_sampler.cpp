@@ -1,4 +1,4 @@
-#include "demo_lod_sampler.hpp"
+#include "terrain_lod_sampler.hpp"
 
 #include <vxe/core/hash.hpp>
 
@@ -18,9 +18,9 @@ using vxe::voxel::LodSpan;
 
 namespace {
 
-// Bumped whenever the demo terrain or this sampler changes what it makes,
-// so cached tiles of older versions are thrown away.
-constexpr vxe::u32 kDemoGeneratorVersion = 2;
+// Bumped whenever the terrain or this sampler changes what it makes, so cached
+// tiles of older versions are thrown away.
+constexpr vxe::u32 kGeneratorVersion = 3;
 constexpr i32 kNoCrown = std::numeric_limits<i32>::min();
 // Leaf blocks of one crown seen from above: 5 x 5 without the 4 corners.
 constexpr f64 kCrownArea = 21.0;
@@ -62,9 +62,9 @@ u32 blend(u32 a, f64 weightA, u32 b, f64 weightB) noexcept {
 
 } // namespace
 
-DemoLodSampler::DemoLodSampler(const DemoTerrain& terrain, const DemoBlocks& blocks,
-                               const vxe::voxel::BlockRegistryView& view, vxe::u16 layerCount,
-                               vxe::u64 seed) noexcept
+TerrainLodSampler::TerrainLodSampler(const Terrain& terrain, const TerrainBlocks& blocks,
+                                     const vxe::voxel::BlockRegistryView& view, vxe::u16 layerCount,
+                                     vxe::u64 seed) noexcept
     : m_terrain(terrain) {
     m_materials.grass = view.info(blocks.grass).textureLayer(BlockFace::PosY);
     m_materials.grassSide = view.info(blocks.grass).textureLayer(BlockFace::PosX);
@@ -80,11 +80,11 @@ DemoLodSampler::DemoLodSampler(const DemoTerrain& terrain, const DemoBlocks& blo
     // Cached tiles store these numbers, and a new block or texture moves them.
     // Part of the hash, so old tiles are sampled again instead of showing the
     // wrong materials.
-    m_hash = vxe::voxel::lodWorldHash(seed, kDemoGeneratorVersion,
+    m_hash = vxe::voxel::lodWorldHash(seed, kGeneratorVersion,
                                       vxe::hashBytes(std::as_bytes(std::span(&m_materials, 1))));
 }
 
-std::vector<u32> DemoLodSampler::materialColors(std::span<const u32> layerColors) const {
+std::vector<u32> TerrainLodSampler::materialColors(std::span<const u32> layerColors) const {
     std::vector<u32> colors(layerColors.begin(), layerColors.end());
     const auto layer = [&](vxe::u16 index) { return index < colors.size() ? colors[index] : 0xFFFF00FFU; };
     colors.resize(static_cast<usize>(m_materials.grassLeaves.back()) + 1, 0xFFFF00FFU);
@@ -100,7 +100,7 @@ std::vector<u32> DemoLodSampler::materialColors(std::span<const u32> layerColors
     return colors;
 }
 
-vxe::u16 DemoLodSampler::grassWithLeaves(u32 eighths) const noexcept {
+vxe::u16 TerrainLodSampler::grassWithLeaves(u32 eighths) const noexcept {
     if (eighths == 0) {
         return m_materials.grass;
     }
@@ -108,39 +108,62 @@ vxe::u16 DemoLodSampler::grassWithLeaves(u32 eighths) const noexcept {
 }
 
 // The ground span of a column with this height.
-LodSpan DemoLodSampler::ground(i64 height) const noexcept {
+LodSpan TerrainLodSampler::ground(i64 height, Surface surface) const noexcept {
     LodSpan span{.bottomY = 0, .topY = static_cast<i32>(height)};
-    if (height < DemoTerrain::kSeaLevel) {
+    if (height < Terrain::kSeaLevel) {
         // A lake or the sea: the water surface is what shows.
-        span.topY = static_cast<i32>(DemoTerrain::kSeaLevel);
+        span.topY = static_cast<i32>(Terrain::kSeaLevel);
         span.topMaterial = m_materials.waterOverFloor;
         span.sideMaterial = m_materials.waterOverFloor;
-    } else if (height <= DemoTerrain::kSeaLevel + 1) {
+        return span;
+    }
+    switch (surface) {
+    case Surface::Sand:
         span.topMaterial = m_materials.sand;
         span.sideMaterial = m_materials.sand;
-    } else if (height > 100) {
+        break;
+    case Surface::Snow:
         span.topMaterial = m_materials.snow;
         span.sideMaterial = m_materials.stone;
-    } else {
+        break;
+    case Surface::Rock:
+        span.topMaterial = m_materials.stone;
+        span.sideMaterial = m_materials.stone;
+        break;
+    case Surface::Grass:
         span.topMaterial = m_materials.grass;
         span.sideMaterial = m_materials.grassSide;
+        break;
     }
     return span;
 }
 
-bool DemoLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
-                                const vxe::voxel::LodSampleOptions& options,
-                                vxe::voxel::LodTileBuilder& builder, const std::atomic<bool>& cancelled) {
+bool TerrainLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
+                                   const vxe::voxel::LodSampleOptions& options,
+                                   vxe::voxel::LodTileBuilder& builder, const std::atomic<bool>& cancelled) {
     const i64 cell = key.cellSize();
     thread_local std::vector<i64> heights;
+    thread_local std::vector<Surface> surfaces;
     heights.resize(vxe::voxel::kLodCellCount);
+    surfaces.resize(vxe::voxel::kLodCellCount);
     for (u32 cz = 0; cz < vxe::voxel::kLodTileCells; ++cz) {
         if (cancelled.load(std::memory_order_relaxed)) {
             return false;
         }
         for (u32 cx = 0; cx < vxe::voxel::kLodTileCells; ++cx) {
-            heights[(cz * vxe::voxel::kLodTileCells) + cx] = m_terrain.surfaceHeight(
-                key.originX() + (cx * cell) + (cell / 2), key.originZ() + (cz * cell) + (cell / 2));
+            const i64 x = key.originX() + (cx * cell) + (cell / 2);
+            const i64 z = key.originZ() + (cz * cell) + (cell / 2);
+            const u32 index = (cz * vxe::voxel::kLodTileCells) + cx;
+            if (cell <= 4) {
+                heights[index] = m_terrain.surfaceHeight(x, z);
+                surfaces[index] = m_terrain.surfaceAt(x, z);
+            } else {
+                const auto wx = static_cast<f64>(x);
+                const auto wz = static_cast<f64>(z);
+                const Ground at = m_terrain.farGround(wx, wz, static_cast<f64>(cell));
+                heights[index] = static_cast<i64>(std::floor(at.height));
+                surfaces[index] = m_terrain.surfaceOf(wx, wz, at);
+            }
         }
     }
     // Levels 1 and 2 place every crown; coarser levels count trees per cell.
@@ -151,17 +174,18 @@ bool DemoLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
         placeCrowns(key, crowns);
     } else {
         counts.assign(vxe::voxel::kLodCellCount, 0);
-        countTrees(key, heights, counts);
+        countTrees(key, surfaces, counts);
     }
     std::vector<LodSpan> spans;
     for (u32 cz = 0; cz < vxe::voxel::kLodTileCells; ++cz) {
         for (u32 cx = 0; cx < vxe::voxel::kLodTileCells; ++cx) {
             spans.clear();
             const u32 index = (cz * vxe::voxel::kLodTileCells) + cx;
+            const LodSpan base = ground(heights[index], surfaces[index]);
             if (fine) {
-                addFineCell(heights, crowns, cx, cz, cell, options.maxSpansPerCell, spans);
+                addFineCell(base, crowns, cx, cz, cell, options.maxSpansPerCell, spans);
             } else {
-                addCoarseCell(heights[index], counts[index], cell, spans);
+                addCoarseCell(base, heights[index], counts[index], cell, spans);
             }
             builder.addCell(spans);
         }
@@ -171,15 +195,15 @@ bool DemoLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
 
 // Every crown that reaches into the tile, block column by block column: the
 // highest top and lowest bottom of leaves over each column.
-void DemoLodSampler::placeCrowns(const vxe::voxel::LodTileKey& key, Crowns& crowns) const {
+void TerrainLodSampler::placeCrowns(const vxe::voxel::LodTileKey& key, Crowns& crowns) const {
     const i64 size = key.tileSize();
     crowns.top.assign(static_cast<usize>(size * size), kNoCrown);
     crowns.bottom.assign(static_cast<usize>(size * size), std::numeric_limits<i32>::max());
-    constexpr i64 kReach = DemoTerrain::kLeafRadius;
-    const i64 firstX = floorDiv(key.originX() - kReach, DemoTerrain::kTreeCell);
-    const i64 lastX = floorDiv(key.originX() + size + kReach, DemoTerrain::kTreeCell);
-    const i64 firstZ = floorDiv(key.originZ() - kReach, DemoTerrain::kTreeCell);
-    const i64 lastZ = floorDiv(key.originZ() + size + kReach, DemoTerrain::kTreeCell);
+    constexpr i64 kReach = Terrain::kLeafRadius;
+    const i64 firstX = floorDiv(key.originX() - kReach, Terrain::kTreeCell);
+    const i64 lastX = floorDiv(key.originX() + size + kReach, Terrain::kTreeCell);
+    const i64 firstZ = floorDiv(key.originZ() - kReach, Terrain::kTreeCell);
+    const i64 lastZ = floorDiv(key.originZ() + size + kReach, Terrain::kTreeCell);
     for (i64 cellZ = firstZ; cellZ <= lastZ; ++cellZ) {
         for (i64 cellX = firstX; cellX <= lastX; ++cellX) {
             const auto spot = m_terrain.treeSpot(cellX, cellZ);
@@ -187,10 +211,10 @@ void DemoLodSampler::placeCrowns(const vxe::voxel::LodTileKey& key, Crowns& crow
                 continue;
             }
             const i64 groundY = m_terrain.surfaceHeight(spot->x, spot->z);
-            if (!DemoTerrain::treeGrows(groundY)) {
+            if (!Terrain::treeGrows(m_terrain.surfaceAt(spot->x, spot->z))) {
                 continue;
             }
-            // The crown as DemoTerrain::stampTree builds it: two 5 x 5 layers
+            // The crown as Terrain::stampTree builds it: two 5 x 5 layers
             // without corners, then two 3 x 3 layers on top.
             const i64 top = groundY + spot->trunk;
             for (i64 dz = -kReach; dz <= kReach; ++dz) {
@@ -216,14 +240,14 @@ void DemoLodSampler::placeCrowns(const vxe::voxel::LodTileKey& key, Crowns& crow
 
 // Coarse levels: the trees whose spot lies in each cell, where the cell's
 // ground lets them grow.
-void DemoLodSampler::countTrees(const vxe::voxel::LodTileKey& key, std::span<const i64> heights,
-                                std::span<u32> counts) const {
+void TerrainLodSampler::countTrees(const vxe::voxel::LodTileKey& key, std::span<const Surface> surfaces,
+                                   std::span<u32> counts) const {
     const i64 size = key.tileSize();
     const i64 cell = key.cellSize();
-    const i64 firstX = floorDiv(key.originX(), DemoTerrain::kTreeCell);
-    const i64 lastX = floorDiv(key.originX() + size - 1, DemoTerrain::kTreeCell);
-    const i64 firstZ = floorDiv(key.originZ(), DemoTerrain::kTreeCell);
-    const i64 lastZ = floorDiv(key.originZ() + size - 1, DemoTerrain::kTreeCell);
+    const i64 firstX = floorDiv(key.originX(), Terrain::kTreeCell);
+    const i64 lastX = floorDiv(key.originX() + size - 1, Terrain::kTreeCell);
+    const i64 firstZ = floorDiv(key.originZ(), Terrain::kTreeCell);
+    const i64 lastZ = floorDiv(key.originZ() + size - 1, Terrain::kTreeCell);
     for (i64 cellZ = firstZ; cellZ <= lastZ; ++cellZ) {
         for (i64 cellX = firstX; cellX <= lastX; ++cellX) {
             const auto spot = m_terrain.treeSpot(cellX, cellZ);
@@ -237,17 +261,16 @@ void DemoLodSampler::countTrees(const vxe::voxel::LodTileKey& key, std::span<con
                 continue;
             }
             const auto index = static_cast<usize>((z * vxe::voxel::kLodTileCells) + x);
-            if (DemoTerrain::treeGrows(heights[index])) {
+            if (Terrain::treeGrows(surfaces[index])) {
                 ++counts[index];
             }
         }
     }
 }
 
-void DemoLodSampler::addFineCell(std::span<const i64> heights, const Crowns& crowns, u32 cx, u32 cz, i64 cell,
-                                 u32 maxSpans, std::vector<LodSpan>& spans) const {
+void TerrainLodSampler::addFineCell(LodSpan base, const Crowns& crowns, u32 cx, u32 cz, i64 cell,
+                                    u32 maxSpans, std::vector<LodSpan>& spans) const {
     const i64 size = cell * vxe::voxel::kLodTileCells;
-    LodSpan base = ground(heights[(cz * vxe::voxel::kLodTileCells) + cx]);
     i32 crownTop = kNoCrown;
     i32 crownBottom = std::numeric_limits<i32>::max();
     i64 covered = 0;
@@ -283,8 +306,8 @@ void DemoLodSampler::addFineCell(std::span<const i64> heights, const Crowns& cro
     spans.push_back(base);
 }
 
-void DemoLodSampler::addCoarseCell(i64 height, u32 trees, i64 cell, std::vector<LodSpan>& spans) const {
-    LodSpan base = ground(height);
+void TerrainLodSampler::addCoarseCell(LodSpan base, i64 height, u32 trees, i64 cell,
+                                      std::vector<LodSpan>& spans) const {
     if (trees > 0 && base.topMaterial == m_materials.grass) {
         // The share of the cell under crowns, in eighths.
         const f64 share =

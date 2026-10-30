@@ -3,8 +3,8 @@
 #include "common/block_catalog.hpp"
 #include "common/catalog_state_names.hpp"
 #include "server/world_saver.hpp"
-#include "worldgen/demo_lod_sampler.hpp"
-#include "worldgen/demo_terrain.hpp"
+#include "worldgen/terrain.hpp"
+#include "worldgen/terrain_lod_sampler.hpp"
 
 #include <vxe/config/settings.hpp>
 #include <vxe/core/result.hpp>
@@ -57,21 +57,21 @@ struct DemoWorldDesc {
 // Makes the demo terrain's chunks for the streaming manager, on its jobs.
 class DemoChunkSource final : public vxe::voxel::ChunkSource {
 public:
-    explicit DemoChunkSource(const DemoTerrain& terrain) noexcept
+    explicit DemoChunkSource(const Terrain& terrain) noexcept
         : m_terrain(terrain) {}
     // Saved chunks then win over generated ones. Optional; set before streaming.
     void setSaver(WorldSaver* saver) noexcept { m_saver = saver; }
     void produce(const vxe::voxel::ChunkRequest& request, vxe::voxel::ChunkProduct& out) override;
 
 private:
-    const DemoTerrain& m_terrain;
+    const Terrain& m_terrain;
     WorldSaver* m_saver = nullptr;
 };
 
 // The temporary demo world agreed for the first playable build (until the
 // integrated server, G0.2, and world generation, G3, replace it): the demo
 // terrain streamed around the camera without end on X and Z by the engine's
-// StreamingManager (E9.7), 8 chunk layers tall (blocks 0 to 127).
+// StreamingManager (E9.7), 256 chunk layers tall (blocks -1024 to 3071, the Tall height preset).
 //
 // Entering it waits until every chunk within 8 chunks of the spawn is
 // meshed (the "playable" radius of Section 2, at most the render distance),
@@ -80,7 +80,7 @@ private:
 // Block textures come from the app's texture packs; setTextureColors()
 // passes their average colors on to the far terrain.
 //
-// Far terrain (Section 13) comes from DemoLodSampler through the engine's
+// Far terrain (Section 13) comes from TerrainLodSampler through the engine's
 // LodManager, drawn by the renderer's LodRenderer and hidden over chunk
 // columns streaming has meshed. With a cache folder, the clipmap around the
 // spawn is premapped (LodPremapper) while loading, and entering also waits
@@ -90,10 +90,13 @@ private:
 // and the renderer go away.
 class DemoWorld {
 public:
-    static constexpr vxe::i32 kMinChunkY = 0;
-    static constexpr vxe::i32 kMaxChunkY = 7;
+    static constexpr vxe::i32 kMinChunkY = -64;
+    static constexpr vxe::i32 kMaxChunkY = 191;
     // Chunks around the spawn that must be meshed before the world shows.
     static constexpr vxe::i32 kSpawnRadius = 8;
+    // Chunk layers above and below the player that must be ready. The rest of
+    // the vertical range is mostly rock nobody can see yet.
+    static constexpr vxe::i32 kSpawnLayers = 4;
     // Shows the world anyway after this long, for example when the renderer
     // refused chunks.
     static constexpr vxe::f64 kLoadTimeoutMs = 20000.0;
@@ -126,7 +129,7 @@ public:
     // The spawn area is ready (or loading took too long).
     [[nodiscard]] bool isLoaded() const noexcept { return m_loaded; }
     [[nodiscard]] std::string progressText() const;
-    // A spot above the ground near the origin, looking across the terrain.
+    // A spot above dry land near the origin, looking across the terrain.
     [[nodiscard]] vxe::DVec3 spawnPosition() const;
     // Where a new player's feet stand: on the ground or the water at the spawn.
     [[nodiscard]] vxe::DVec3 spawnGround() const;
@@ -134,14 +137,15 @@ public:
     [[nodiscard]] const vxe::voxel::StreamingManager& streaming() const noexcept { return *m_streaming; }
 
 private:
-    explicit DemoWorld(const DemoWorldDesc& desc, const DemoBlocks& blocks);
+    explicit DemoWorld(const DemoWorldDesc& desc, const TerrainBlocks& blocks);
 
     // shutdown() without its log line, for the destructor.
     void release() noexcept;
 
     vxe::render::ChunkRenderer* m_chunks;
     const BlockCatalog& m_catalog;
-    DemoTerrain m_terrain;
+    Terrain m_terrain;
+    vxe::BlockPos m_spawn;
     vxe::voxel::VoxelWorld m_world;
     DemoChunkSource m_source;
     CatalogStateNames m_names;
@@ -150,7 +154,7 @@ private:
     vxe::render::LodRenderer* m_lodRenderer;
     vxe::render::DebugDraw* m_debugDraw;
     std::shared_ptr<const vxe::voxel::BlockRegistryView> m_view;
-    DemoLodSampler m_lodSampler;
+    TerrainLodSampler m_lodSampler;
     std::optional<vxe::voxel::LodRenderSink> m_lodSink;
     std::optional<vxe::voxel::CoveringChunkSink> m_coveringSink;
     std::optional<vxe::voxel::LodTileCache> m_lodCache;

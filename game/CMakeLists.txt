@@ -43,14 +43,14 @@ set(vrGameSources
     src/ui/screens/widget_sample.hpp
     src/ui/screens/world_screens.cpp
     src/ui/screens/world_screens.hpp
-    src/worldgen/demo_lod_sampler.cpp
-    src/worldgen/demo_lod_sampler.hpp
-    src/worldgen/demo_terrain.cpp
-    src/worldgen/demo_terrain.hpp
     src/worldgen/climate.cpp
     src/worldgen/climate.hpp
     src/worldgen/planet.cpp
     src/worldgen/planet.hpp
+    src/worldgen/terrain.cpp
+    src/worldgen/terrain.hpp
+    src/worldgen/terrain_lod_sampler.cpp
+    src/worldgen/terrain_lod_sampler.hpp
 )
 
 find_package(tomlplusplus CONFIG REQUIRED)

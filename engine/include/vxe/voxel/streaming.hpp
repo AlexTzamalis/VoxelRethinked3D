@@ -230,9 +230,10 @@ public:
     // meshed, and no job runs.
     [[nodiscard]] bool isSettled() const noexcept;
     // Every chunk within `radius` chunks horizontally of the latest view (at
-    // most the render distance) and within the vertical render distance is
+    // most the render distance) and within `layers` chunk layers (or the vertical
+    // render distance, the default and the most) is
     // loaded and, with a sink, has its mesh there. "Playable" in Section 2.
-    [[nodiscard]] bool isAreaReady(i32 radius) const;
+    [[nodiscard]] bool isAreaReady(i32 radius, i32 layers = -1) const;
 
     // Meshes every meshed chunk again, a few per frame (after a change the
     // manager does not notice by itself, such as new textures).
