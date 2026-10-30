@@ -73,6 +73,8 @@ public:
         invalidateVisual();
     }
     void setWrap(bool wrap);
+    // Whole font pixels drawn per UI pixel: 1 is normal, more for big titles.
+    void setTextScale(u32 scale);
     void setShadow(bool shadow) {
         m_shadow = shadow;
         invalidateVisual();
@@ -89,6 +91,7 @@ private:
     TextRole m_role;
     std::optional<u32> m_color;
     TextAlign m_align = TextAlign::Start;
+    u32 m_textScale = 1;
     bool m_wrap = false;
     bool m_shadow = true;
 };

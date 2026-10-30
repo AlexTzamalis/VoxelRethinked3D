@@ -130,8 +130,9 @@ public:
     void fillRect(const UiRect& rect, u32 color);
     // A rectangle outline `thickness` UI pixels wide, inside the rectangle.
     void frameRect(const UiRect& rect, u32 color, f32 thickness = 1.0F);
-    // Text with its top left corner at (x, y): one font pixel per UI pixel.
-    void text(std::string_view text, f32 x, f32 y, u32 color, bool shadow = true);
+    // Text with its top left corner at (x, y): `textScale` UI pixels per
+    // font pixel.
+    void text(std::string_view text, f32 x, f32 y, u32 color, bool shadow = true, u32 textScale = 1);
     // A theme image as a nine slice frame with corners `border` texels (UI
     // pixels) wide. False when no pack has the image: draw the flat look.
     bool nineSlice(const UiRect& rect, std::string_view image, f32 border);

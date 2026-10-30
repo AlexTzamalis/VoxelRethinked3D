@@ -177,6 +177,20 @@ TEST_CASE("Labels wrap to the width a column gives them") {
     CHECK(label.rect().height == kFontCellPixels);
 }
 
+TEST_CASE("Labels scale their text in whole steps") {
+    const PixelFont font = blockFont();
+    Widget root;
+    root.style().align = Align::Start;
+    auto& title = root.add<Label>("Title"); // 5 glyphs: 29 font pixels wide, 8 high.
+    layOut(root, 300.0F, 100.0F, &font);
+    CHECK(title.rect().width == 29.0F);
+    CHECK(title.rect().height == kFontCellPixels);
+    title.setTextScale(4);
+    layOut(root, 300.0F, 100.0F, &font);
+    CHECK(title.rect().width == 116.0F);
+    CHECK(title.rect().height == 32.0F);
+}
+
 TEST_CASE("Changes request a new layout through the root") {
     Widget root;
     auto& row = root.add<Widget>();

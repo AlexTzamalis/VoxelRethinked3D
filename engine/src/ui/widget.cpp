@@ -60,9 +60,10 @@ void DrawContext::frameRect(const UiRect& rect, u32 color, f32 thickness) {
     fillRect({rect.x + rect.width - t, rect.y + t, t, rect.height - 2.0F * t}, color);
 }
 
-void DrawContext::text(std::string_view text, f32 x, f32 y, u32 color, bool shadow) {
+void DrawContext::text(std::string_view text, f32 x, f32 y, u32 color, bool shadow, u32 textScale) {
     const auto scale = static_cast<f32>(m_scale);
-    m_batch.text(text, x * scale, y * scale, {.scale = m_scale, .color = color, .shadow = shadow});
+    m_batch.text(text, x * scale, y * scale,
+                 {.scale = m_scale * textScale, .color = color, .shadow = shadow});
 }
 
 Widget& Widget::addChild(std::unique_ptr<Widget> child) {

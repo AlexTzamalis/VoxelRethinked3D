@@ -17,16 +17,17 @@ TEST_CASE("The game starts in Boot and follows the Section 20.1 arrows") {
     CHECK(states.current() == GameState::Boot);
     CHECK(seen.empty());
 
-    // The quick start path used until the menus exist.
-    for (const GameState next : {GameState::LoadingCoreAssets, GameState::StartingIntegratedServer,
-                                 GameState::LoadingWorld, GameState::InGame, GameState::Paused,
-                                 GameState::InGame, GameState::SavingAndStopping, GameState::MainMenu}) {
+    // Launch to the menu, into the world and back to the title.
+    for (const GameState next :
+         {GameState::LoadingCoreAssets, GameState::MainMenu, GameState::StartingIntegratedServer,
+          GameState::LoadingWorld, GameState::InGame, GameState::Paused, GameState::InGame, GameState::Paused,
+          GameState::SavingAndStopping, GameState::MainMenu}) {
         REQUIRE(states.request(next));
         CHECK(states.current() == next);
     }
-    CHECK(states.transitions() == 8);
-    REQUIRE(seen.size() == 8);
-    CHECK(seen[3] == std::pair{GameState::LoadingWorld, GameState::InGame});
+    CHECK(states.transitions() == 10);
+    REQUIRE(seen.size() == 10);
+    CHECK(seen[1] == std::pair{GameState::LoadingCoreAssets, GameState::MainMenu});
 
     // Menus.
     CHECK(states.request(GameState::WorldSelect));

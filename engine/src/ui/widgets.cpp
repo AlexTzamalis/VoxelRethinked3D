@@ -45,6 +45,14 @@ void Label::setWrap(bool wrap) {
     }
 }
 
+void Label::setTextScale(u32 scale) {
+    scale = std::max(scale, 1U);
+    if (scale != m_textScale) {
+        m_textScale = scale;
+        invalidateLayout();
+    }
+}
+
 // Measuring also fixes the lines the label draws: the layout measures every
 // widget at the width it will get, the last measure before drawing wins.
 Size Label::measureContent(const UiEnvironment& environment, f32 availableWidth) const {
@@ -53,9 +61,11 @@ Size Label::measureContent(const UiEnvironment& environment, f32 availableWidth)
         m_linesSize = {};
         return {};
     }
-    m_lines = m_wrap && availableWidth < kUnbounded ? environment.font->wrap(m_text, availableWidth) : m_text;
+    const auto scale = static_cast<f32>(m_textScale);
+    m_lines = m_wrap && availableWidth < kUnbounded ? environment.font->wrap(m_text, availableWidth / scale)
+                                                    : m_text;
     const TextSize size = environment.font->measure(m_lines);
-    m_linesSize = {std::ceil(size.width), std::ceil(size.height)};
+    m_linesSize = {std::ceil(size.width) * scale, std::ceil(size.height) * scale};
     return m_linesSize;
 }
 
@@ -84,10 +94,11 @@ void Label::draw(DrawContext& context) const {
     const PixelFont* font = context.font();
     if (!m_wrap && font != nullptr && m_linesSize.width > box.width) {
         // Squeezed by its row: cut with "..." instead of running into neighbors.
-        context.text(font->ellipsize(m_lines, box.width), x, y, color, m_shadow);
+        context.text(font->ellipsize(m_lines, box.width / static_cast<f32>(m_textScale)), x, y, color,
+                     m_shadow, m_textScale);
         return;
     }
-    context.text(m_lines, x, y, color, m_shadow);
+    context.text(m_lines, x, y, color, m_shadow, m_textScale);
 }
 
 Button::Button(std::string text, std::function<void()> onClick)

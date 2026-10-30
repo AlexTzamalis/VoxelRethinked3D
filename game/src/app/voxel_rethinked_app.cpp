@@ -2,6 +2,7 @@
 
 #include "client/default_pack.hpp"
 #include "ui/screens/keybinds_screen.hpp"
+#include "ui/screens/main_menu_screen.hpp"
 #include "ui/screens/pause_screen.hpp"
 #include "ui/screens/settings_screen.hpp"
 #include "ui/screens/widget_sample.hpp"
@@ -29,6 +30,13 @@ namespace {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): the level changes at runtime.
 constinit vxe::log::Category gameLog{"game", vxe::log::Level::Info};
+
+// The menu's panorama: how far above the spawn it looks from, how far it
+// tilts down, and how fast it turns (radians per second, one turn in about
+// five minutes).
+constexpr vxe::f64 kPanoramaHeight = 40.0;
+constexpr vxe::f32 kPanoramaPitchDegrees = -10.0F;
+constexpr vxe::f32 kPanoramaTurnSpeed = 0.02F;
 
 // The UI font and theme inside the texture packs (Section 15.1).
 constexpr std::string_view kFontImage = "ui/font.png";
@@ -120,6 +128,34 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                  .lines = {
                      std::format("{} ({} transitions)", nameOf(m_states.current()), m_states.transitions())}};
          }});
+    // Leaves the menu for the world, for scripted runs (captures, measurements).
+    context.commands.registerCommand({.name = "play",
+                                      .usage = "play",
+                                      .description = "Enters the world from the main menu.",
+                                      .handler = [this](std::span<const std::string> /*arguments*/) {
+                                          vxe::config::CommandOutput output;
+                                          if (m_states.current() != GameState::MainMenu) {
+                                              output.lines.emplace_back("The main menu is not open.");
+                                              output.success = false;
+                                              return output;
+                                          }
+                                          m_states.request(GameState::StartingIntegratedServer);
+                                          return output;
+                                      }});
+    // Leaves the world like the pause menu's Quit to title does.
+    context.commands.registerCommand({.name = "title",
+                                      .usage = "title",
+                                      .description = "Goes back to the main menu from the pause menu.",
+                                      .handler = [this](std::span<const std::string> /*arguments*/) {
+                                          vxe::config::CommandOutput output;
+                                          if (m_states.current() != GameState::Paused) {
+                                              output.lines.emplace_back("Pause the game first (pause).");
+                                              output.success = false;
+                                              return output;
+                                          }
+                                          m_states.request(GameState::SavingAndStopping);
+                                          return output;
+                                      }});
     // Pauses like Escape does, for captures of the pause screen.
     context.commands.registerCommand({.name = "pause",
                                       .usage = "pause",
@@ -260,6 +296,7 @@ void VoxelRethinkedApp::onTransition(vxe::EngineContext& context, GameState from
         m_input->pushContext(m_flight->inputContext());
     } else if (!isWorldState(to) && isWorldState(from)) {
         m_input->popContext(m_actions->gameplay);
+        m_input->popContext(m_flight->inputContext());
     }
     if (isMenuState(to) && !isMenuState(from)) {
         m_input->pushContext(m_actions->menu);
@@ -267,13 +304,22 @@ void VoxelRethinkedApp::onTransition(vxe::EngineContext& context, GameState from
         m_input->popContext(m_actions->menu);
     }
     context.inMenu = isMenuState(to);
-    if (to == GameState::LoadingWorld) {
+    if (to == GameState::MainMenu) {
+        // The world behind the menu: it streams on jobs, so the menu does
+        // not wait for it. Playing it later needs no second load.
         startDemoWorld(context);
+        placePanoramaCamera();
+    } else if (to == GameState::LoadingWorld) {
+        startDemoWorld(context);
+        placeSpawnCamera();
     }
-    if (to == GameState::Paused) {
+    if (!isWorldState(to) || to == GameState::Paused) {
         setMouseCaptured(context, false);
     }
-    if (to == GameState::Paused || from == GameState::Paused) {
+    const auto hasScreens = [](GameState state) {
+        return state == GameState::MainMenu || state == GameState::Paused;
+    };
+    if (hasScreens(to) || hasScreens(from)) {
         rebuildScreens(context);
     }
 }
@@ -287,13 +333,18 @@ void VoxelRethinkedApp::rebuildScreens(vxe::EngineContext& context) {
         return;
     }
     m_screens->clear();
+    if (m_states.current() == GameState::MainMenu) {
+        m_screens->push(std::make_unique<MainMenuScreen>(
+            menuServices(context), [this] { m_states.request(GameState::StartingIntegratedServer); },
+            [this, &context] { onQuitRequested(context); }));
+    }
     if (m_settings->widgetSample.get()) {
         m_screens->push(std::make_unique<WidgetSampleScreen>(*m_uiContext));
     }
     if (m_states.current() == GameState::Paused) {
         m_screens->push(std::make_unique<PauseScreen>(
             menuServices(context), [this] { m_states.request(GameState::InGame); },
-            [this, &context] { onQuitRequested(context); }));
+            [this] { m_states.request(GameState::SavingAndStopping); }));
     }
 }
 
@@ -375,7 +426,8 @@ void VoxelRethinkedApp::advanceStartup(vxe::EngineContext& context) {
             context.requestQuit();
             break;
         }
-        m_states.request(GameState::StartingIntegratedServer); // No main menu before G4.
+        // Without a window there is no menu to wait on.
+        m_states.request(m_screens ? GameState::MainMenu : GameState::StartingIntegratedServer);
         break;
     case GameState::StartingIntegratedServer:
         m_states.request(GameState::LoadingWorld);
@@ -388,6 +440,11 @@ void VoxelRethinkedApp::advanceStartup(vxe::EngineContext& context) {
             break;
         }
         m_states.request(GameState::InGame);
+        break;
+    case GameState::SavingAndStopping:
+        // Nothing to save before G5.4. A window close passes through here
+        // too, on its way out of the main loop.
+        m_states.request(GameState::MainMenu);
         break;
     default:
         break;
@@ -440,6 +497,9 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
             }
         }
     }
+    if (m_states.current() == GameState::MainMenu) {
+        m_camera.yaw += kPanoramaTurnSpeed * static_cast<vxe::f32>(time.deltaSeconds);
+    }
     // The free camera has its own field of view setting for debugging; in the
     // game the player's choice wins.
     m_camera.fovYDegrees = static_cast<vxe::f32>(m_settings->fieldOfView.get());
@@ -460,7 +520,7 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
 }
 
 void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
-    if (!m_blocks || !m_blockRegistry) {
+    if (m_demo || !m_blocks || !m_blockRegistry) {
         return;
     }
     auto demo = DemoWorld::create(
@@ -481,11 +541,23 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
     if (const vxe::render::BlockTextures* textures = m_texturePacks ? m_texturePacks->textures() : nullptr) {
         m_demo->setTextureColors(textures->averageColors);
     }
+}
+
+void VoxelRethinkedApp::placePanoramaCamera() {
+    if (m_demo) {
+        m_camera.position = m_demo->spawnPosition() + vxe::DVec3(0.0, kPanoramaHeight, 0.0);
+        m_camera.pitch = glm::radians(kPanoramaPitchDegrees);
+    }
+}
+
+void VoxelRethinkedApp::placeSpawnCamera() {
     // Streaming centers on the camera, so it waits at the spawn while the
     // world loads around it.
-    m_camera.position = m_demo->spawnPosition();
-    m_camera.yaw = 0.0F;
-    m_camera.pitch = glm::radians(-25.0F);
+    if (m_demo) {
+        m_camera.position = m_demo->spawnPosition();
+        m_camera.yaw = 0.0F;
+        m_camera.pitch = glm::radians(-25.0F);
+    }
     if (m_cameraOverride) {
         m_camera = *m_cameraOverride;
     }
@@ -584,8 +656,14 @@ void VoxelRethinkedApp::onFrame(vxe::EngineContext& context, const vxe::FrameTim
     updateTextures(context);
     drawUi(context, time);
     // The world streams in while loading (no loading screen before G5.3).
-    if (isWorldState(m_states.current()) || m_states.current() == GameState::LoadingWorld) {
+    const GameState state = m_states.current();
+    if (isWorldState(state) || state == GameState::LoadingWorld || state == GameState::MainMenu) {
         updateWorld(context, time);
+    }
+    if (!m_menuShown && state == GameState::MainMenu && m_ui && m_ui->font() != nullptr) {
+        m_menuShown = true;
+        VXE_LOG_INFO(gameLog, "Main menu shown {:.0f} ms after the engine started",
+                     m_sinceInit.elapsedMilliseconds());
     }
 }
 

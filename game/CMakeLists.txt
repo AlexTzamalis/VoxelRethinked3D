@@ -17,6 +17,8 @@ set(vrGameSources
     src/common/block_catalog.hpp
     src/ui/screens/keybinds_screen.cpp
     src/ui/screens/keybinds_screen.hpp
+    src/ui/screens/main_menu_screen.cpp
+    src/ui/screens/main_menu_screen.hpp
     src/ui/screens/menu_services.hpp
     src/ui/screens/pause_screen.cpp
     src/ui/screens/pause_screen.hpp

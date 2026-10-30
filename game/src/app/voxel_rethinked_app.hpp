@@ -7,6 +7,7 @@
 #include "ui/screens/menu_services.hpp"
 
 #include <vxe/app/application.hpp>
+#include <vxe/core/time.hpp>
 #include <vxe/render/camera.hpp>
 #include <vxe/render/texture_pack_manager.hpp>
 #include <vxe/ui/screen.hpp>
@@ -48,6 +49,10 @@ private:
     void setMouseCaptured(vxe::EngineContext& context, bool captured);
     void registerCommands(vxe::EngineContext& context);
     void startDemoWorld(vxe::EngineContext& context);
+    // Puts the camera where the state wants it: over the spawn looking out
+    // for the menu's panorama, at the spawn for playing.
+    void placePanoramaCamera();
+    void placeSpawnCamera();
     void updateTextures(vxe::EngineContext& context);
     void drawUi(vxe::EngineContext& context, const vxe::FrameTime& time);
     // Puts the screens the game state and the debug settings ask for on the stack.
@@ -67,6 +72,9 @@ private:
     // Menu navigation (Tab, arrows, Enter, Escape) in the menu context.
     std::unique_ptr<vxe::ui::UiActions> m_uiActions;
     bool m_widgetSampleShown = false;
+    // Measures launch to the first frame of the menu, logged once.
+    vxe::Stopwatch m_sinceInit;
+    bool m_menuShown = false;
     std::unique_ptr<GameSettings> m_settings;
     std::unique_ptr<GameActions> m_actions;
     vxe::render::Camera m_camera;

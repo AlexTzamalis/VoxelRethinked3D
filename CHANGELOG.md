@@ -2,6 +2,18 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#090] 2026-10-30, G4.1 Main menu
+### Added
+- The game opens on a main menu (Section 19.3): the title, Singleplayer, Multiplayer (disabled, "Coming later"), Settings, Resource Packs (disabled until G4.4) and Quit, with the version in a corner.
+- The panorama: the demo world with its far terrain behind the menu, turning slowly. It streams on jobs, so the menu does not wait for it, and playing it needs no second load.
+- Singleplayer enters the world directly until the world list exists (G5.1). The pause menu's Quit to title returns to the menu.
+- Label::setTextScale for big titles. Console commands play and title for scripted runs.
+- Tests: label text scale, launch to the menu and back to the title in the state machine.
+### Changed
+- Scripted runs that need the world must run the play command first.
+### Performance
+- Engine start to the first menu frame: 347 ms; the world behind it is ready after 1.8 s (docs/perf/ui.md).
+
 ## [#089] 2026-10-30, E12.7 Keybind widget and rebinding flow
 ### Added
 - ui::KeybindField: one binding slot; click or Enter listens for the next key or mouse button, Escape cancels, Backspace clears, and leaving the screen stops listening.

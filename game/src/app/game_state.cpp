@@ -17,7 +17,9 @@ using Edge = std::pair<GameState, GameState>;
 constexpr std::array kEdges = {
     Edge{S::Boot, S::LoadingCoreAssets},
     Edge{S::LoadingCoreAssets, S::MainMenu},
-    Edge{S::LoadingCoreAssets, S::StartingIntegratedServer}, // Quick start until the menus exist (G4).
+    Edge{S::LoadingCoreAssets, S::MainMenu},
+    Edge{S::LoadingCoreAssets, S::StartingIntegratedServer}, // Without a window there is no menu.
+    Edge{S::MainMenu, S::StartingIntegratedServer},          // Singleplayer, until the world list (G5.1).
     Edge{S::MainMenu, S::Settings},
     Edge{S::Settings, S::MainMenu},
     Edge{S::MainMenu, S::ResourcePacks},
