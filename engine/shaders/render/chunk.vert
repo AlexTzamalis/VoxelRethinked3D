@@ -54,6 +54,7 @@ const float kFaceShade[6] = float[6](0.8, 0.8, 1.0, 0.5, 0.65, 0.65);
 const float kPlantShade = 0.9;
 const float kPlantShift = 0.125; // Blocks per step of a plant's shift.
 const float kBushySize = 1.7;    // Blocks across a bushy leaf plane.
+const float kBushyTurn = 0.07;   // Radians per step of a bushy plane's turn, about 28 degrees at most.
 const float kAoCurve[4] = float[4](0.45, 0.62, 0.8, 1.0);
 // Block light is firelight: a little warm next to white daylight.
 const vec3 kBlockLightTint = vec3(1.0, 0.86, 0.68);
@@ -96,9 +97,21 @@ void main() {
         const float shiftX = bushy ? 0.0 : (float((quad.x >> 27u) & 3u) - 1.5) * kPlantShift;
         const float shiftZ = bushy ? 0.0 : (float((quad.x >> 29u) & 3u) - 1.5) * kPlantShift;
         const float along = (cornerU - 0.5) * size;
-        const float across = face == 6u ? along : -along;
         const float up = bushy ? 0.5 + (cornerV - 0.5) * size : cornerV;
-        local = origin + vec3(0.5 + shiftX + along, up, 0.5 + shiftZ + across);
+        float directionX = 1.0;
+        float directionZ = face == 6u ? 1.0 : -1.0;
+        if (bushy) {
+            // Each block turns its planes a little. All at exactly 45 degrees,
+            // a whole tree's planes go edge on together as the view turns, and
+            // neighbors' planes share one plane and flicker where they overlap.
+            const float turn = (float((quad.x >> 27u) & 15u) - 7.5) * kBushyTurn;
+            const float c = cos(turn);
+            const float s = sin(turn);
+            const float x = directionX * c - directionZ * s;
+            directionZ = directionX * s + directionZ * c;
+            directionX = x;
+        }
+        local = origin + vec3(0.5 + shiftX + along * directionX, up, 0.5 + shiftZ + along * directionZ);
     } else {
         const uint axis = face >> 1u;
         local = origin + kAxisU[axis] * (cornerU * width) + kAxisV[axis] * (cornerV * height);

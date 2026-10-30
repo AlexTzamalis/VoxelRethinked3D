@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#102] 2026-10-30, Turn bushy leaf planes per block
+### Changed
+- Advanced leaves: each block turns its bushy planes by up to 28 degrees, from a hash of its position. Neighbors' planes no longer share one plane (they would flicker where they overlap), and a tree's planes no longer go edge on together as the view turns.
+
 ## [#101] 2026-10-30, Add the changelog entry of #100
 ### Docs
 - The entry of #100 below was missing from that commit. Its message also says 74 blocks; the right number is 76.

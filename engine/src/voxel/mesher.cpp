@@ -559,7 +559,11 @@ void Mesher::addPlants(const ChunkSnapshot& snapshot, const BlockRegistryView& b
                         continue;
                     }
                     layer = info.bushyLayer - 1U;
-                    extra = 1U << 31U;
+                    // Its own turn, so neighbors' planes are never parallel.
+                    const u64 turn = hashCombine(
+                        hashCombine(hashCombine(options.variationSeed, static_cast<u64>(originX + x)), y),
+                        static_cast<u64>(originZ + z));
+                    extra = (1U << 31U) | (static_cast<u32>((turn >> 32U) & 15U) << 27U);
                 }
                 const u8 light = snapshot.light[index];
                 const u32 word1 = layer | (0xFFU << 14U) | (u32{skyLightOf(light)} << 22U) |

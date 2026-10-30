@@ -23,7 +23,8 @@ namespace vxe::voxel {
 //        15..18 width - 1, 19..22 height - 1, 23..25 face (BlockFace),
 //        26 flip (AO diagonal), 27..31 reserved. Face 6 and 7 are the two
 //        diagonal planes of a plant: 27..28 and 29..30 shift it on X and Z,
-//        and 31 makes it a large bushy plane around the block's center.
+//        and 31 makes it a large bushy plane around the block's center, then
+//        with 27..30 as its turn.
 // word1: bits 0..13 texture layer, 14..21 AO (2 bits per corner, 3 is fully
 //        lit), 22..25 sky light, 26..29 block light, 30..31 reserved.
 //
