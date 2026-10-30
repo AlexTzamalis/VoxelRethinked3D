@@ -47,6 +47,8 @@ set(vrGameSources
     src/worldgen/demo_lod_sampler.hpp
     src/worldgen/demo_terrain.cpp
     src/worldgen/demo_terrain.hpp
+    src/worldgen/climate.cpp
+    src/worldgen/climate.hpp
     src/worldgen/planet.cpp
     src/worldgen/planet.hpp
 )

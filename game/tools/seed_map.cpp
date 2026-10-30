@@ -2,10 +2,12 @@
 // game, so hundreds of seeds can be judged in minutes. Colors show height,
 // with light from the northwest so that ranges read as shapes.
 //
-//   vr_seed_map <seed> <out.png> [pixels] [blocks per pixel]
+//   vr_seed_map <seed> <out.png> [pixels] [blocks per pixel] [view]
 //
-// Prints what a seed holds: land share, highest peak, time per sample.
+// The view is height (default), biomes, temperature or rain. Prints what a
+// seed holds: land share, highest peak, time per sample, the share of biomes.
 
+#include "worldgen/climate.hpp"
 #include "worldgen/planet.hpp"
 
 #include <vxe/core/types.hpp>
@@ -56,6 +58,41 @@ constexpr std::array<Stop, 11> kStops = {{
     {1500.0, {250, 250, 255}},
 }};
 
+constexpr std::array<Color, vr::kBiomeCount> kBiomeColors = {{
+    {18, 44, 100},   // Deep Ocean
+    {36, 88, 156},   // Ocean
+    {38, 130, 170},  // Warm Ocean
+    {170, 200, 226}, // Frozen Ocean
+    {226, 214, 164}, // Beach
+    {74, 96, 62},    // Swamp
+    {244, 246, 252}, // Snowy Peaks
+    {128, 118, 112}, // Rocky Peaks
+    {132, 164, 104}, // Alpine Meadow
+    {186, 196, 186}, // Tundra
+    {150, 176, 168}, // Snowy Taiga
+    {62, 104, 88},   // Taiga
+    {178, 170, 104}, // Steppe
+    {132, 186, 84},  // Plains
+    {64, 136, 60},   // Forest
+    {32, 96, 44},    // Dense Forest
+    {192, 176, 80},  // Savanna
+    {236, 206, 130}, // Desert
+    {196, 104, 58},  // Badlands
+    {24, 150, 62},   // Jungle
+}};
+
+// Cold blue through white to hot red, around 10 degrees.
+Color heatColor(f64 degrees) {
+    const f64 t = std::clamp((degrees - 10.0) / 30.0, -1.0, 1.0);
+    return t < 0.0 ? Color{255.0 + (t * 215.0), 255.0 + (t * 155.0), 255.0}
+                   : Color{255.0, 255.0 - (t * 205.0), 255.0 - (t * 225.0)};
+}
+
+// Dry yellow to wet blue.
+Color rainColor(f64 rain) {
+    return {236.0 - (rain * 216.0), 216.0 - (rain * 136.0), 150.0 + (rain * 70.0)};
+}
+
 Color colorOf(f64 height) {
     if (height <= kStops.front().height) {
         return kStops.front().color;
@@ -82,10 +119,14 @@ int main(int argc, char** argv) {
     const std::string out = argv[2];
     const int size = argc > 3 ? std::atoi(argv[3]) : 1024;
     const f64 scale = argc > 4 ? std::atof(argv[4]) : 32.0;
+    const std::string view = argc > 5 ? argv[5] : "height";
 
     const vr::Planet planet(seed, vr::PlanetPreset{});
+    const vr::Climate climate(seed, planet);
     const f64 half = static_cast<f64>(size) * scale * 0.5;
     std::vector<f64> heights(static_cast<usize>(size) * static_cast<usize>(size));
+    std::vector<vr::ClimateSample> weather(heights.size());
+    std::vector<vr::Biome> biomes(heights.size());
 
     const auto started = std::chrono::steady_clock::now();
     const u32 threads = std::max(1U, std::thread::hardware_concurrency());
@@ -96,8 +137,14 @@ int main(int argc, char** argv) {
                 for (int x = 0; x < size; ++x) {
                     const f64 wx = (static_cast<f64>(x) * scale) - half;
                     const f64 wz = (static_cast<f64>(y) * scale) - half;
-                    heights[(static_cast<usize>(y) * static_cast<usize>(size)) + static_cast<usize>(x)] =
-                        planet.sample(wx, wz).elevation;
+                    const usize index =
+                        (static_cast<usize>(y) * static_cast<usize>(size)) + static_cast<usize>(x);
+                    const vr::PlanetSample ground = planet.sample(wx, wz);
+                    heights[index] = ground.elevation;
+                    if (view != "height") {
+                        weather[index] = climate.sample(wx, wz, ground.elevation);
+                        biomes[index] = vr::Climate::biome(ground, weather[index]);
+                    }
                 }
             }
         });
@@ -125,9 +172,16 @@ int main(int argc, char** argv) {
             // Light from the northwest; the sea stays flat.
             const f64 slope = (std::max(height, 0.0) - std::max(at(x - 1, y - 1), 0.0)) / (scale * 1.41);
             const f64 light = std::clamp(1.0 + (slope * 2.2), 0.45, 1.45);
-            const Color color = colorOf(height);
-            const usize index =
-                ((static_cast<usize>(y) * static_cast<usize>(size)) + static_cast<usize>(x)) * 3;
+            const usize cell = (static_cast<usize>(y) * static_cast<usize>(size)) + static_cast<usize>(x);
+            Color color = colorOf(height);
+            if (view == "biomes") {
+                color = kBiomeColors[static_cast<usize>(biomes[cell])];
+            } else if (view == "temperature") {
+                color = heatColor(weather[cell].temperature);
+            } else if (view == "rain") {
+                color = rainColor(weather[cell].rainfall);
+            }
+            const usize index = cell * 3;
             pixels[index] = static_cast<u8>(std::clamp(color.r * light, 0.0, 255.0));
             pixels[index + 1] = static_cast<u8>(std::clamp(color.g * light, 0.0, 255.0));
             pixels[index + 2] = static_cast<u8>(std::clamp(color.b * light, 0.0, 255.0));
@@ -143,5 +197,16 @@ int main(int argc, char** argv) {
         static_cast<unsigned long long>(seed), static_cast<int>(static_cast<f64>(size) * scale / 1000.0),
         100.0 * static_cast<f64>(land) / static_cast<f64>(heights.size()), highest, deepest,
         spent.count() * 1.0e9 * static_cast<f64>(threads) / static_cast<f64>(heights.size()), threads);
+    if (view != "height") {
+        std::array<usize, vr::kBiomeCount> counts{};
+        for (const vr::Biome biome : biomes) {
+            ++counts[static_cast<usize>(biome)];
+        }
+        for (usize i = 0; i < vr::kBiomeCount; ++i) {
+            std::printf("  %-14.*s %5.1f%%\n", static_cast<int>(vr::kBiomeNames[i].size()),
+                        vr::kBiomeNames[i].data(),
+                        100.0 * static_cast<f64>(counts[i]) / static_cast<f64>(biomes.size()));
+        }
+    }
     return 0;
 }

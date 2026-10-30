@@ -2,6 +2,21 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#105] 2026-10-30, G3.2 Climate and biome map
+### Added
+- vr::Climate: temperature that falls with height, rain carried on a turning wind, real rain shadows behind ranges, hot belts that dry the land.
+- 20 biomes picked from climate and ground. Biomes never shape the ground, so their borders make no cliffs.
+- vr_seed_map views: biomes, temperature, rain.
+
+### Changed
+- Planet::barrier and landMass: cheap estimates for looking at many places.
+
+### Docs
+- docs/perf/worldgen.md names the machine correctly: the development machine, not a Ryzen.
+
+### Performance
+- A climate cell costs about 69 us and serves a whole chunk column, so about 130 us per column with the planet.
+
 ## [#104] 2026-10-30, G3.0 G3.1 Planet and seed map
 ### Added
 - vr::Planet: continents, tectonic plates, mountain ranges where plates collide, rifts where they part, island arcs at sea, rare giants.

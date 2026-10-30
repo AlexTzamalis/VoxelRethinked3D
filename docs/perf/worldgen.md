@@ -1,7 +1,8 @@
 # World generation performance
 
 Budget (Section 2): 0.25 ms of terrain generation per 16^3 chunk on one core.
-Reference machine for these numbers: Ryzen class 16 thread CPU, release preset.
+These numbers come from the development machine (16 threads), release preset,
+not from the Mid PC of Section 2.
 
 ## Noise core (G3.0)
 
@@ -45,3 +46,11 @@ which changes the world. All compilers ran on Windows; Linux waits for CI.
 
 `Planet::sample` takes about 2.5 us. A chunk column needs 25 samples on the
 4 block grid, which is about 63 us, and every chunk of a column shares them.
+
+## Climate (G3.2)
+
+A `Climate::Cell` (four grid corners, each looking 4 km upwind) costs about
+69 us, measured through vr_seed_map on all threads. A chunk column lies inside
+one cell, so a column costs about 130 us with the planet, whatever its height,
+and every chunk of the column shares that. A cache of cells can cut it further,
+since four columns share one cell.

@@ -45,6 +45,14 @@ public:
     Planet(vxe::u64 seed, const PlanetPreset& preset) noexcept;
 
     [[nodiscard]] PlanetSample sample(vxe::f64 x, vxe::f64 z) const noexcept;
+
+    // How high the mountains stand here, roughly and without their crests:
+    // what wind runs into. Cheaper than sample(), for looking at many places.
+    [[nodiscard]] vxe::f64 barrier(vxe::f64 x, vxe::f64 z) const noexcept;
+
+    // The continent value of PlanetSample, roughly and at the same price.
+    [[nodiscard]] vxe::f64 landMass(vxe::f64 x, vxe::f64 z) const noexcept;
+
     [[nodiscard]] const PlanetPreset& preset() const noexcept { return m_preset; }
 
 private:
@@ -53,6 +61,18 @@ private:
         vxe::f64 rift = 0.0;  // 0 to 1.
     };
     [[nodiscard]] Tectonics tectonics(vxe::f64 x, vxe::f64 z) const noexcept;
+
+    // The shape of the land before any crests and hills.
+    struct Mass {
+        vxe::f64 warpedX = 0.0;
+        vxe::f64 warpedZ = 0.0;
+        vxe::f64 continent = 0.0;
+        vxe::f64 inland = 0.0;   // 0 at sea, 1 on land.
+        vxe::f64 strength = 0.0; // 0 to 1: how hard plates push here.
+        vxe::f64 tall = 0.0;     // The tallest a range stands here, in blocks.
+        vxe::f64 rift = 0.0;
+    };
+    [[nodiscard]] Mass mass(vxe::f64 x, vxe::f64 z, vxe::u32 continentOctaves) const noexcept;
 
     PlanetPreset m_preset;
     vxe::u64 m_warpX;
