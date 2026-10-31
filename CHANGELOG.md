@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#114] 2026-10-31, Rename the snow texture to snow_block
+### Changed
+- snow.png is now snow_block.png, which leaves snow.png free for a thin snow layer. Snow blocks follow.
+
 ## [#113] 2026-10-31, G3 More snow, deep spruce forests, natural rock
 ### Added
 - Tall spruces, some with thick trunks, and the Deep Spruce Forest biome. Wooded slopes carry them too.

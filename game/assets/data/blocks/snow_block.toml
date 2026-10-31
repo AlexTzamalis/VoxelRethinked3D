@@ -5,4 +5,4 @@ category = "Nature"
 layer = "opaque"
 
 [textures]
-all = "snow"
+all = "snow_block"

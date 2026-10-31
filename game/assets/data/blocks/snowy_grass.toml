@@ -5,5 +5,5 @@ layer = "opaque"
 
 [textures]
 side = "grass_snow"
-top = "snow"
+top = "snow_block"
 bottom = "dirt"
