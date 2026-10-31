@@ -30,6 +30,7 @@ set(VXE_MODULE_LAYERS
     net      4
     config   5
     input    6
+    audio    6
     rhi      7
     rhi_gl   8
     rhi_null 8

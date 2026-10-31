@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#116] 2026-10-31, Add audio: music, ambience, footsteps and effects
+### Added
+- vxe_audio: music, ambience that fades, one shot and positioned effects through miniaudio, loading on its own threads. A computer without sound stays silent.
+- Audio settings: master, music, ambience, effects and interface volumes.
+- SoundDirector: birds in forests, water near rivers and lakes, wind up high, drips in caves, night ambience, footsteps by the block underfoot, music with quiet between tracks, block, splash and menu sounds.
+- The sound pack in sounds/.
+
+### Changed
+- World generation tests are far smaller: the game tests take 12 seconds instead of minutes, and a debug check 3 minutes.
+
 ## [#115] 2026-10-31, G3.5 Rivers and lakes
 ### Added
 - Rivers run along the valleys, fall towards the sea in small steps and take in streams on their way.

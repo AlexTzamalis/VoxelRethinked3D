@@ -150,6 +150,21 @@ vxe_add_module(input
         tomlplusplus::tomlplusplus
 )
 
+# Audio: music, ambience and effects through miniaudio, kept out of the public
+# headers. stb_vorbis gives it ogg files.
+find_package(Stb REQUIRED)
+find_path(VXE_MINIAUDIO_INCLUDE_DIR miniaudio.h REQUIRED)
+vxe_add_module(audio
+    SOURCES
+        src/audio/audio.cpp
+        src/audio/miniaudio_impl.cpp
+    DEPENDS
+        core
+        math
+        config
+)
+target_include_directories(vxe_audio SYSTEM PRIVATE ${VXE_MINIAUDIO_INCLUDE_DIR} ${Stb_INCLUDE_DIR})
+
 # RHI: the backend independent graphics interface (E6, ADR-003), and the Null
 # backend for tests and headless servers.
 # The factory that picks a backend lives in render, above both backends

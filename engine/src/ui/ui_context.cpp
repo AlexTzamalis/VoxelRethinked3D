@@ -375,6 +375,9 @@ void UiContext::routePointer(const PointerInput& pointer) {
         m_focusFromPointer = target != nullptr && !target->capturesText();
         if (m_hovered != nullptr) {
             m_pressed = m_hovered;
+            if (m_onPress) {
+                m_onPress();
+            }
             m_pressed->onPress(x, y);
         }
     } else if (!down && m_wasDown && m_pressed != nullptr) {

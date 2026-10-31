@@ -17,6 +17,8 @@ set(vrGameSources
     src/client/demo_world.hpp
     src/client/player_controller.cpp
     src/client/player_controller.hpp
+    src/client/sound_director.cpp
+    src/client/sound_director.hpp
     src/common/block_catalog.cpp
     src/common/block_catalog.hpp
     src/common/player_physics.hpp
@@ -102,6 +104,8 @@ add_custom_target(vr_runtime_files ALL
             "$<TARGET_FILE_DIR:voxel_rethinked>/assets"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PROJECT_SOURCE_DIR}/textures"
             "$<TARGET_FILE_DIR:voxel_rethinked>/textures"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory_if_different "${PROJECT_SOURCE_DIR}/sounds"
+            "$<TARGET_FILE_DIR:voxel_rethinked>/sounds"
     COMMENT "Copying engine shaders, game assets and texture packs next to voxel_rethinked"
     VERBATIM)
 add_dependencies(voxel_rethinked vr_runtime_files)

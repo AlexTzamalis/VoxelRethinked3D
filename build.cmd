@@ -46,7 +46,7 @@ if /i "%action%"=="package" (
     if exist "out\VoxelRethinked" rmdir /s /q "out\VoxelRethinked"
     mkdir "out\VoxelRethinked"
     copy /y "build\%preset%\bin\voxel_rethinked.exe" "out\VoxelRethinked\" >nul || exit /b 1
-    for %%F in (shaders assets textures) do (
+    for %%F in (shaders assets textures sounds) do (
         xcopy /e /i /q /y "build\%preset%\bin\%%F" "out\VoxelRethinked\%%F" >nul || exit /b 1
     )
     rem The C++ runtime of the compiler that made this build, for PCs without it.

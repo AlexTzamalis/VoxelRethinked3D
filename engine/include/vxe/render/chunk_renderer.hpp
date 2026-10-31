@@ -164,6 +164,7 @@ public:
     // renderer sets it from the time of day every frame; quads keep their
     // sky light level, and this scales its brightness.
     void setDaylight(f32 daylight) noexcept;
+    [[nodiscard]] f32 daylight() const noexcept { return m_daylight; }
     // The animation table of the block textures (BlockTextureData::animations,
     // one entry per texture key layer; 0 for still textures). Animated layers
     // show their frames in turn, 20 game ticks per second.

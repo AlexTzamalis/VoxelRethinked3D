@@ -3,6 +3,7 @@
 #include "client/block_icons.hpp"
 #include "client/demo_world.hpp"
 #include "client/player_controller.hpp"
+#include "client/sound_director.hpp"
 #include "common/block_catalog.hpp"
 #include "game_settings.hpp"
 #include "game_state.hpp"
@@ -10,6 +11,7 @@
 #include "ui/screens/menu_services.hpp"
 
 #include <vxe/app/application.hpp>
+#include <vxe/audio/audio.hpp>
 #include <vxe/core/time.hpp>
 #include <vxe/render/camera.hpp>
 #include <vxe/render/texture_pack_manager.hpp>
@@ -49,6 +51,8 @@ private:
     [[nodiscard]] vxe::Result<void> loadCoreAssets(vxe::EngineContext& context);
     void handleGlobalActions(vxe::EngineContext& context);
     void updateWorld(vxe::EngineContext& context, const vxe::FrameTime& time);
+    void updateSounds(vxe::EngineContext& context, const vxe::FrameTime& time);
+    [[nodiscard]] SoundScene soundScene(const vxe::EngineContext& context) const;
     void setMouseCaptured(vxe::EngineContext& context, bool captured);
     void registerCommands(vxe::EngineContext& context);
     void startDemoWorld(vxe::EngineContext& context);
@@ -83,6 +87,14 @@ private:
     // Empty for the play console command, which saves nothing.
     std::optional<WorldInfo> m_world;
     std::unique_ptr<PlayerController> m_player;
+    std::unique_ptr<vxe::audio::AudioSystem> m_audio;
+    std::unique_ptr<SoundDirector> m_sounds;
+    SoundScene m_soundScene;
+    vxe::f64 m_soundSceneWait = 0.0;
+    bool m_wasInMenu = false;
+    bool m_clickSoundSet = false;
+    bool m_wasUnderWater = false;
+    const vxe::ui::Screen* m_lastScreen = nullptr;
     std::unique_ptr<BlockInteraction> m_interaction;
     Hotbar m_hotbar;
     BlockIcons m_blockIcons;

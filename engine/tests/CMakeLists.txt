@@ -25,6 +25,7 @@ add_executable(vxe_tests
     input/input_tests.cpp
     input/keybinds_tests.cpp
     io/binary_compression_tests.cpp
+    audio/audio_tests.cpp
     io/file_io_tests.cpp
     io/file_watcher_tests.cpp
     io/vfs_tests.cpp
@@ -91,6 +92,7 @@ target_compile_definitions(vxe_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS
     # The GPU tests compile the real engine shaders from the source tree.
     "VXE_ENGINE_SHADER_DIR=\"${PROJECT_SOURCE_DIR}/engine/shaders\""
     "VXE_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}\""
+    "VXE_TEST_SOUND=\"${PROJECT_SOURCE_DIR}/sounds/ui/mouse-click-ui-1.mp3\""
     "VXE_REGION_CRASH_WRITER=\"$<TARGET_FILE:vxe_region_crash_writer>\"")
 vxe_set_warnings(vxe_tests)
 

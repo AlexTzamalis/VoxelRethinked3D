@@ -87,6 +87,10 @@ public:
     // then routes the pointer (hover, press, a release over the same widget
     // is a click) and the keyboard, and times tooltips. A click or a key may
     // change the trees; nothing touches the widget afterwards.
+    // Runs whenever a widget is pressed, so that a game can give clicks a sound
+    // without every widget knowing about sound.
+    void setOnPress(std::function<void()> onPress) { m_onPress = std::move(onPress); }
+
     void update(u32 windowWidth, u32 windowHeight, const UiInput& input, const UiRenderer& renderer);
     // Adds the UI's quads to the renderer's frame. They are kept and rebuilt
     // only when something changed (layout, hover, focus, text, the theme,
@@ -158,6 +162,7 @@ private:
     bool m_cacheValid = false;
     u64 m_rebuilds = 0;
     Widget* m_hovered = nullptr;
+    std::function<void()> m_onPress;
     Widget* m_pressed = nullptr;
     Widget* m_focused = nullptr;
     bool m_focusFromPointer = false;

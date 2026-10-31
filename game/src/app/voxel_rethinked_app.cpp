@@ -98,6 +98,14 @@ std::filesystem::path demoLodFolder(const vxe::EngineContext& context) {
 } // namespace
 
 vxe::Result<void> VoxelRethinkedApp::onInit(vxe::EngineContext& context) {
+    // Sound first, so its volumes are in the settings like any other. Without
+    // a sound card or sound files the game simply stays silent.
+    m_audio = std::make_unique<vxe::audio::AudioSystem>(vxe::audio::AudioDesc{.settings = &context.settings});
+    if (const auto folder = context.vfs.resolve("sounds:/"); folder) {
+        m_sounds = std::make_unique<SoundDirector>(*m_audio, folder.value());
+    } else {
+        VXE_LOG_WARN(gameLog, "No sounds folder: the game stays silent");
+    }
     vxe::log::registerCategory(gameLog);
     VXE_LOG_INFO(gameLog, "Voxel Rethinked {} started", vxe::engineVersion());
     if (context.window != nullptr) {
@@ -846,7 +854,7 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
         context.platform.injectEvent(event);
     }
     m_inputUps.clear();
-    m_inGameFrames += m_states.current() == GameState::InGame ? 1 : 0;
+    m_inGameFrames += m_states.current() == GameState::InGame ? 1U : 0U;
     if (m_states.current() == GameState::InGame) {
         if (m_input->isPressed(m_actions->pause)) {
             m_states.request(GameState::Paused);
@@ -905,7 +913,22 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
             m_interaction->update(
                 m_camera, m_player->state(), m_demo->world(), m_hotbar,
                 [this](const vxe::BlockPos& position, vxe::voxel::BlockStateId state) {
-                    return m_demo->setBlock(position, state);
+                    const vxe::voxel::BlockStateId before =
+                        m_demo->world().getBlock(position, vxe::voxel::kAirState);
+                    const bool changed = m_demo->setBlock(position, state);
+                    if (changed && m_sounds) {
+                        const vxe::DVec3 middle(static_cast<vxe::f64>(position.x) + 0.5,
+                                                static_cast<vxe::f64>(position.y) + 0.5,
+                                                static_cast<vxe::f64>(position.z) + 0.5);
+                        if (state == vxe::voxel::kAirState && m_blocks->isSolid(before)) {
+                            const bool glass =
+                                m_blocks->stateName(before).find("glass") != std::string_view::npos;
+                            m_sounds->blockBroken(middle, glass);
+                        } else if (state != vxe::voxel::kAirState && m_blocks->isSolid(state)) {
+                            m_sounds->blockPlaced(middle);
+                        }
+                    }
+                    return changed;
                 },
                 &renderer.debugDraw(), time.deltaSeconds);
         }
@@ -1144,6 +1167,7 @@ void VoxelRethinkedApp::onFrame(vxe::EngineContext& context, const vxe::FrameTim
     advanceStartup(context);
     updateTextures(context);
     drawUi(context, time);
+    updateSounds(context, time);
     // The world streams in while loading (no loading screen before G5.3).
     const GameState state = m_states.current();
     if (isWorldState(state) || state == GameState::LoadingWorld) {
@@ -1154,6 +1178,104 @@ void VoxelRethinkedApp::onFrame(vxe::EngineContext& context, const vxe::FrameTim
         VXE_LOG_INFO(gameLog, "Main menu shown {:.0f} ms after the engine started",
                      m_sinceInit.elapsedMilliseconds());
     }
+}
+
+// What surrounds the player, read from the blocks around them. Runs a few
+// times per second: ambience fades over seconds, so more would change nothing.
+SoundScene VoxelRethinkedApp::soundScene(const vxe::EngineContext& context) const {
+    SoundScene scene;
+    scene.inWorld = true;
+    if (context.renderer != nullptr) {
+        scene.daylight = context.renderer->chunks().daylight();
+    }
+    const vxe::voxel::VoxelWorld& world = m_demo->world();
+    const Terrain& terrain = m_demo->terrain();
+    const auto floorOf = [](vxe::f64 value) { return static_cast<vxe::i64>(std::floor(value)); };
+    const vxe::i64 x = floorOf(m_camera.position.x);
+    const vxe::i64 y = floorOf(m_camera.position.y);
+    const vxe::i64 z = floorOf(m_camera.position.z);
+    scene.biome = terrain.biomeAt(x, z);
+    scene.altitude = static_cast<vxe::f32>(y - Terrain::kSeaLevel);
+    scene.cover = static_cast<vxe::f32>(std::max<vxe::i64>(terrain.surfaceHeight(x, z) - y, 0));
+    scene.underWater = m_blocks->isLiquid(world.getBlock({.x = x, .y = y, .z = z}, vxe::voxel::kAirState));
+    if (m_player && !m_freeCamera) {
+        const PlayerState& player = m_player->state();
+        const vxe::f64 speed = std::hypot(player.velocity.x, player.velocity.z);
+        scene.walking = player.onGround && !player.flying && speed > 0.8;
+        scene.sprinting = speed > 6.0;
+        const vxe::voxel::BlockStateId underfoot = world.getBlock({.x = floorOf(player.position.x),
+                                                                   .y = floorOf(player.position.y - 0.2),
+                                                                   .z = floorOf(player.position.z)},
+                                                                  vxe::voxel::kAirState);
+        if (m_blocks->isSolid(underfoot)) {
+            scene.step = stepSoundOf(m_blocks->stateName(underfoot));
+        }
+    }
+    // Rings of blocks around the player, nearest first: water in earshot.
+    constexpr std::array<vxe::i64, 3> kRings = {6, 13, 24};
+    constexpr std::array<std::array<vxe::i64, 2>, 8> kWays = {
+        {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}}};
+    for (const vxe::i64 ring : kRings) {
+        for (const auto& way : kWays) {
+            const vxe::i64 wx = x + (way[0] * ring);
+            const vxe::i64 wz = z + (way[1] * ring);
+            for (const vxe::i64 down : {1, 5, 10, 18}) {
+                if (!m_blocks->isLiquid(
+                        world.getBlock({.x = wx, .y = y - down, .z = wz}, vxe::voxel::kAirState))) {
+                    continue;
+                }
+                const vxe::f32 close = 1.0F - (static_cast<vxe::f32>(ring) / 32.0F);
+                vxe::f32& kind =
+                    terrain.waterLevel(wx, wz) == Terrain::kSeaLevel ? scene.sea : scene.nearWater;
+                kind = std::max(kind, close);
+            }
+        }
+    }
+    return scene;
+}
+
+void VoxelRethinkedApp::updateSounds(vxe::EngineContext& context, const vxe::FrameTime& time) {
+    if (!m_audio) {
+        return;
+    }
+    m_audio->setListener(m_camera.position, m_camera.forward());
+    if (m_sounds) {
+        const GameState state = m_states.current();
+        const bool inMenu = state == GameState::MainMenu;
+        if (inMenu != m_wasInMenu) {
+            m_wasInMenu = inMenu;
+            if (inMenu) {
+                m_sounds->enterMenu();
+            } else {
+                m_sounds->leaveMenu();
+            }
+        }
+        if (m_screens) {
+            const vxe::ui::Screen* top = m_screens->top();
+            if (top != m_lastScreen && m_lastScreen != nullptr && top != nullptr) {
+                m_sounds->screenChanged();
+            }
+            m_lastScreen = top;
+        }
+        if (m_uiContext && !m_clickSoundSet) {
+            m_clickSoundSet = true;
+            m_uiContext->setOnPress([this] { m_sounds->click(); });
+        }
+        const bool inWorld = m_demo && m_demo->isLoaded() && isWorldState(state);
+        m_soundSceneWait -= time.deltaSeconds;
+        if (inWorld && m_soundSceneWait <= 0.0) {
+            m_soundSceneWait = 0.2;
+            m_soundScene = soundScene(context);
+            if (m_soundScene.underWater && !m_wasUnderWater) {
+                m_sounds->splash(m_camera.position);
+            }
+            m_wasUnderWater = m_soundScene.underWater;
+        } else if (!inWorld) {
+            m_soundScene = SoundScene{};
+        }
+        m_sounds->update(m_soundScene, time.deltaSeconds);
+    }
+    m_audio->update(time.deltaSeconds);
 }
 
 void VoxelRethinkedApp::onQuitRequested(vxe::EngineContext& context) {
@@ -1181,6 +1303,8 @@ void VoxelRethinkedApp::onShutdown(vxe::EngineContext& context) {
     m_ui.reset();
     m_texturePacks.reset();
     m_flight.reset();
+    m_sounds.reset();
+    m_audio.reset();
     VXE_LOG_INFO(gameLog, "Voxel Rethinked shutting down");
 }
 

@@ -34,7 +34,7 @@ Result<void> mountRuntimeFolders(io::Vfs& vfs, const std::filesystem::path& root
                       io::MountOptions{.access = io::MountAccess::ReadWrite, .createIfMissing = true}));
     VXE_TRY(vfs.mount("saves", root / "saves",
                       io::MountOptions{.access = io::MountAccess::ReadWrite, .createIfMissing = true}));
-    for (const char* name : {"assets", "textures"}) {
+    for (const char* name : {"assets", "textures", "sounds"}) {
         std::error_code error;
         if (std::filesystem::is_directory(root / name, error)) {
             VXE_TRY(vfs.mount(name, root / name, io::MountOptions{.access = io::MountAccess::ReadOnly}));

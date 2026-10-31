@@ -43,7 +43,7 @@ Each preset has its own folder, `build\<preset>\bin\`. It holds the program and 
 | Folder | Contents |
 |--------|----------|
 | `voxel_rethinked.exe` | The game, next to `vxe_tests.exe` and the tools |
-| `shaders\`, `assets\`, `textures\` | Copied from the repository on every build |
+| `shaders\`, `assets\`, `textures\`, `sounds\` | Copied from the repository on every build |
 | `config\`, `saves\`, `logs\` | Written by the game |
 
 So **each preset keeps its own settings and worlds**: changing a setting in the `release` game does not change
