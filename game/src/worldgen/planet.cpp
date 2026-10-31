@@ -203,13 +203,15 @@ PlanetSample Planet::sample(f64 x, f64 z) const noexcept {
     }
 
     // Valleys: winding trenches where slow noise crosses zero, deepest in rough
-    // land and mountains, and always above the sea. Rivers can fill them later.
+    // land and mountains. The cut eases off towards the sea instead of stopping
+    // at a fixed floor, which would leave flat shelves along the coasts.
     const Fractal valleyShape{.octaves = 3, .frequency = 1.0 / m_preset.valleySize, .gain = 0.45};
     const f64 line = std::abs(vxe::noise::fbm2(m_hills + 2, land.warpedX, land.warpedZ, valleyShape).value);
     const f64 cut = (1.0 - smooth(0.0, 0.075, line)) * m_preset.valleyDepth * land.inland *
                     (0.3 + rough + (mountain * 2.5));
-    if (elevation > 4.0) {
-        elevation = std::max(elevation - cut, std::min(elevation, 4.0));
+    if (elevation > 4.0 && cut > 0.0) {
+        const f64 above = elevation - 4.0;
+        elevation -= cut * above / (above + cut);
     }
 
     // Heights past the knee are held back, more the higher they get, so even

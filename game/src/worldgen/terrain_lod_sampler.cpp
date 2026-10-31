@@ -20,13 +20,13 @@ namespace {
 
 // Bumped whenever the terrain or this sampler changes what it makes, so cached
 // tiles of older versions are thrown away.
-constexpr vxe::u32 kGeneratorVersion = 7;
+constexpr vxe::u32 kGeneratorVersion = 9;
 constexpr i32 kNoCrown = std::numeric_limits<i32>::min();
 // How far crowns stand above the ground on average.
 constexpr i64 kCrownAboveGround = 8;
 // Real crowns let the sky through and catch light on every leaf. A far crown
 // is one solid surface, so its color has to be lifted to look the same.
-constexpr f64 kFarLeafGain = 2.1;
+constexpr f64 kFarLeafGain = 1.5;
 // Climate is blended across a tile from a grid this many cells apart.
 constexpr u32 kClimateStride = 8;
 // Real water lets 200 of 255 parts of its color through (the water texture's

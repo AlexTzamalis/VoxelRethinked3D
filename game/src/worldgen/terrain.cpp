@@ -31,9 +31,9 @@ constexpr f64 kGullyWidest = 90.0;   // Blocks across the widest gullies.
 constexpr f64 kGullyStrength = 0.15; // Depth of a gully, as a part of its width.
 constexpr int kGullyOctaves = 3;
 constexpr f64 kRockSlope = 1.6;      // Steeper ground than this holds no soil.
-constexpr f64 kSnowSlope = 2.4;      // Steeper ground than this holds no snow.
+constexpr f64 kSnowSlope = 3.4;      // Steeper ground than this holds no snow.
 constexpr f64 kOverhangMost = 12.0;  // Blocks a rock face leans at most.
-constexpr i64 kTreeHeadroom = 30;    // The tallest tree, above any ground.
+constexpr i64 kTreeHeadroom = 32;    // The tallest tree, above any ground.
 constexpr i64 kFeatureCell = 19;     // Blocks per side of a boulder or fallen log cell.
 constexpr i64 kFeatureReach = 7;     // How far those reach from their cell's spot.
 constexpr usize kCacheColumns = 256; // Per thread, a power of two.
@@ -245,6 +245,7 @@ void buildTree(const TreeStamp& builder, const Terrain::Tree& tree, i64 ground) 
         trunk(builder, x, ground, z, top + 1, false);
         break;
     }
+    case TreeKind::TallSpruce:
     case TreeKind::Spruce: {
         // Skirts of branches, wider further down, alternating with thin rings.
         const i64 crownTop = ground + tree.height;
@@ -252,7 +253,7 @@ void buildTree(const TreeStamp& builder, const Terrain::Tree& tree, i64 ground) 
             const i64 wide = std::min<i64>((layer + 2) / 3 + 1, tree.radius);
             builder.disc(x, crownTop - layer, z, layer == 0 ? 0 : (layer % 2 == 0 ? wide : wide - 1), false);
         }
-        trunk(builder, x, ground, z, crownTop, false);
+        trunk(builder, x, ground, z, crownTop, tree.kind == TreeKind::TallSpruce && tree.height > 23);
         break;
     }
     case TreeKind::Pine: {
@@ -667,23 +668,35 @@ BlockStateId Terrain::stoneAt(i64 x, i64 y, i64 z, f64 a, f64 b) const noexcept 
 }
 
 BlockStateId Terrain::bandAt(i64 x, i64 y, i64 z, bool banded) const noexcept {
-    // Layers of rock like the walls of a canyon, tilted and wavy, so that a
-    // mountain side shows its strata instead of one flat gray.
-    const f64 wobble =
-        vxe::noise::gradient2(m_seed + 59, static_cast<f64>(x) / 40.0, static_cast<f64>(z) / 40.0).value *
-        7.0;
-    const i64 layer = floorDiv(y + static_cast<i64>(std::floor(wobble)), kBandHeight);
-    const u64 pick = mix(m_seed + 61 + static_cast<u64>(layer)) % 8U;
     if (banded) {
+        // Layers of rock, tilted and wavy, like the walls of a canyon.
+        const f64 wobble =
+            vxe::noise::gradient2(m_seed + 59, static_cast<f64>(x) / 40.0, static_cast<f64>(z) / 40.0).value *
+            7.0;
+        const i64 layer = floorDiv(y + static_cast<i64>(std::floor(wobble)), kBandHeight);
         const std::array<BlockStateId, 8> kinds = {
             m_blocks.redSandstone, m_blocks.sandstone, m_blocks.redSandstone, m_blocks.packedMud,
             m_blocks.redSandstone, m_blocks.granite,   m_blocks.sandstone,    m_blocks.redSandstone};
-        return kinds.at(pick);
+        return kinds.at(mix(m_seed + 61 + static_cast<u64>(layer)) % 8U);
     }
-    const std::array<BlockStateId, 8> kinds = {m_blocks.stone, m_blocks.andesite, m_blocks.stone,
-                                               m_blocks.tuff,  m_blocks.stone,    m_blocks.granite,
-                                               m_blocks.stone, m_blocks.calcite};
-    return kinds.at(pick);
+    // Mountain sides: rock kinds in random brushes of two sizes. Mostly stone,
+    // so that the others read as patches, not as a pattern.
+    const auto wx = static_cast<f64>(x);
+    const auto wy = static_cast<f64>(y);
+    const auto wz = static_cast<f64>(z);
+    const f64 brush = vxe::noise::gradient3(m_seed + 59, wx / 11.0, wy / 9.0, wz / 11.0) +
+                      (vxe::noise::gradient3(m_seed + 60, wx / 4.0, wy / 4.0, wz / 4.0) * 0.4);
+    if (brush > 0.42) {
+        return m_blocks.andesite;
+    }
+    if (brush < -0.42) {
+        return m_blocks.tuff;
+    }
+    const f64 vein = vxe::noise::gradient3(m_seed + 62, wx / 17.0, wy / 13.0, wz / 17.0);
+    if (vein > 0.44) {
+        return m_blocks.granite;
+    }
+    return vein < -0.46 ? m_blocks.calcite : m_blocks.stone;
 }
 
 void Terrain::generate(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkVolume> out) const {
@@ -891,6 +904,12 @@ std::optional<Terrain::Tree> Terrain::treeIn(i64 cellX, i64 cellZ, Biome biome) 
         tree.trunk = tree.height - 1;
         tree.crownDepth = tree.height - 2 - (size % 2);
         tree.radius = tree.height > 12 ? 3 : 2;
+        break;
+    case TreeKind::TallSpruce:
+        tree.height = 18 + (size % 11);
+        tree.trunk = tree.height - 1;
+        tree.crownDepth = tree.height - 7 - (size % 3);
+        tree.radius = 3 + (size % 2);
         break;
     case TreeKind::Pine:
         tree.height = 11 + (size % 6);

@@ -2,6 +2,19 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#113] 2026-10-31, G3 More snow, deep spruce forests, natural rock
+### Added
+- Tall spruces, some with thick trunks, and the Deep Spruce Forest biome. Wooded slopes carry them too.
+
+### Changed
+- A cooler world with more snowy plains and snowy taiga. Every high peak wears snow, also on steep faces.
+- Rock on mountains shows in random brushes instead of horizontal stripes. Badlands keep their layers.
+- Far forests in calmer colors.
+
+### Fixed
+- Valleys ease off towards the sea, so they no longer leave flat stone shelves along coasts.
+- Stony shores only where a range meets the sea.
+
 ## [#112] 2026-10-31, Far terrain meets chunks by height, better far trees
 ### Fixed
 - Mountains taller than the loaded chunk layers no longer draw far terrain through their real chunks: coverage holds how high real chunks reach in each column, and far terrain goes on above.

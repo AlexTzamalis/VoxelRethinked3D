@@ -147,14 +147,15 @@ TEST_CASE("Every biome has its look, and everything is placed somewhere") {
         CHECK(look.under != vxe::voxel::kAirState);
         CHECK(look.floor != vxe::voxel::kAirState);
     }
-    // A walk of many chunks through one world finds many kinds of trees,
-    // plants and ground, not one flat green.
+    // A long walk through one world finds every kind of tree. Cells every 37
+    // apart cover far more ground than chunks ever load at once, so that rare
+    // biomes are in it.
     const Terrain terrain(ids, 12345);
     usize trees = 0;
     std::array<usize, kTreeKindCount> kinds{};
     for (i64 z = -400; z < 400; ++z) {
         for (i64 x = -400; x < 400; ++x) {
-            if (const auto placed = terrain.treeAt(x, z)) {
+            if (const auto placed = terrain.treeAt(x * 37, z * 37)) {
                 ++trees;
                 ++kinds[static_cast<usize>(placed->tree.kind)];
             }

@@ -14,7 +14,7 @@ using vxe::u64;
 using vxe::noise::Fractal;
 using vxe::noise::smooth;
 
-constexpr f64 kMeanWarmth = 15.0;  // Degrees at sea level, on average.
+constexpr f64 kMeanWarmth = 11.0;  // Degrees at sea level, on average.
 constexpr f64 kWarmthSwing = 46.0; // Reach of the noise around it, about 18 either way.
 constexpr int kWindSteps = 6;      // Samples upwind.
 
@@ -143,7 +143,7 @@ Biome Climate::biome(const PlanetSample& ground, const ClimateSample& climate) n
     // Shores belong to the coast. Low ground inland is just low ground, or a
     // sand or stone plain would appear in the middle of a country.
     if (ground.elevation < 4.0 && ground.continent < 0.035) {
-        if (ground.mountain > 0.05) {
+        if (ground.mountain > 0.09) {
             return Biome::StonyShore;
         }
         return heat < 0.0 ? Biome::SnowyBeach : Biome::Beach;
@@ -151,7 +151,8 @@ Biome Climate::biome(const PlanetSample& ground, const ClimateSample& climate) n
     // Up a mountain the climate gets colder by itself, so these bands follow
     // the height: wooded slopes or meadows, bare rock, then snow.
     if (ground.mountain > 0.12) {
-        if (heat < -2.0 && ground.elevation > 120.0) {
+        // Any peak tall enough wears snow, whatever the land below it is like.
+        if ((heat < 0.0 && ground.elevation > 100.0) || ground.elevation > 300.0) {
             return Biome::SnowyPeaks;
         }
         if (ground.elevation > 170.0 && (heat < 4.0 || rain < 0.22)) {
@@ -162,11 +163,14 @@ Biome Climate::biome(const PlanetSample& ground, const ClimateSample& climate) n
     if (ground.elevation < 18.0 && rain > 0.62 && heat > 8.0 && ground.rough < 0.5) {
         return Biome::Swamp;
     }
-    if (heat < -1.0) {
+    if (heat < 1.5) {
         return rain < 0.42 ? Biome::SnowyPlains : Biome::SnowyTaiga;
     }
     if (heat < 8.0) {
-        return rain < 0.3 ? Biome::Shrubland : Biome::Taiga;
+        if (rain < 0.3) {
+            return Biome::Shrubland;
+        }
+        return variety > 0.5 || rain > 0.62 ? Biome::DeepSpruceForest : Biome::Taiga;
     }
     if (heat < 21.0) {
         if (rain < 0.28) {

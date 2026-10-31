@@ -26,8 +26,9 @@ enum class TreeKind : vxe::u8 {
     GiantJungle,
     Azalea,
     Bush,
+    TallSpruce,
 };
-inline constexpr vxe::usize kTreeKindCount = 13;
+inline constexpr vxe::usize kTreeKindCount = 14;
 
 // What a kind of tree is made of. Some leaves are mixed with a second kind,
 // so crowns are not one flat color.
