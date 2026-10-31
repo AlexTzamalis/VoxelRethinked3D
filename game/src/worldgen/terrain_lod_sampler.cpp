@@ -20,10 +20,13 @@ namespace {
 
 // Bumped whenever the terrain or this sampler changes what it makes, so cached
 // tiles of older versions are thrown away.
-constexpr vxe::u32 kGeneratorVersion = 6;
+constexpr vxe::u32 kGeneratorVersion = 7;
 constexpr i32 kNoCrown = std::numeric_limits<i32>::min();
 // How far crowns stand above the ground on average.
 constexpr i64 kCrownAboveGround = 8;
+// Real crowns let the sky through and catch light on every leaf. A far crown
+// is one solid surface, so its color has to be lifted to look the same.
+constexpr f64 kFarLeafGain = 2.1;
 // Climate is blended across a tile from a grid this many cells apart.
 constexpr u32 kClimateStride = 8;
 // Real water lets 200 of 255 parts of its color through (the water texture's
@@ -85,6 +88,12 @@ std::vector<u32> TerrainLodSampler::materialColors(std::span<const u32> layerCol
     std::vector<u32> colors(layerColors.begin(), layerColors.end());
     const auto layer = [&](vxe::u16 index) { return index < colors.size() ? colors[index] : 0xFFFF00FFU; };
     colors.resize(static_cast<usize>(m_materials.grassLeaves.back()) + 1, 0xFFFF00FFU);
+    for (const TreeBlocks& wood : m_terrain.blocks().trees) {
+        const vxe::u16 leaves = m_view->info(wood.leaves).textureLayer(BlockFace::PosY);
+        if (leaves < layerColors.size()) {
+            colors.at(leaves) = blend(layerColors[leaves], kFarLeafGain, 0xFF000000U, 0.0);
+        }
+    }
     const u32 water = layer(m_materials.water);
     const f64 alpha = static_cast<f64>(water >> 24U) / 255.0;
     colors.at(m_materials.waterOverFloor) =
@@ -190,7 +199,9 @@ bool TerrainLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
             if (fine) {
                 addFineCell(base, crowns, cx, cz, cell, options.maxSpansPerCell, spans);
             } else {
-                addCoarseCell(base, heights[index], covers[index], spans);
+                // A hash of the cell: canopy heights depend on nothing else.
+                const i64 bump = ((index * 2654435761U) ^ static_cast<u32>(key.originX())) >> 20U;
+                addCoarseCell(base, heights[index], covers[index], bump, spans);
             }
             builder.addCell(spans);
         }
@@ -234,8 +245,12 @@ void TerrainLodSampler::placeCrowns(const vxe::voxel::LodTileKey& key, Crowns& c
                         continue;
                     }
                     const auto index = static_cast<usize>((z * size) + x);
-                    if (top > crowns.top[index]) {
-                        crowns.top[index] = top;
+                    // Domes, not cylinders: the crown falls away from its middle.
+                    const i64 reach = (tree.radius * tree.radius) + tree.radius;
+                    const auto drop =
+                        static_cast<i32>((((dx * dx) + (dz * dz)) * tree.crownDepth * 3) / (reach * 4));
+                    if (top - drop > crowns.top[index]) {
+                        crowns.top[index] = top - drop;
                         crowns.material[index] = material;
                     }
                     crowns.bottom[index] = std::min(crowns.bottom[index], bottom);
@@ -287,14 +302,16 @@ void TerrainLodSampler::addFineCell(LodSpan base, const Crowns& crowns, u32 cx, 
     spans.push_back(base);
 }
 
-void TerrainLodSampler::addCoarseCell(LodSpan base, i64 height, f64 cover,
+void TerrainLodSampler::addCoarseCell(LodSpan base, i64 height, f64 cover, i64 bump,
                                       std::vector<LodSpan>& spans) const {
     if (cover > 0.0 && base.topMaterial == m_materials.grass) {
         const auto eighths = static_cast<u32>(std::lround(cover * kBlendSteps));
         base.topMaterial = grassWithLeaves(eighths);
-        if (eighths >= kBlendSteps - 1) {
-            // Dense forest: from far away the crowns are the ground.
-            base.topY = static_cast<i32>(height + kCrownAboveGround);
+        if (eighths >= 5) {
+            // Forest: from far away the crowns are the ground, in lumps rather
+            // than a flat slab.
+            base.topY = static_cast<i32>(height + kCrownAboveGround - 3 + (std::abs(bump) % 7));
+            base.topMaterial = m_materials.leaves;
             base.sideMaterial = m_materials.leaves;
         }
     }

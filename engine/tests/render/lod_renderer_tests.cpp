@@ -136,6 +136,9 @@ TEST_CASE("The LOD coverage map wraps chunk columns around") {
     CHECK(renderer->isCovered(127, 127)); // The same texel.
     CHECK(renderer->isCovered(-129, 255));
     CHECK_FALSE(renderer->isCovered(0, 0));
+    // Covered part of the way up is not hidden as a whole.
+    renderer->setCoveredBelow(5, 5, 12);
+    CHECK_FALSE(renderer->isCovered(5, 5));
     renderer->setCovered(127, -129, false);
     CHECK_FALSE(renderer->isCovered(-1, -1));
     renderer->setCovered(5, 6, true);

@@ -262,10 +262,19 @@ void LodRenderer::setMaterialColors(std::span<const u32> colors) {
 }
 
 void LodRenderer::setCovered(i32 chunkX, i32 chunkZ, bool covered) noexcept {
+    setCoverage(chunkX, chunkZ, covered ? kCoverageFull : 0);
+}
+
+void LodRenderer::setCoveredBelow(i32 chunkX, i32 chunkZ, i32 topChunkY) noexcept {
+    // Stays clear of 0 and full; lod.frag undoes the offset. The offset fits
+    // the tallest world preset, and a taller column just draws a little more.
+    setCoverage(chunkX, chunkZ, static_cast<u8>(std::clamp(topChunkY + kCoverageLayerOffset, 1, 254)));
+}
+
+void LodRenderer::setCoverage(i32 chunkX, i32 chunkZ, u8 value) noexcept {
     // Two's complement masking wraps negative columns too, like the shader.
     const auto index = (static_cast<usize>(chunkZ & (kLodCoverageSize - 1)) * kLodCoverageSize) +
                        static_cast<usize>(chunkX & (kLodCoverageSize - 1));
-    const u8 value = covered ? 255 : 0;
     if (m_coverageBytes[index] != value) {
         m_coverageBytes[index] = value;
         m_coverageDirty = true;
@@ -275,7 +284,7 @@ void LodRenderer::setCovered(i32 chunkX, i32 chunkZ, bool covered) noexcept {
 
 bool LodRenderer::isCovered(i32 chunkX, i32 chunkZ) const noexcept {
     return m_coverageBytes[(static_cast<usize>(chunkZ & (kLodCoverageSize - 1)) * kLodCoverageSize) +
-                           static_cast<usize>(chunkX & (kLodCoverageSize - 1))] != 0;
+                           static_cast<usize>(chunkX & (kLodCoverageSize - 1))] == kCoverageFull;
 }
 
 void LodRenderer::clearCoverage() noexcept {

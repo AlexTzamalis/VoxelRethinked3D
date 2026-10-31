@@ -68,7 +68,7 @@ private:
     void placeCrowns(const vxe::voxel::LodTileKey& key, Crowns& crowns) const;
     void addFineCell(vxe::voxel::LodSpan base, const Crowns& crowns, vxe::u32 cx, vxe::u32 cz, vxe::i64 cell,
                      vxe::u32 maxSpans, std::vector<vxe::voxel::LodSpan>& spans) const;
-    void addCoarseCell(vxe::voxel::LodSpan base, vxe::i64 height, vxe::f64 cover,
+    void addCoarseCell(vxe::voxel::LodSpan base, vxe::i64 height, vxe::f64 cover, vxe::i64 bump,
                        std::vector<vxe::voxel::LodSpan>& spans) const;
     [[nodiscard]] vxe::u16 grassWithLeaves(vxe::u32 eighths) const noexcept;
 

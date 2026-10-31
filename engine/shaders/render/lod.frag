@@ -19,7 +19,15 @@ void main() {
         // The chunk column, with integer math from the camera's chunk.
         const ivec2 offset = ivec2(floor((vRelative.xz + frame.cameraFraction.xz) / 16.0));
         const ivec2 column = (frame.cameraChunk.xz + offset) & ivec2(127);
-        if (texelFetch(coverage, column, 0).r > 0.5) {
+        // 0 is uncovered, 255 fully covered, anything else the top chunk layer
+        // of the real chunks plus 65: far terrain goes on above that.
+        const float value = texelFetch(coverage, column, 0).r * 255.0;
+        bool hidden = value > 254.5;
+        if (!hidden && value > 0.5) {
+            const int layer = frame.cameraChunk.y + int(floor((vRelative.y + frame.cameraFraction.y) / 16.0));
+            hidden = layer <= int(value + 0.5) - 65;
+        }
+        if (hidden) {
             if (lodParams.params.z > 1.5) {
                 outColor = vec4(1.0, 0.0, 1.0, 1.0); // Debug.LOD.ShowCoverage
                 return;

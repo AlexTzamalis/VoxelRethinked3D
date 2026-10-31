@@ -117,7 +117,12 @@ public:
     void setMaterialColors(std::span<const u32> colors);
     // Marks a chunk column as drawn by real chunks (or not any more).
     void setCovered(i32 chunkX, i32 chunkZ, bool covered) noexcept;
+    // Real chunks stand in this column up to the top of chunk layer `topChunkY`,
+    // and far terrain continues above that: a mountain taller than the loaded
+    // layers keeps its far top over its real foot, with neither drawn twice.
+    void setCoveredBelow(i32 chunkX, i32 chunkZ, i32 topChunkY) noexcept;
     void clearCoverage() noexcept;
+    // True if real chunks hide the whole column.
     [[nodiscard]] bool isCovered(i32 chunkX, i32 chunkZ) const noexcept;
     // The coverage map (R8, one texel per chunk column, wrapping), for the
     // overlay's LOD page.
@@ -142,6 +147,12 @@ public:
     [[nodiscard]] usize quadCount() const noexcept { return m_quads; }
 
 private:
+    // One byte per chunk column: 0 is uncovered, 255 fully covered, anything
+    // else a chunk layer plus this offset (lod.frag undoes it).
+    static constexpr u8 kCoverageFull = 255;
+    static constexpr i32 kCoverageLayerOffset = 65;
+    void setCoverage(i32 chunkX, i32 chunkZ, u8 value) noexcept;
+
     struct Tile {
         OffsetAllocator::Allocation range{};
         u32 slot = 0;

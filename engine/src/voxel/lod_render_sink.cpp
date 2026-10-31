@@ -142,43 +142,63 @@ void LodRenderSink::updateCoverage() {
         return;
     }
     for (const ColumnPos& column : m_dirtyColumns) {
-        m_renderer.setCovered(column.x, column.z, isCovered(column));
+        updateColumn(column);
     }
     m_dirtyColumns.clear();
 }
 
-// The surfaces of a column's 256 block columns can sit in different chunks
-// (an island in a lake): every chunk from the lowest surface to the chunk
-// above the highest must be meshed, or some of the ground far terrain would
-// hide is missing (for example below the vertical render distance). The chunk
-// above only counts if it exists (the world may end there).
-bool LodRenderSink::isCovered(ColumnPos column) const {
+// How far up real chunks hide far terrain in a column. The surfaces of its 256
+// block columns can sit in different chunks (an island in a lake). Where every
+// chunk from the lowest surface to the chunk above the highest is meshed, they
+// hide far terrain entirely (the chunk above only counts if it exists: the
+// world may end there). Otherwise the connected meshed chunks around the lowest
+// surface hide it up to their top, and far terrain goes on above: chunks only
+// load a limited way up, and a mountain can stand taller than that.
+void LodRenderSink::updateColumn(ColumnPos column) {
     const ColumnSummary* summary = m_world->findColumn(column);
-    if (summary == nullptr) {
-        return false;
-    }
     i32 lowest = std::numeric_limits<i32>::max();
     i32 highest = ColumnSummary::kNoBlock;
-    for (u32 z = 0; z < 16; ++z) {
-        for (u32 x = 0; x < 16; ++x) {
-            const i32 top = summary->highestBlock(x, z);
-            if (top == ColumnSummary::kNoBlock) {
-                continue;
+    if (summary != nullptr) {
+        for (u32 z = 0; z < 16; ++z) {
+            for (u32 x = 0; x < 16; ++x) {
+                const i32 top = summary->highestBlock(x, z);
+                if (top == ColumnSummary::kNoBlock) {
+                    continue;
+                }
+                lowest = std::min(lowest, top);
+                highest = std::max(highest, top);
             }
-            lowest = std::min(lowest, top);
-            highest = std::max(highest, top);
         }
     }
     if (highest == ColumnSummary::kNoBlock) {
-        return false;
+        m_renderer.setCovered(column.x, column.z, false);
+        return;
     }
-    for (i32 y = lowest >> kChunkShift; y <= highest >> kChunkShift; ++y) {
-        if (!m_meshed.contains({.x = column.x, .y = y, .z = column.z})) {
-            return false;
-        }
+    const auto meshed = [&](i32 y) { return m_meshed.contains({.x = column.x, .y = y, .z = column.z}); };
+    // The topmost loaded layers have no mesh yet, as their neighbors above are
+    // missing, so the surface seen so far can lie a little above the meshes.
+    constexpr i32 kLoadedAboveMeshes = 3;
+    i32 bottom = lowest >> kChunkShift;
+    for (i32 step = 0; step < kLoadedAboveMeshes && !meshed(bottom); ++step) {
+        --bottom;
     }
-    const ChunkPos above{.x = column.x, .y = (highest >> kChunkShift) + 1, .z = column.z};
-    return m_meshed.contains(above) || m_world->findChunk(above) == nullptr;
+    if (!meshed(bottom)) {
+        m_renderer.setCovered(column.x, column.z, false);
+        return;
+    }
+    i32 top = bottom;
+    while (meshed(top + 1)) {
+        ++top;
+    }
+    const i32 surfaceTop = highest >> kChunkShift;
+    const bool closed = bottom == lowest >> kChunkShift && top >= surfaceTop &&
+                        (meshed(surfaceTop + 1) ||
+                         m_world->findChunk({.x = column.x, .y = surfaceTop + 1, .z = column.z}) == nullptr);
+    if (closed) {
+        m_renderer.setCovered(column.x, column.z, true);
+    } else {
+        m_renderer.setCoveredBelow(column.x, column.z, top);
+    }
 }
 
 ChunkMeshSink::Result CoveringChunkSink::upload(const ChunkMesh& mesh) {

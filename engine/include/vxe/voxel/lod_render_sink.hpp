@@ -73,7 +73,7 @@ private:
     void collect();
     void uploadReady();
     void updateCoverage();
-    [[nodiscard]] bool isCovered(ColumnPos column) const;
+    void updateColumn(ColumnPos column);
     void freeSlot(Slot* slot);
 
     render::LodRenderer& m_renderer;

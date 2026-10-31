@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#112] 2026-10-31, Far terrain meets chunks by height, better far trees
+### Fixed
+- Mountains taller than the loaded chunk layers no longer draw far terrain through their real chunks: coverage holds how high real chunks reach in each column, and far terrain goes on above.
+
+### Changed
+- Far trees: brighter leaf colors, domed crowns, lumpy forests instead of flat slabs.
+
 ## [#111] 2026-10-31, G3 Hills, valleys, plateaus and calmer biomes
 ### Added
 - Strong hills in rough land, smaller swells on them, winding valleys, stepped plateaus with cliffs.
