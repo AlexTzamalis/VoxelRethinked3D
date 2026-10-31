@@ -69,7 +69,10 @@ TEST_CASE("Terrain has a surface on its height and trees standing on it") {
     auto states = std::make_unique<States>();
     // A block of chunks around the land, as one world, so trees and columns
     // can be checked across chunk borders.
-    const vxe::ChunkPos middle = vxe::toChunk(terrain.spawnColumn());
+    // Woods near the start, so that there are trees to look at.
+    const auto woods = terrain.findBiome(vr::Biome::Forest, 0, 0);
+    REQUIRE(woods.has_value());
+    const vxe::ChunkPos middle = vxe::toChunk(woods.value_or(vxe::BlockPos{}));
     const vxe::i64 startX = (vxe::i64{middle.x} - 1) * 16;
     const vxe::i64 startZ = (vxe::i64{middle.z} - 1) * 16;
     for (vxe::i32 z = middle.z - 1; z <= middle.z + 1; ++z) {

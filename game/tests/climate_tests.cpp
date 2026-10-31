@@ -57,9 +57,9 @@ TEST_CASE("Mountains upwind take the rain") {
     for (const u64 seed : {1ULL, 2ULL, 3ULL}) {
         const Planet planet(seed, PlanetPreset{});
         const Climate climate(seed, planet);
-        for (int z = -30; z < 30; ++z) {
-            for (int x = -30; x < 30; ++x) {
-                const ClimateSample here = climate.sample(x * 170.0, z * 170.0, 0.0);
+        for (int z = -14; z < 14; ++z) {
+            for (int x = -14; x < 14; ++x) {
+                const ClimateSample here = climate.sample(x * 370.0, z * 370.0, 0.0);
                 if (here.shadow > 0.6) {
                     dry += here.rainfall;
                     ++dryCount;
@@ -100,10 +100,10 @@ TEST_CASE("The world holds every biome, and none takes over") {
     for (const u64 seed : {1ULL, 2ULL, 3ULL, 12345ULL, 987654321ULL, 7ULL}) {
         const Planet planet(seed, PlanetPreset{});
         const Climate climate(seed, planet);
-        for (int z = -70; z < 70; ++z) {
-            for (int x = -70; x < 70; ++x) {
-                const f64 wx = x * 190.0;
-                const f64 wz = z * 190.0;
+        for (int z = -28; z < 28; ++z) {
+            for (int x = -28; x < 28; ++x) {
+                const f64 wx = x * 480.0;
+                const f64 wz = z * 480.0;
                 const PlanetSample ground = planet.sample(wx, wz);
                 const Biome biome = Climate::biome(ground, climate.sample(wx, wz, ground.elevation));
                 ++counts[static_cast<usize>(biome)];

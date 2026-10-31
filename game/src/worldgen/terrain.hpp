@@ -22,6 +22,7 @@ struct Ground {
     vxe::f64 rift = 0.0;
     vxe::f64 rough = 0.0;
     vxe::f64 continent = 0.0;
+    vxe::f64 water = kNoWater; // Height of a river or lake surface, in blocks.
 };
 
 // The world's terrain (G3.3, G3.4, G3.6): the planet's heights, carved by an
@@ -89,6 +90,8 @@ public:
     [[nodiscard]] vxe::i64 surfaceHeight(vxe::i64 x, vxe::i64 z) const;
     [[nodiscard]] Biome biomeAt(vxe::i64 x, vxe::i64 z) const;
     [[nodiscard]] vxe::voxel::BlockStateId topBlock(vxe::i64 x, vxe::i64 z) const;
+    // The surface of the water over a column: the sea, or a river or lake.
+    [[nodiscard]] vxe::i64 waterLevel(vxe::i64 x, vxe::i64 z) const;
 
     // A far terrain cell of `cell` blocks. Skips what a cell that wide cannot
     // show, which matters because a far tile is 4096 cells. The climate comes
@@ -97,6 +100,7 @@ public:
         vxe::i64 height = 0;
         Biome biome = Biome::Plains;
         vxe::voxel::BlockStateId top = 0;
+        vxe::i64 water = kSeaLevel;
     };
     [[nodiscard]] FarCell farCell(vxe::f64 x, vxe::f64 z, vxe::f64 cell,
                                   const Climate::Field& field) const noexcept;

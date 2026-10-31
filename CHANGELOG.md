@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#115] 2026-10-31, G3.5 Rivers and lakes
+### Added
+- Rivers run along the valleys, fall towards the sea in small steps and take in streams on their way.
+- Lakes lie at their own levels with beds and narrow shores. Far terrain shows them too.
+- Terrain::waterLevel, and banks of each biome's own floor.
+
+### Performance
+- 460 us per chunk (budget 250 us), still to be optimized.
+
 ## [#114] 2026-10-31, Rename the snow texture to snow_block
 ### Changed
 - snow.png is now snow_block.png, which leaves snow.png free for a thin snow layer. Snow blocks follow.

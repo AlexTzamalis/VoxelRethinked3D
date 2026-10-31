@@ -64,7 +64,8 @@ private:
         std::vector<vxe::u16> material;
     };
 
-    [[nodiscard]] vxe::voxel::LodSpan ground(vxe::i64 height, vxe::voxel::BlockStateId top) const noexcept;
+    [[nodiscard]] vxe::voxel::LodSpan ground(vxe::i64 height, vxe::voxel::BlockStateId top,
+                                             vxe::i64 water) const noexcept;
     void placeCrowns(const vxe::voxel::LodTileKey& key, Crowns& crowns) const;
     void addFineCell(vxe::voxel::LodSpan base, const Crowns& crowns, vxe::u32 cx, vxe::u32 cz, vxe::i64 cell,
                      vxe::u32 maxSpans, std::vector<vxe::voxel::LodSpan>& spans) const;

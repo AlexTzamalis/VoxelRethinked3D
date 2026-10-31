@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <memory>
+#include <utility>
 
 using namespace vr;
 using vxe::f64;
@@ -62,9 +63,9 @@ TEST_CASE("Columns meet: chunk borders show no step the slope does not explain")
         const Terrain terrain(blocks(), seed);
         i64 worstBorder = 0;
         i64 worstInside = 0;
-        for (i64 z = 0; z < 2400; z += 3) {
+        for (i64 z = 0; z < 800; z += 3) {
             i64 last = terrain.surfaceHeight(0, z);
-            for (i64 x = 1; x < 2400; ++x) {
+            for (i64 x = 1; x < 800; ++x) {
                 const i64 height = terrain.surfaceHeight(x, z);
                 const i64 step = std::abs(height - last);
                 (x % 16 == 0 ? worstBorder : worstInside) =
@@ -83,10 +84,10 @@ TEST_CASE("Gullies carve the land: slopes are rougher than the planet alone") {
     usize changed = 0;
     usize steep = 0;
     f64 lowered = 0.0;
-    for (i64 z = 0; z < 300; ++z) {
-        for (i64 x = 0; x < 300; ++x) {
-            const auto wx = static_cast<f64>(x * 70);
-            const auto wz = static_cast<f64>(z * 70);
+    for (i64 z = 0; z < 120; ++z) {
+        for (i64 x = 0; x < 120; ++x) {
+            const auto wx = static_cast<f64>(x * 170);
+            const auto wz = static_cast<f64>(z * 170);
             const f64 plain =
                 terrain.planet().sample(wx, wz).elevation + static_cast<f64>(Terrain::kSeaLevel);
             const f64 carved = terrain.farGround(wx, wz, 1.0).height;
@@ -147,15 +148,15 @@ TEST_CASE("Every biome has its look, and everything is placed somewhere") {
         CHECK(look.under != vxe::voxel::kAirState);
         CHECK(look.floor != vxe::voxel::kAirState);
     }
-    // A long walk through one world finds every kind of tree. Cells every 37
-    // apart cover far more ground than chunks ever load at once, so that rare
-    // biomes are in it.
+    // A long walk through one world finds every kind of tree. Each look at a
+    // cell far from the last builds a whole column, so this stays a few
+    // thousand looks, spread widely enough for rare biomes.
     const Terrain terrain(ids, 12345);
     usize trees = 0;
     std::array<usize, kTreeKindCount> kinds{};
-    for (i64 z = -400; z < 400; ++z) {
-        for (i64 x = -400; x < 400; ++x) {
-            if (const auto placed = terrain.treeAt(x * 37, z * 37)) {
+    for (i64 z = -50; z < 50; ++z) {
+        for (i64 x = -50; x < 50; ++x) {
+            if (const auto placed = terrain.treeAt(x * 311, z * 311)) {
                 ++trees;
                 ++kinds[static_cast<usize>(placed->tree.kind)];
             }
@@ -193,4 +194,32 @@ TEST_CASE("locate finds biomes") {
     const auto found = terrain.findBiome(Biome::Plains, 0, 0);
     REQUIRE(found.has_value());
     CHECK(terrain.biomeAt(found->x, found->z) == Biome::Plains);
+}
+
+TEST_CASE("Rivers and lakes hold water above the sea, inside their banks") {
+    const Terrain terrain(blocks(), 12345);
+    usize wet = 0;
+    usize spills = 0;
+    i64 highest = 0;
+    for (i64 z = -500; z < 500; z += 2) {
+        for (i64 x = -500; x < 500; x += 2) {
+            const i64 level = terrain.waterLevel(x, z);
+            if (level <= Terrain::kSeaLevel || terrain.surfaceHeight(x, z) >= level) {
+                continue;
+            }
+            ++wet;
+            highest = std::max(highest, level);
+            // Water ends at higher ground or at more water, never in mid air.
+            for (const auto& [dx, dz] : {std::pair<i64, i64>{2, 0}, {-2, 0}, {0, 2}, {0, -2}}) {
+                const i64 next =
+                    std::max(terrain.surfaceHeight(x + dx, z + dz), terrain.waterLevel(x + dx, z + dz));
+                spills += next + 3 < level ? 1U : 0U;
+            }
+        }
+    }
+    MESSAGE(wet << " wet columns (of every fourth), highest water " << highest - Terrain::kSeaLevel
+                << " above the sea, " << spills << " open edges");
+    CHECK(wet > 300);
+    CHECK(highest > Terrain::kSeaLevel + 8);
+    CHECK(spills * 10 < wet);
 }

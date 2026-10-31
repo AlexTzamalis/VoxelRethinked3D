@@ -346,6 +346,7 @@ struct Terrain::Column {
     std::array<BlockStateId, vxe::kChunkArea> top{};
     std::array<Biome, vxe::kChunkArea> biome{};
     std::array<bool, vxe::kChunkArea> soil{}; // Plants and trees can root here.
+    std::array<i32, vxe::kChunkArea> water{}; // The water surface over this column.
 };
 
 Terrain::Terrain(const TerrainBlocks& blocks, u64 seed, const PlanetPreset& preset) noexcept
@@ -418,7 +419,8 @@ Ground Terrain::ground(f64 x, f64 z, f64 shortest) const noexcept {
                .mountain = here.mountain,
                .rift = here.rift,
                .rough = here.rough,
-               .continent = here.continent};
+               .continent = here.continent,
+               .water = here.water > kNoWater ? here.water + static_cast<f64>(kSeaLevel) : kNoWater};
     // Water carves what stands above the sea and is steep enough to run.
     const f64 strength = smooth(0.06, 0.55, out.slope) * smooth(2.0, 50.0, here.elevation);
     if (strength > 0.0) {
@@ -436,14 +438,20 @@ Ground Terrain::farGround(f64 x, f64 z, f64 cell) const noexcept {
                 .mountain = here.mountain,
                 .rift = here.rift,
                 .rough = here.rough,
-                .continent = here.continent};
+                .continent = here.continent,
+                .water = here.water > kNoWater ? here.water + static_cast<f64>(kSeaLevel) : kNoWater};
     }
     return ground(x, z, cell * 2.0);
 }
 
 BlockStateId Terrain::topOf(f64 x, f64 z, const Ground& at, Biome biome) const noexcept {
     const BiomeLook& look = m_blocks.biomes[static_cast<usize>(biome)];
-    const bool underWater = at.height < static_cast<f64>(kSeaLevel);
+    const f64 surface = std::max(at.water, static_cast<f64>(kSeaLevel));
+    const bool underWater = at.height < surface;
+    // Rivers and lakes have soft banks of the biome's floor.
+    if (at.water > kNoWater && at.height < at.water + 1.0) {
+        return look.floor;
+    }
     if (!underWater) {
         const bool snowy = look.top == m_blocks.biomes[static_cast<usize>(Biome::SnowyPeaks)].top;
         if (at.slope > (snowy ? kSnowSlope : kRockSlope) && !look.banded) {
@@ -469,7 +477,10 @@ Terrain::FarCell Terrain::farCell(f64 x, f64 z, f64 cell, const Climate::Field& 
                                         .rift = at.rift,
                                         .rough = at.rough},
                                        weather);
-    return {.height = static_cast<i64>(std::floor(at.height)), .biome = biome, .top = topOf(x, z, at, biome)};
+    return {.height = static_cast<i64>(std::floor(at.height)),
+            .biome = biome,
+            .top = topOf(x, z, at, biome),
+            .water = at.water > kNoWater ? static_cast<i64>(at.water) : kSeaLevel};
 }
 
 f64 Terrain::treeCover(Biome biome) const noexcept {
@@ -516,6 +527,11 @@ void Terrain::buildColumn(i32 chunkX, i32 chunkZ, Column& column) const noexcept
                         .rift = blend(&Ground::rift),
                         .rough = blend(&Ground::rough),
                         .continent = blend(&Ground::continent)};
+            // A surface does not blend: water stands at the level of the
+            // nearest corner that has any.
+            const Ground* corners = &grid[(gz * kGridPoints) + gx];
+            here.water = std::max({corners[0].water, corners[1].water, corners[kGridPoints].water,
+                                   corners[kGridPoints + 1].water});
             // The grid is 4 blocks wide; this gives the ground its last grain.
             f64 above = here.height - static_cast<f64>(kSeaLevel);
             here.height +=
@@ -537,7 +553,11 @@ void Terrain::buildColumn(i32 chunkX, i32 chunkZ, Column& column) const noexcept
             column.heights[index] = height;
             column.biome[index] = biome;
             column.top[index] = topOf(wx, wz, here, biome);
-            column.soil[index] = above >= 0.0 && m_blocks.isSoil(column.top[index]);
+            const i32 surface =
+                here.water > kNoWater ? static_cast<i32>(here.water) : static_cast<i32>(kSeaLevel);
+            column.water[index] = surface;
+            column.soil[index] = height >= surface && m_blocks.isSoil(column.top[index]);
+            column.highest = std::max(column.highest, surface);
             const auto lean =
                 static_cast<f32>(kOverhangMost * smooth(1.8, 3.4, here.slope) * smooth(30.0, 140.0, above));
             column.lean[index] = lean;
@@ -572,6 +592,10 @@ vxe::i64 Terrain::surfaceHeight(i64 x, i64 z) const {
 
 Biome Terrain::biomeAt(i64 x, i64 z) const {
     return columnAt(x, z).biome[static_cast<usize>(((z & 15) * vxe::kChunkSize) + (x & 15))];
+}
+
+i64 Terrain::waterLevel(i64 x, i64 z) const {
+    return columnAt(x, z).water[static_cast<usize>(((z & 15) * vxe::kChunkSize) + (x & 15))];
 }
 
 BlockStateId Terrain::topBlock(i64 x, i64 z) const {
@@ -743,7 +767,7 @@ void Terrain::generate(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkV
         }
         const auto height = static_cast<f64>(y);
         if (height > top) {
-            out[index] = y <= kSeaLevel ? m_blocks.water : vxe::voxel::kAirState;
+            out[index] = y <= at.water[columnIndex] ? m_blocks.water : vxe::voxel::kAirState;
             continue;
         }
         const f64 depth = top - height;
@@ -796,7 +820,8 @@ void Terrain::placeFeatures(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kC
             const i64 x = (cellX * kFeatureCell) + static_cast<i64>((h >> 8U) % kFeatureCell);
             const i64 z = (cellZ * kFeatureCell) + static_cast<i64>((h >> 20U) % kFeatureCell);
             const i64 ground = surfaceHeight(x, z);
-            if (ground < kSeaLevel || ground + 6 < origin.y || ground - 6 > origin.y + vxe::kChunkSize) {
+            if (ground < waterLevel(x, z) || ground + 6 < origin.y ||
+                ground - 6 > origin.y + vxe::kChunkSize) {
                 continue;
             }
             const BiomeLook& look = m_blocks.biomes[static_cast<usize>(biomeAt(x, z))];

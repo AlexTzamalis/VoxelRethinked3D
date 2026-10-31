@@ -20,7 +20,7 @@ namespace {
 
 // Bumped whenever the terrain or this sampler changes what it makes, so cached
 // tiles of older versions are thrown away.
-constexpr vxe::u32 kGeneratorVersion = 9;
+constexpr vxe::u32 kGeneratorVersion = 10;
 constexpr i32 kNoCrown = std::numeric_limits<i32>::min();
 // How far crowns stand above the ground on average.
 constexpr i64 kCrownAboveGround = 8;
@@ -114,11 +114,11 @@ vxe::u16 TerrainLodSampler::grassWithLeaves(u32 eighths) const noexcept {
 }
 
 // The ground span of a column with this height and top block.
-LodSpan TerrainLodSampler::ground(i64 height, vxe::voxel::BlockStateId top) const noexcept {
+LodSpan TerrainLodSampler::ground(i64 height, vxe::voxel::BlockStateId top, i64 water) const noexcept {
     LodSpan span{.bottomY = 0, .topY = static_cast<i32>(height)};
-    if (height < Terrain::kSeaLevel) {
+    if (height < water) {
         // A lake or the sea: the water surface is what shows.
-        span.topY = static_cast<i32>(Terrain::kSeaLevel);
+        span.topY = static_cast<i32>(water);
         span.topMaterial = m_materials.waterOverFloor;
         span.sideMaterial = m_materials.waterOverFloor;
         return span;
@@ -137,9 +137,11 @@ bool TerrainLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
     thread_local std::vector<i64> heights;
     thread_local std::vector<vxe::voxel::BlockStateId> tops;
     thread_local std::vector<f64> covers;
+    thread_local std::vector<i64> waters;
     heights.resize(vxe::voxel::kLodCellCount);
     tops.resize(vxe::voxel::kLodCellCount);
     covers.resize(vxe::voxel::kLodCellCount);
+    waters.resize(vxe::voxel::kLodCellCount);
     constexpr u32 kGrid = (kCells / kClimateStride) + 1;
     thread_local std::vector<Climate::Field> fields;
     if (!fine) {
@@ -163,6 +165,7 @@ bool TerrainLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
             if (fine) {
                 heights[index] = m_terrain.surfaceHeight(x, z);
                 tops[index] = m_terrain.topBlock(x, z);
+                waters[index] = m_terrain.waterLevel(x, z);
                 continue;
             }
             const u32 gx = cx / kClimateStride;
@@ -183,6 +186,7 @@ bool TerrainLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
                                    .variety = blend(&Climate::Field::variety)});
             heights[index] = far.height;
             tops[index] = far.top;
+            waters[index] = far.water;
             covers[index] = m_terrain.treeCover(far.biome);
         }
     }
@@ -195,7 +199,7 @@ bool TerrainLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
         for (u32 cx = 0; cx < kCells; ++cx) {
             spans.clear();
             const u32 index = (cz * kCells) + cx;
-            const LodSpan base = ground(heights[index], tops[index]);
+            const LodSpan base = ground(heights[index], tops[index], waters[index]);
             if (fine) {
                 addFineCell(base, crowns, cx, cz, cell, options.maxSpansPerCell, spans);
             } else {
