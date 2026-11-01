@@ -2,6 +2,11 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#121] 2026-11-01, G3.5 Lakes shaped by the land
+### Fixed
+- Lakes stand at the level of their rivers and no longer rise as square blocks of water.
+- A lake's shore follows the ground instead of the drainage grid.
+
 ## [#120] 2026-11-01, G3.6 New trees and the Maple Forest
 ### Added
 - Palm, olive, maple, golden maple, hemlock and poplar trees, and weeping and forked birches.

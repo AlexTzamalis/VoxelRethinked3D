@@ -273,7 +273,11 @@ std::shared_ptr<const RiverNetwork::Tile> RiverNetwork::buildTile(TileKey key) c
             }
             const bool lake = filled[cell] - height[cell] >= kLakeDepth;
             if (lake) {
-                out->lakes[static_cast<usize>((z * kTileCells) + x)] = std::floor(filled[cell]);
+                // At the level of the rivers around it, which run below the plan.
+                // A cell only counts when its ground lies that deep, and the cells
+                // around it do not, so the land itself holds the water in.
+                out->lakes[static_cast<usize>((z * kTileCells) + x)] =
+                    static_cast<f32>(riverLevel(filled[cell]));
             }
             if (rain[cell] < rainForStream(filled[cell]) || next[cell] == kNoNext) {
                 continue;
@@ -343,6 +347,29 @@ std::shared_ptr<const RiverNetwork::Tile> RiverNetwork::buildTile(TileKey key) c
             }
         }
     }
+    // Water may reach into the cells around a lake. It only stands where the
+    // ground is below its surface, so a lake's shore is the shape of the land
+    // and not the square of its cells.
+    std::vector<f32> shores = out->lakes;
+    for (i64 z = 0; z < kTileCells; ++z) {
+        for (i64 x = 0; x < kTileCells; ++x) {
+            const usize own = static_cast<usize>((z * kTileCells) + x);
+            if (out->lakes[own] > kNoLake || filled[index(x + kTileCells, z + kTileCells)] <= 0.0F) {
+                continue;
+            }
+            for (i64 dz = -1; dz <= 1; ++dz) {
+                for (i64 dx = -1; dx <= 1; ++dx) {
+                    const usize beside = index(x + kTileCells + dx, z + kTileCells + dz);
+                    if (filled[beside] > 0.0F && filled[beside] - height[beside] >= kLakeDepth) {
+                        // Of two lakes, the lower: the higher could not stand here.
+                        const auto level = static_cast<f32>(riverLevel(filled[beside]));
+                        shores[own] = shores[own] > kNoLake ? std::min(shores[own], level) : level;
+                    }
+                }
+            }
+        }
+    }
+    out->lakes = std::move(shores);
     return out;
 }
 
