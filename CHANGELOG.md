@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#122] 2026-11-02, Keep chunks on screen at long render distances
+### Fixed
+- Chunks far from spawn went missing at long render distances: the renderer ran out of mesh memory, and blocks changed there never showed.
+- A refused chunk mesh is offered again instead of being dropped.
+- When memory runs out, real chunks pull in one ring at a time and far terrain fills the rest, so the nearest chunks always draw.
+
+### Changed
+- Chunk meshes get 1 GB and 131,072 slots, up from 256 MB and 32,768.
+
 ## [#121] 2026-11-01, G3.5 Lakes shaped by the land
 ### Fixed
 - Lakes stand at the level of their rivers and no longer rise as square blocks of water.

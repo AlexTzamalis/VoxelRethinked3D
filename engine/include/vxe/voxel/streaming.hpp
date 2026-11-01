@@ -209,6 +209,10 @@ struct StreamingCounts {
 // Thread safety: main thread only (the thread that owns the VoxelWorld).
 // Jobs touch only their own slot and the ChunkSource.
 class StreamingManager {
+    static constexpr i32 kNoReachLimit = 0x7FFFFFFF;
+    static constexpr i32 kLeastMeshReach = 4; // Chunks kept meshed however tight memory is.
+    static constexpr u32 kShrinkPause = 20;   // Frames between steps of shrinking.
+
 public:
     explicit StreamingManager(const StreamingDesc& desc);
     // Waits for running jobs. Meshes stay with the sink; call unloadAll()
@@ -250,6 +254,9 @@ public:
     [[nodiscard]] ChunkPos center() const noexcept { return m_center; }
     [[nodiscard]] i32 renderDistance() const noexcept;
     [[nodiscard]] i32 verticalRenderDistance() const noexcept;
+    // How far chunks get meshes, in chunks: the render distance, or less if
+    // the renderer ran out of space for that many.
+    [[nodiscard]] i32 meshReach() const noexcept { return std::min(m_rangeR, m_memoryReach); }
     // One line for the debug overlay.
     [[nodiscard]] std::string summary() const;
 
@@ -348,6 +355,8 @@ private:
     [[nodiscard]] u32 lightLimit() const noexcept;
     void processChangedChunks();
     void uploadMeshes();
+    void makeMeshRoom();
+    [[nodiscard]] i32 meshKept() const noexcept;
     void scheduleMeshes();
     void requestMaintenance();
     void maintain();
@@ -443,7 +452,10 @@ private:
     TimePoint m_burstEnd{};
     Stopwatch m_burstClock;
     UpdateTimes m_times;
-    bool m_warnedRefused = false;
+    // Set when the renderer ran out of space (see makeMeshRoom).
+    i32 m_memoryReach = kNoReachLimit;
+    u32 m_framesSinceShrink = kShrinkPause;
+    bool m_meshRefused = false;
 
     StreamingSettings m_settings;
 
@@ -451,6 +463,7 @@ private:
         std::array<stats::StatId, kChunkStageCount> stages;
         stats::StatId loaded;
         stats::StatId meshed;
+        stats::StatId meshReach;
         stats::StatId loadedPerFrame;
         stats::StatId meshedPerFrame;
         stats::StatId uploadedPerFrame;

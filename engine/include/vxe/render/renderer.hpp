@@ -32,8 +32,8 @@ struct RendererDesc {
     input::InputSystem* input = nullptr;  // Optional: debug draw keys (F3+G).
     input::InputContextId debugContext{}; // The always active context for debug keys.
     rhi::ShaderFileReader shaders{};
-    usize chunkArenaBytes = usize{256} << 20U;
-    u32 maxChunks = 32768;
+    usize chunkArenaBytes = usize{1024} << 20U;
+    u32 maxChunks = 131072;
     usize lodArenaBytes = usize{96} << 20U;
 };
 

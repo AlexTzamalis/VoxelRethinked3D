@@ -62,11 +62,12 @@ struct ChunkRendererDesc {
     rhi::ShaderFileReader shaders{};
     rhi::Format colorFormat = rhi::Format::RGBA16Float;
     rhi::Format depthFormat = rhi::Format::D32Float;
-    // The vertex arena all chunk quads live in (Section 8.2). The plan's
-    // default is 512 MB; the arena does not grow yet, so a full arena
-    // refuses uploads (counted in Render.Chunks.UploadsOutOfMemory).
-    usize arenaBytes = usize{256} << 20U;
-    u32 maxChunks = 32768;
+    // The vertex arena all chunk quads live in (Section 8.2). It does not grow,
+    // so a full arena refuses uploads (counted in Render.Chunks.UploadsOutOfMemory)
+    // and streaming pulls real chunks in until they fit. Sized for render
+    // distance 32 over leafy terrain, where a chunk can hold 13 KB of quads.
+    usize arenaBytes = usize{1024} << 20U;
+    u32 maxChunks = 131072;
     // CPU write staging per frame in flight, the hard cap of the upload
     // budget setting.
     usize stagingBytesPerFrame = usize{16} << 20U;

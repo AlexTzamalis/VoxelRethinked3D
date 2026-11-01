@@ -211,7 +211,7 @@ StreamingSettings::StreamingSettings(config::SettingsRegistry& settings, u32 loa
     maxChunks = integer("World.Streaming.MaxChunks", "Most chunks",
                         "The most chunks loaded or waiting to load, a memory cap. Normally the render "
                         "distance decides.",
-                        262144, 1024, 4194304, config::Visibility::Advanced);
+                        524288, 1024, 4194304, config::Visibility::Advanced);
     unloadHysteresis = integer("World.Streaming.UnloadHysteresisChunks", "Unload margin",
                                "How many chunks past the render distance chunks stay, so moving back and "
                                "forth at the edge does not load them again and again.",
@@ -272,6 +272,7 @@ void StreamingManager::registerStats() {
     };
     m_statIds.loaded = gauge("Voxel.Streaming.Loaded", "Chunks in the world.");
     m_statIds.meshed = gauge("Voxel.Streaming.Meshed", "Chunks with a mesh on the GPU.");
+    m_statIds.meshReach = gauge("Voxel.Streaming.MeshReach", "How far real chunks reach, in chunks.");
     m_statIds.loadedPerFrame = counter("Voxel.Streaming.ChunksLoaded", "Chunks put into the world.");
     m_statIds.meshedPerFrame = counter("Voxel.Streaming.ChunksMeshed", "Chunk meshes finished.");
     m_statIds.uploadedPerFrame = counter("Voxel.Streaming.ChunksUploaded", "Chunk meshes handed to the GPU.");
@@ -342,14 +343,21 @@ bool StreamingManager::within(ChunkPos position, i32 horizontal, i32 vertical) c
     return std::max(dx, dz) <= horizontal && dy <= vertical;
 }
 
+// How far existing meshes stay. The margin saves work at the edge, but with
+// memory short it would hold room that nearer chunks need: meshes arrive out of
+// order, so the outer ring can fill up while a chunk inside it waits.
+i32 StreamingManager::meshKept() const noexcept {
+    return m_memoryReach == kNoReachLimit ? meshReach() + m_hysteresis : meshReach();
+}
+
 bool StreamingManager::wantsLight(ChunkPos position, const Entry& entry) const noexcept {
     return within(position, m_rangeR + 1, m_rangeV + 1) ||
            (entry.lit && within(position, m_rangeR + 1 + m_hysteresis, m_rangeV + 1 + m_hysteresis));
 }
 
 bool StreamingManager::wantsMesh(ChunkPos position, const Entry& entry) const noexcept {
-    return within(position, m_rangeR, m_rangeV) ||
-           (entry.meshed && within(position, m_rangeR + m_hysteresis, m_rangeV + m_hysteresis));
+    return within(position, meshReach(), m_rangeV) ||
+           (entry.meshed && within(position, meshKept(), m_rangeV + m_hysteresis));
 }
 
 f32 StreamingManager::score(ChunkPos position) const noexcept {
@@ -402,6 +410,9 @@ void StreamingManager::readSettings() {
     }
     m_rangeR = range;
     m_rangeV = vertical;
+    if (rangeChanged) {
+        m_memoryReach = kNoReachLimit; // A new range gets a new try.
+    }
     m_order = order;
     m_hysteresis = hysteresis;
     if (rangeChanged) {
@@ -586,6 +597,7 @@ void StreamingManager::update(const StreamingView& view) {
     processEditedChunks();
     processChangedChunks();
     uploadMeshes();
+    makeMeshRoom();
     scheduleLights();
     scheduleMeshes();
     maintain();
@@ -1117,16 +1129,47 @@ void StreamingManager::uploadMeshes() {
             if (m_stats != nullptr && m_statIds.uploadedPerFrame.isValid()) {
                 m_stats->add(m_statIds.uploadedPerFrame);
             }
-        } else if (!m_warnedRefused) {
-            m_warnedRefused = true;
-            VXE_LOG_WARN(log::core, "Streaming: the renderer refused a chunk mesh (out of space); chunks "
-                                    "will be missing until some unload");
+        } else {
+            // Still wanted: it stays dirty and comes again after room is made,
+            // whether it is a new chunk or an edit of one on screen.
+            entry.meshDirty = true;
+            m_meshRefused = true;
+            setStage(entry, ChunkStage::Ready);
+            freeMeshSlot(index);
+            continue;
         }
         setStage(entry, ChunkStage::Ready);
         freeMeshSlot(index);
         considerWork(slot.position, entry);
     }
     m_uploadQueue.erase(m_uploadQueue.begin(), m_uploadQueue.begin() + static_cast<std::ptrdiff_t>(used));
+}
+
+// Called every update. When the renderer is out of space, real chunks stop one
+// ring earlier and far terrain shows beyond them, so that the chunks nearest
+// the player always have their meshes. Dropping a ring takes a moment to free
+// memory, so the next step waits and a burst of refusals counts as one.
+void StreamingManager::makeMeshRoom() {
+    if (m_framesSinceShrink < kShrinkPause) {
+        ++m_framesSinceShrink;
+        return;
+    }
+    if (!m_meshRefused) {
+        return;
+    }
+    m_meshRefused = false;
+    m_framesSinceShrink = 0;
+    // The floor stops the shrinking, not the retrying: room can still appear.
+    if (meshReach() > kLeastMeshReach) {
+        m_memoryReach = meshReach() - 1;
+        VXE_LOG_WARN(log::core,
+                     "Streaming: chunk memory is full; real chunks now reach {} chunks, far "
+                     "terrain shows the rest",
+                     m_memoryReach);
+    } else {
+        m_memoryReach = meshReach();
+    }
+    requestMaintenance(); // Drops the far rings and offers the refused chunks again.
 }
 
 void StreamingManager::scheduleMeshes() {
@@ -1256,7 +1299,7 @@ void StreamingManager::maintainEntry(ChunkPos position, Entry& entry) {
         m_unloadQueue.push_back(position);
         return;
     }
-    if (entry.meshed && !within(position, m_rangeR + m_hysteresis, m_rangeV + m_hysteresis)) {
+    if (entry.meshed && !within(position, meshKept(), m_rangeV + m_hysteresis)) {
         unmesh(position, entry);
     }
     if (m_passRemesh && entry.meshed) {
@@ -1409,8 +1452,8 @@ void StreamingManager::updateBurst() {
 
 bool StreamingManager::isSettled() const noexcept {
     return m_hasCenter && m_scanDone && !m_maintaining && !m_maintainAgain && !m_remeshAll &&
-           !m_meshBacklog && !m_relightAll && !m_lightBacklog && m_unloadQueue.empty() && m_pending.empty() &&
-           m_busyLoadSlots.empty() && m_busyLightSlots.empty() && m_lightQueue.empty() &&
+           !m_meshRefused && !m_meshBacklog && !m_relightAll && !m_lightBacklog && m_unloadQueue.empty() &&
+           m_pending.empty() && m_busyLoadSlots.empty() && m_busyLightSlots.empty() && m_lightQueue.empty() &&
            m_busyMeshSlots.empty() && m_uploadQueue.empty() && m_meshQueue.empty();
 }
 
@@ -1439,6 +1482,8 @@ bool StreamingManager::isAreaReady(i32 radius, i32 layers) const {
 }
 
 void StreamingManager::unloadAll() {
+    m_memoryReach = kNoReachLimit;
+    m_meshRefused = false;
     for (const u16 index : m_busyLoadSlots) {
         m_loadSlots[index]->cancelled.store(true, std::memory_order_relaxed);
     }
@@ -1536,6 +1581,7 @@ void StreamingManager::publishStats() {
     set(m_statIds.loaded, m_counts.loaded);
     set(m_statIds.meshed, m_counts.meshed);
     set(m_statIds.burst, m_bursting ? 1 : 0);
+    set(m_statIds.meshReach, static_cast<usize>(meshReach()));
 }
 
 } // namespace vxe::voxel

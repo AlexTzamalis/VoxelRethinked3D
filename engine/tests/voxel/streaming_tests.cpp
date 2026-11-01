@@ -73,6 +73,7 @@ public:
     HashSet<ChunkPos> held;         // Chunks with a mesh now.
     u32 removals = 0;
     i32 budget = -1;
+    i32 capacity = -1; // Most chunks held; negative: no limit.
     i32 acceptedThisFrame = 0;
     i32 mostInOneFrame = 0;
     f32 scale = 1.0F;
@@ -82,6 +83,9 @@ public:
     [[nodiscard]] Result upload(const voxel::ChunkMesh& mesh) override {
         if (budget >= 0 && acceptedThisFrame >= static_cast<i32>(static_cast<f32>(budget) * scale)) {
             return Result::OverBudget;
+        }
+        if (capacity >= 0 && !held.contains(mesh.position) && std::cmp_greater_equal(held.size(), capacity)) {
+            return Result::Refused;
         }
         ++acceptedThisFrame;
         mostInOneFrame = std::max(mostInOneFrame, acceptedThisFrame);
@@ -342,6 +346,40 @@ TEST_CASE("Uploads over the sink's budget wait for the next frame") {
     rig.settle();
     CHECK(rig.sink.mostInOneFrame == 3);
     CHECK(rig.manager->counts().meshed == 5U * 5U * 3U);
+    rig.checkConsistent();
+}
+
+TEST_CASE("Out of renderer memory, the nearest chunks keep their meshes and edits still show") {
+    Rig rig;
+    rig.set("World.Streaming.RenderDistance", 6);
+    // Room for a radius of 4 (9 x 9 x 3 layers) and a few more, not for 6.
+    rig.sink.capacity = 300;
+    rig.settle();
+    const i32 reach = rig.manager->meshReach();
+    MESSAGE("Meshes reach " << reach << " of 6 chunks, " << rig.sink.held.size() << " held");
+    CHECK(reach < 6);
+    CHECK(reach >= 4);
+    CHECK(std::cmp_less_equal(rig.sink.held.size(), rig.sink.capacity));
+    rig.checkConsistent();
+    // Nothing near is missing, and nothing beyond the reach took its place.
+    for (i32 z = -reach; z <= reach; ++z) {
+        for (i32 x = -reach; x <= reach; ++x) {
+            for (i32 y = -1; y <= 1; ++y) {
+                CHECK(rig.sink.held.contains({.x = x, .y = y, .z = z}));
+            }
+        }
+    }
+    // An edit replaces its chunk's mesh even with memory full.
+    const ChunkPos edited{.x = 1, .y = 0, .z = 1};
+    const u32 before = rig.sink.uploads[edited];
+    REQUIRE(rig.world.setBlock({.x = 20, .y = 10, .z = 20}, kStone));
+    rig.settle();
+    CHECK(rig.sink.uploads[edited] > before);
+    // A new render distance tries again.
+    rig.sink.capacity = -1;
+    rig.set("World.Streaming.RenderDistance", 5);
+    rig.settle();
+    CHECK(rig.manager->meshReach() == 5);
     rig.checkConsistent();
 }
 
