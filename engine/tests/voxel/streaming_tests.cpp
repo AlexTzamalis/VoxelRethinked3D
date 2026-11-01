@@ -12,6 +12,8 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -33,6 +35,13 @@ public:
     std::atomic<u32> produced{0};
     std::atomic<u32> sawCancel{0};
     std::atomic<bool> hold{false};
+    std::optional<i32> ground; // What surfaceLayer answers.
+    std::mutex orderLock;
+    std::vector<ChunkPos> order; // Chunks in the order they were produced.
+
+    [[nodiscard]] std::optional<i32> surfaceLayer(i32 /*chunkX*/, i32 /*chunkZ*/) const override {
+        return ground;
+    }
 
     void produce(const voxel::ChunkRequest& request, voxel::ChunkProduct& out) override {
         while (hold.load()) {
@@ -44,6 +53,10 @@ public:
         }
         ++produced;
         const ChunkPos position = request.position();
+        {
+            const std::lock_guard lock(orderLock);
+            order.push_back(position);
+        }
         if (position.y < 0) {
             out.blocks.fill(kStone);
             out.light = voxel::ChunkLight(voxel::kDarkLight); // Underground arrives lit (as from a save).
@@ -381,6 +394,32 @@ TEST_CASE("Out of renderer memory, the nearest chunks keep their meshes and edit
     rig.settle();
     CHECK(rig.manager->meshReach() == 5);
     rig.checkConsistent();
+}
+
+TEST_CASE("The ground at the edge of the view loads before sky and rock near the camera") {
+    Rig rig(true, -24, 24);
+    rig.source.ground = 0;
+    rig.set("World.Streaming.RenderDistance", 4);
+    rig.set("World.Streaming.VerticalRenderDistance", 14);
+    rig.moveTo({.x = 0, .y = 12, .z = 0}); // High above the ground.
+    rig.settle();
+    // Jobs finish out of order, so a few ground chunks may land after the first
+    // sky chunk, but nearly all of them must come before it.
+    usize ground = 0;
+    usize groundBeforeSky = 0;
+    bool skySeen = false;
+    const usize total = rig.source.order.size();
+    for (const ChunkPos& at : rig.source.order) {
+        skySeen = skySeen || (at.y >= 5 && at.y <= 8); // By neither the ground nor the camera.
+        if (std::abs(at.y) <= 4) {
+            ++ground;
+            groundBeforeSky += skySeen ? 0U : 1U;
+        }
+    }
+    MESSAGE(groundBeforeSky << " of " << ground << " ground chunks came before the first sky chunk");
+    CHECK(groundBeforeSky * 10 > ground * 9);
+    // And in the end nothing is missing.
+    CHECK(rig.manager->counts().loaded == total);
 }
 
 TEST_CASE("Jobs in flight stay within their limits, and burst mode raises them") {

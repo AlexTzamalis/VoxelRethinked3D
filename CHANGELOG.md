@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#123] 2026-11-02, Load the ground first
+### Changed
+- Chunks around the ground and the camera load before empty sky and solid rock, so the ground at the edge of the view no longer waits behind them.
+
 ## [#122] 2026-11-02, Keep chunks on screen at long render distances
 ### Fixed
 - Chunks far from spawn went missing at long render distances: the renderer ran out of mesh memory, and blocks changed there never showed.

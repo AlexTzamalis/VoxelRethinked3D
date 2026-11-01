@@ -69,6 +69,17 @@ public:
     // air above the terrain, all stone deep below) should use
     // out.blocks.fill(), which is nearly free.
     virtual void produce(const ChunkRequest& request, ChunkProduct& out) = 0;
+
+    // About which chunk layer holds the ground of this chunk column, or nothing
+    // if the source cannot tell. Streaming loads those layers first: at long
+    // distances most wanted chunks are empty sky or solid rock, and the ground
+    // at the edge of the view should not wait behind them. A rough answer is
+    // fine. Called on the main thread once per column, so it has to be quick.
+    [[nodiscard]] virtual std::optional<i32> surfaceLayer(i32 chunkX, i32 chunkZ) const {
+        static_cast<void>(chunkX);
+        static_cast<void>(chunkZ);
+        return std::nullopt;
+    }
 };
 
 } // namespace vxe::voxel

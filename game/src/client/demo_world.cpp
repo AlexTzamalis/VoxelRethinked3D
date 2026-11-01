@@ -27,6 +27,15 @@ void DemoChunkSource::produce(const vxe::voxel::ChunkRequest& request, vxe::voxe
         (vxe::i64{position.x} * vxe::kChunkSize) + 8, (vxe::i64{position.z} * vxe::kChunkSize) + 8));
 }
 
+std::optional<vxe::i32> DemoChunkSource::surfaceLayer(vxe::i32 chunkX, vxe::i32 chunkZ) const {
+    const auto middle = [](vxe::i32 chunk) {
+        return static_cast<vxe::f64>((vxe::i64{chunk} * vxe::kChunkSize) + 8);
+    };
+    const vxe::f64 height = std::max(m_terrain.roughGround(middle(chunkX), middle(chunkZ)).height,
+                                     static_cast<vxe::f64>(Terrain::kSeaLevel));
+    return static_cast<vxe::i32>(std::floor(height / vxe::kChunkSize));
+}
+
 DemoWorld::DemoWorld(const DemoWorldDesc& desc, const TerrainBlocks& blocks)
     : m_chunks(desc.chunks)
     , m_catalog(*desc.catalog)

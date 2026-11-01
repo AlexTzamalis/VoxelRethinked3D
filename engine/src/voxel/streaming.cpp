@@ -23,6 +23,8 @@ constexpr f32 kVerticalWeight = 2.0F;
 // chunks near the camera loaded, a scan is mostly hash lookups that find
 // something, and this keeps one such update far below the budget.
 constexpr usize kMaxScanPerUpdate = 16384;
+constexpr i64 kCameraLayers = 3; // Layers around the camera that load with the ground.
+constexpr i64 kGroundLayers = 4; // Layers around the ground that load first.
 // The pending heap holds at least this many candidates, else twice the
 // load jobs in flight: enough to pick well, small enough to rescore at once.
 constexpr usize kMinPending = 64;
@@ -527,6 +529,7 @@ void StreamingManager::reprioritize() {
     std::ranges::make_heap(m_lightQueue, kLater);
     m_scanCursor = 0;
     m_scanDone = false;
+    m_scanGroundOnly = true;
     requestMaintenance();
 }
 
@@ -1359,6 +1362,27 @@ void StreamingManager::maintain() {
     }
 }
 
+// True for what the player sees first: chunks around the camera and around the
+// ground of their column. Everything else is air or rock.
+bool StreamingManager::isNearGround(ChunkPos position) {
+    if (std::abs(i64{position.y} - m_center.y) <= kCameraLayers) {
+        return true;
+    }
+    const ColumnPos column{.x = position.x, .z = position.z};
+    auto it = m_groundLayers.find(column);
+    if (it == m_groundLayers.end()) {
+        // Forgets columns long left behind; the far side of a ring is at most a
+        // few times the size of the view.
+        const usize side = static_cast<usize>(m_rangeR) * 2 + 5;
+        if (m_groundLayers.size() > side * side * 4) {
+            m_groundLayers.clear();
+        }
+        const std::optional<i32> layer = m_source.surfaceLayer(position.x, position.z);
+        it = m_groundLayers.emplace(column, layer.value_or(position.y)).first;
+    }
+    return std::abs(i64{position.y} - it->second) <= kGroundLayers;
+}
+
 // Walks the offsets from the nearest, adding every chunk not tracked yet
 // to the pending heap until the heap is full, the chunk cap is reached or
 // the time is up. The cursor stays where it stopped.
@@ -1370,19 +1394,31 @@ void StreamingManager::requestChunks() {
     const usize heapCap = std::max<usize>(kMinPending, usize{2} * loadLimit());
     const auto chunkCap = static_cast<usize>(std::max(m_settings.maxChunks.get(), 1));
     usize examined = 0;
-    while (m_scanCursor < m_offsets.size()) {
+    usize looked = 0;
+    for (;;) {
+        if (m_scanCursor >= m_offsets.size()) {
+            // Everything near the ground is asked for; now all the rest.
+            if (!m_scanGroundOnly) {
+                break;
+            }
+            m_scanGroundOnly = false;
+            m_scanCursor = 0;
+        }
         if (m_pending.size() >= heapCap || m_entries.size() >= chunkCap || examined >= kMaxScanPerUpdate) {
             return;
         }
-        if (examined > 0 && examined % kClockStride == 0 && overBudget()) {
+        if (++looked % kClockStride == 0 && overBudget()) {
             return;
         }
-        ++examined;
         const Offset offset = m_offsets[m_scanCursor++];
         const auto position = offsetPosition(m_center, offset.x, offset.y, offset.z);
         if (!position || !inWorldHeight(position->y)) {
             continue;
         }
+        if (m_scanGroundOnly && !isNearGround(*position)) {
+            continue;
+        }
+        ++examined;
         if (!m_entries.try_emplace(*position).second) {
             continue;
         }
@@ -1525,6 +1561,7 @@ void StreamingManager::unloadAll() {
     m_meshQueue.clear();
     m_world.clearChangedChunks();
     m_unloadQueue.clear();
+    m_scanGroundOnly = true;
     m_scanCursor = 0;
     m_scanDone = false;
     m_maintaining = false;

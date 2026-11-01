@@ -62,6 +62,7 @@ public:
     // Saved chunks then win over generated ones. Optional; set before streaming.
     void setSaver(WorldSaver* saver) noexcept { m_saver = saver; }
     void produce(const vxe::voxel::ChunkRequest& request, vxe::voxel::ChunkProduct& out) override;
+    [[nodiscard]] std::optional<vxe::i32> surfaceLayer(vxe::i32 chunkX, vxe::i32 chunkZ) const override;
 
 private:
     const Terrain& m_terrain;

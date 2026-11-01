@@ -356,6 +356,7 @@ private:
     void processChangedChunks();
     void uploadMeshes();
     void makeMeshRoom();
+    [[nodiscard]] bool isNearGround(ChunkPos position);
     [[nodiscard]] i32 meshKept() const noexcept;
     void scheduleMeshes();
     void requestMaintenance();
@@ -413,6 +414,8 @@ private:
     std::vector<Offset> m_offsets;      // Load range offsets, nearest first.
     usize m_scanCursor = 0;
     bool m_scanDone = false;
+    bool m_scanGroundOnly = true;           // First the ground, then all the rest.
+    HashMap<ColumnPos, i32> m_groundLayers; // From ChunkSource::surfaceLayer.
     usize m_maintainCursor = 0;
     bool m_maintaining = false;          // A maintenance pass runs.
     bool m_maintainAgain = false;        // Another pass follows the running one.
