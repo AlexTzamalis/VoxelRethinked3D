@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#124] 2026-11-02, Share terrain columns between threads
+### Performance
+- Worker threads reuse each other's terrain columns instead of each building its own.
+
 ## [#123] 2026-11-02, Load the ground first
 ### Changed
 - Chunks around the ground and the camera load before empty sky and solid rock, so the ground at the edge of the view no longer waits behind them.

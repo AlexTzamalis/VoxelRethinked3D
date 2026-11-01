@@ -4,9 +4,11 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -276,4 +278,30 @@ TEST_CASE("Water brings life to its banks") {
     MESSAGE(green << " of " << banks << " bank columns can grow plants");
     REQUIRE(banks > 10);
     CHECK(green * 2 > banks);
+}
+
+TEST_CASE("Threads sharing columns get what one thread builds alone") {
+    const Terrain alone(blocks(), 4243, PlanetPreset{}, false);
+    std::vector<i64> expected;
+    for (i64 i = 0; i < 400; ++i) {
+        expected.push_back(alone.surfaceHeight(i * 16, (i % 20) * 16));
+    }
+    const Terrain shared(blocks(), 4243, PlanetPreset{}, false);
+    std::atomic<usize> wrong{0};
+    std::vector<std::thread> threads;
+    for (i64 worker = 0; worker < 6; ++worker) {
+        threads.emplace_back([&, worker] {
+            for (i64 round = 0; round < 3; ++round) {
+                for (i64 i = 0; i < 400; ++i) {
+                    const i64 at = (i + (worker * 67)) % 400;
+                    const i64 height = shared.surfaceHeight(at * 16, (at % 20) * 16);
+                    wrong += height == expected[static_cast<usize>(at)] ? 0U : 1U;
+                }
+            }
+        });
+    }
+    for (std::thread& thread : threads) {
+        thread.join();
+    }
+    CHECK(wrong.load() == 0);
 }

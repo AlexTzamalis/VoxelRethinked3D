@@ -9,6 +9,7 @@
 #include <vxe/math/coords.hpp>
 #include <vxe/voxel/block_registry.hpp>
 
+#include <memory>
 #include <optional>
 #include <span>
 
@@ -137,6 +138,7 @@ public:
 
 private:
     struct Column;
+    struct SharedColumns;
 
     // The chunk column's heights, from this thread's cache. The reference
     // holds until the next call on this thread.
@@ -177,6 +179,7 @@ private:
     Planet m_planet;
     Climate m_climate;
     RiverNetwork m_rivers;
+    std::shared_ptr<SharedColumns> m_shared; // Columns all threads can reuse.
     bool m_riversOn;
 };
 

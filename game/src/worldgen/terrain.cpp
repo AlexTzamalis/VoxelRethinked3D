@@ -5,7 +5,10 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <memory>
+#include <thread>
 #include <vector>
 
 namespace vr {
@@ -36,6 +39,7 @@ constexpr f64 kOverhangMost = 12.0;       // Blocks a rock face leans at most.
 constexpr i64 kTreeHeadroom = 32;         // The tallest tree, above any ground.
 constexpr i64 kFeatureCell = 19;          // Blocks per side of a boulder or fallen log cell.
 constexpr i64 kFeatureReach = 7;          // How far those reach from their cell's spot.
+constexpr usize kSharedColumns = 8192;    // For all threads, a power of two.
 constexpr usize kCacheColumns = 256;      // Per thread, a power of two.
 constexpr f64 kFarRiverCell = 4.0;        // Far cells wider than this leave rivers and lakes out.
 constexpr f64 kDryGreenDamp = 0.8;        // The same on dry land, where water does less.
@@ -495,10 +499,11 @@ struct Terrain::Column {
 Terrain::Terrain(const TerrainBlocks& blocks, u64 seed, const PlanetPreset& preset, bool rivers) noexcept
     : m_blocks(blocks)
     , m_seed(seed)
-    , m_identity(mix(seed) ^ vxe::hashBytes(std::as_bytes(std::span(&preset, 1))))
+    , m_identity(mix(seed + (rivers ? 1U : 0U)) ^ vxe::hashBytes(std::as_bytes(std::span(&preset, 1))))
     , m_planet(seed, preset)
     , m_climate(seed, m_planet)
     , m_rivers(m_planet)
+    , m_shared(std::make_shared<SharedColumns>())
     , m_riversOn(rivers) {}
 
 void Terrain::gullies(f64 x, f64 z, f64 shortest, f64 strength, Ground& out, f64& slopeX,
@@ -669,6 +674,35 @@ f64 Terrain::treeCover(Biome biome) const noexcept {
     return std::min(1.0, static_cast<f64>(m_blocks.biomes[static_cast<usize>(biome)].trees) * 1.3);
 }
 
+// Held for the few hundred nanoseconds of a copy, so spinning beats sleeping.
+class SpinLock {
+public:
+    explicit SpinLock(std::atomic_flag& flag) noexcept
+        : m_flag(flag) {
+        while (m_flag.test_and_set(std::memory_order_acquire)) {
+            while (m_flag.test(std::memory_order_relaxed)) {
+                std::this_thread::yield();
+            }
+        }
+    }
+    ~SpinLock() { m_flag.clear(std::memory_order_release); }
+    SpinLock(const SpinLock&) = delete;
+    SpinLock& operator=(const SpinLock&) = delete;
+    SpinLock(SpinLock&&) = delete;
+    SpinLock& operator=(SpinLock&&) = delete;
+
+private:
+    std::atomic_flag& m_flag;
+};
+
+struct Terrain::SharedColumns {
+    struct Slot {
+        std::atomic_flag busy;
+        std::unique_ptr<Column> column; // Made when first used: most slots of a small view stay empty.
+    };
+    std::vector<Slot> slots = std::vector<Slot>(kSharedColumns);
+};
+
 void Terrain::buildColumn(i32 chunkX, i32 chunkZ, Column& column) const noexcept {
     const vxe::BlockPos origin = vxe::chunkOrigin({.x = chunkX, .y = 0, .z = chunkZ});
     std::array<Ground, kGridPoints * kGridPoints> grid;
@@ -770,9 +804,31 @@ const Terrain::Column& Terrain::column(i32 chunkX, i32 chunkZ) const {
     const u64 h =
         mix(m_identity ^ ((static_cast<u64>(static_cast<u32>(chunkX)) << 32U) | static_cast<u32>(chunkZ)));
     Column& entry = cache[h & (kCacheColumns - 1)];
-    if (!entry.valid || entry.identity != m_identity || entry.chunkX != chunkX || entry.chunkZ != chunkZ) {
-        buildColumn(chunkX, chunkZ, entry);
+    const auto holds = [&](const Column& column) {
+        return column.valid && column.identity == m_identity && column.chunkX == chunkX &&
+               column.chunkZ == chunkZ;
+    };
+    if (holds(entry)) {
+        return entry;
     }
+    // A long view holds far more columns than a thread keeps, and the chunks of
+    // one column reach different workers, so without this each of them builds
+    // it again. Columns are copied out to keep the reference this returns away
+    // from other threads; a copy costs a thousandth of a build.
+    SharedColumns::Slot& slot = m_shared->slots[(h >> 16U) & (kSharedColumns - 1)];
+    {
+        const SpinLock lock(slot.busy);
+        if (slot.column != nullptr && holds(*slot.column)) {
+            entry = *slot.column;
+            return entry;
+        }
+    }
+    buildColumn(chunkX, chunkZ, entry);
+    const SpinLock lock(slot.busy);
+    if (slot.column == nullptr) {
+        slot.column = std::make_unique<Column>();
+    }
+    *slot.column = entry;
     return entry;
 }
 
