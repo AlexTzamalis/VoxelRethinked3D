@@ -1,0 +1,9 @@
+name = "quartz_pillar"
+display_name = "Quartz Pillar"
+category = "Building"
+layer = "opaque"
+
+[textures]
+top = "quartz_pillar_top"
+bottom = "quartz_pillar_top"
+side = "quartz_pillar_side"

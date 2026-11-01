@@ -1,0 +1,7 @@
+name = "emerald_ore"
+display_name = "Emerald Ore"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "emerald_ore"

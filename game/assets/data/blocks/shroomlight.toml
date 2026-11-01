@@ -1,0 +1,8 @@
+name = "shroomlight"
+display_name = "Shroomlight"
+category = "Light"
+layer = "opaque"
+emitted_light = 15
+
+[textures]
+all = "light_sources/shroomlight"

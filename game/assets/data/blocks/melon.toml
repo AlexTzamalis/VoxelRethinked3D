@@ -1,0 +1,9 @@
+name = "melon"
+display_name = "Melon"
+category = "Crops"
+layer = "opaque"
+
+[textures]
+top = "crops/melon_top"
+bottom = "crops/melon_top"
+side = "crops/melon_side"

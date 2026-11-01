@@ -1,0 +1,6 @@
+name = "sunflower_top"
+display_name = "Sunflower"
+category = "Plants"
+layer = "plant"
+hidden = true
+variations = ["crops/sunflower_front"]

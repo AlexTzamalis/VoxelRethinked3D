@@ -1,0 +1,5 @@
+name = "sugar_cane"
+display_name = "Sugar Cane"
+category = "Crops"
+layer = "plant"
+variations = ["crops/sugar_cane"]

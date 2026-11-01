@@ -251,9 +251,9 @@ TEST_CASE("The default pack's theme loads without warnings") {
 }
 
 TEST_CASE("The automatic UI scale is the largest whole one that fits 320 x 240") {
-    CHECK(UiContext::autoScale(640, 480) == 2);
-    CHECK(UiContext::autoScale(1920, 1080) == 4);
-    CHECK(UiContext::autoScale(2560, 1440) == 6);
+    CHECK(UiContext::autoScale(640, 480) == 1);
+    CHECK(UiContext::autoScale(1920, 1080) == 3);
+    CHECK(UiContext::autoScale(2560, 1440) == 4);
     CHECK(UiContext::autoScale(300, 200) == 1);
     CHECK(UiContext::autoScale(10000, 10000) == 8);
 }

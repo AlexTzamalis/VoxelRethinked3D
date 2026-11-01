@@ -1,0 +1,7 @@
+name = "brown_mushroom_block"
+display_name = "Brown Mushroom Block"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "brown_mushroom_block"

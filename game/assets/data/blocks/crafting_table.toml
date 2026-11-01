@@ -1,0 +1,10 @@
+name = "crafting_table"
+display_name = "Crafting Table"
+category = "Building"
+layer = "opaque"
+
+[textures]
+top = "crafting_table_top"
+bottom = "oak_planks"
+side = "crafting_table_side"
+north = "crafting_table_front"

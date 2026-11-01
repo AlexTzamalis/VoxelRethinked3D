@@ -1,0 +1,6 @@
+name = "pumpkin_stem"
+display_name = "Pumpkin Stem"
+category = "Crops"
+layer = "plant"
+tint = 1
+variations = ["crops/pumpkin_stem"]

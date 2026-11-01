@@ -1,0 +1,19 @@
+name = "cherry_log"
+display_name = "Cherry Log"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "cherry_log"
+
+[[variants]]
+properties = { axis = "y" }
+textures = { top = "cherry_log_top", bottom = "cherry_log_top" }
+
+[[variants]]
+properties = { axis = "x" }
+textures = { east = "cherry_log_top", west = "cherry_log_top" }
+
+[[variants]]
+properties = { axis = "z" }
+textures = { south = "cherry_log_top", north = "cherry_log_top" }

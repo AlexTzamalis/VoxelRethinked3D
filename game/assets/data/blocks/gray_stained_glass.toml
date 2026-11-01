@@ -1,0 +1,9 @@
+name = "gray_stained_glass"
+display_name = "Gray Stained Glass"
+category = "Building"
+layer = "translucent"
+light_opacity = 0
+culls_same_type = true
+
+[textures]
+all = "gray_stained_glass"

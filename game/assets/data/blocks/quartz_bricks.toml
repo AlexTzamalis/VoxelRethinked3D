@@ -1,0 +1,7 @@
+name = "quartz_bricks"
+display_name = "Quartz Bricks"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "quartz_bricks"

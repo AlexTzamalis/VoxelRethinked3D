@@ -1,0 +1,7 @@
+name = "blue_coral_block"
+display_name = "Blue Coral Block"
+category = "Underwater"
+layer = "opaque"
+
+[textures]
+all = "underwater/blue_coral_block"

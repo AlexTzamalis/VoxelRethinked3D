@@ -1,0 +1,9 @@
+name = "yellow_stained_glass"
+display_name = "Yellow Stained Glass"
+category = "Building"
+layer = "translucent"
+light_opacity = 0
+culls_same_type = true
+
+[textures]
+all = "yellow_stained_glass"

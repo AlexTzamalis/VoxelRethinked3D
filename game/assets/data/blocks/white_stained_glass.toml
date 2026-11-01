@@ -1,0 +1,9 @@
+name = "white_stained_glass"
+display_name = "White Stained Glass"
+category = "Building"
+layer = "translucent"
+light_opacity = 0
+culls_same_type = true
+
+[textures]
+all = "white_stained_glass"

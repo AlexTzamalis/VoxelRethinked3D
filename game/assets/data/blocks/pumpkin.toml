@@ -1,0 +1,9 @@
+name = "pumpkin"
+display_name = "Pumpkin"
+category = "Crops"
+layer = "opaque"
+
+[textures]
+top = "crops/pumpkin_top"
+bottom = "crops/pumpkin_top"
+side = "crops/pumpkin_side"

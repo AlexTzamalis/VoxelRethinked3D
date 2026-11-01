@@ -1,0 +1,9 @@
+name = "cactus"
+display_name = "Cactus"
+category = "Plants"
+layer = "cutout"
+light_opacity = 0
+culls_same_type = false
+
+[textures]
+all = "crops/cactus_side"

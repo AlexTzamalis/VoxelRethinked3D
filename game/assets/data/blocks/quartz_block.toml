@@ -1,0 +1,9 @@
+name = "quartz_block"
+display_name = "Quartz Block"
+category = "Building"
+layer = "opaque"
+
+[textures]
+top = "quartz_block_top"
+bottom = "quartz_block_bottom"
+side = "quartz_block_side"

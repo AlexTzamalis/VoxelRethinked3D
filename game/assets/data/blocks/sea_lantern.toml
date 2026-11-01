@@ -1,0 +1,8 @@
+name = "sea_lantern"
+display_name = "Sea Lantern"
+category = "Light"
+layer = "opaque"
+emitted_light = 15
+
+[textures]
+all = "light_sources/sea_lantern"

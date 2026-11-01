@@ -1,0 +1,7 @@
+name = "red_concrete"
+display_name = "Red Concrete"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "red_concrete"

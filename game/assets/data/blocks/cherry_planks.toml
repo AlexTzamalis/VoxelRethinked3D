@@ -1,0 +1,7 @@
+name = "cherry_planks"
+display_name = "Cherry Planks"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "cherry_planks"

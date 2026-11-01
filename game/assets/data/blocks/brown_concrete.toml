@@ -1,0 +1,7 @@
+name = "brown_concrete"
+display_name = "Brown Concrete"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "brown_concrete"

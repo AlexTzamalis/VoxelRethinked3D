@@ -1,0 +1,5 @@
+name = "wheat_stage6"
+display_name = "Wheat Stage6"
+category = "Crops"
+layer = "plant"
+variations = ["crops/wheat_stage6"]

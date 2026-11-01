@@ -1,0 +1,7 @@
+name = "white_concrete"
+display_name = "White Concrete"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "white_concrete"

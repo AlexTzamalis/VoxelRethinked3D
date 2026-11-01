@@ -1,0 +1,6 @@
+name = "melon_stem"
+display_name = "Melon Stem"
+category = "Crops"
+layer = "plant"
+tint = 1
+variations = ["crops/melon_stem"]

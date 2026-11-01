@@ -1,0 +1,7 @@
+name = "gray_concrete_powder"
+display_name = "Gray Concrete Powder"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "gray_concrete_powder"

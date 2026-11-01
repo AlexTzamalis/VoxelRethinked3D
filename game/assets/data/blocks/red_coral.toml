@@ -1,0 +1,5 @@
+name = "red_coral"
+display_name = "Red Coral"
+category = "Underwater"
+layer = "plant"
+variations = ["underwater/red_coral"]

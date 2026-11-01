@@ -1,0 +1,5 @@
+name = "carrots_stage3"
+display_name = "Carrots Stage3"
+category = "Crops"
+layer = "plant"
+variations = ["crops/carrots_stage3"]

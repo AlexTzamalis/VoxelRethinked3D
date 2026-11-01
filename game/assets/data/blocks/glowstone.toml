@@ -1,0 +1,8 @@
+name = "glowstone"
+display_name = "Glowstone"
+category = "Light"
+layer = "opaque"
+emitted_light = 15
+
+[textures]
+all = "light_sources/glowstone"

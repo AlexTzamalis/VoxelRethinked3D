@@ -1,0 +1,7 @@
+name = "diamond_ore"
+display_name = "Diamond Ore"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "diamond_ore"

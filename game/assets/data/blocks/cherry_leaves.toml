@@ -1,0 +1,10 @@
+name = "cherry_leaves"
+display_name = "Cherry Leaves"
+category = "Nature"
+layer = "cutout"
+light_opacity = 1
+culls_same_type = false
+bushy = "advanced_leaves/cherry_leaves"
+
+[textures]
+all = "cherry_leaves"

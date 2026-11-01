@@ -1,0 +1,9 @@
+name = "farmland_moist"
+display_name = "Farmland Moist"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+top = "farmland_moist"
+bottom = "dirt"
+side = "dirt"

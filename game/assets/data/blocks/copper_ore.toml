@@ -1,0 +1,7 @@
+name = "copper_ore"
+display_name = "Copper Ore"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "copper_ore"

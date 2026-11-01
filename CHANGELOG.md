@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#126] 2026-11-02, Every block in the creative menu, smaller menus
+### Added
+- 76 blocks from the new textures: concrete and powder, stained glass, quartz, ores, cherry wood, farmland, melon, pumpkin, cactus, sunflower, crops with their growth stages, corals, coral fans, coral blocks, glowstone, shroomlight, sea lantern and torch.
+- Crops, Underwater and Light tabs in the block menu.
+
+### Changed
+- Automatic interface scale is smaller: 4x at 2560 x 1440, not 6x.
+
 ## [#125] 2026-11-02, Far terrain with texture detail and wider detail rings
 ### Added
 - Far terrain shows the detail of real block textures, with the colors it had before, so it fades out with distance without a seam.

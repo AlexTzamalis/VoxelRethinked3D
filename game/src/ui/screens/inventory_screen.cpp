@@ -11,10 +11,11 @@ namespace {
 using vxe::f32;
 using vxe::usize;
 
-constexpr f32 kPanelWidth = 260.0F;
+constexpr f32 kPanelWidth = 340.0F;
 constexpr f32 kCell = 22.0F;
 constexpr f32 kIcon = 16.0F;
-constexpr usize kColumns = 10;
+constexpr usize kColumns = 13;
+constexpr usize kTabsPerRow = 4;
 constexpr vxe::u16 kKeyE = 8;
 
 std::string lowered(std::string_view text) {
@@ -50,10 +51,16 @@ void InventoryScreen::build(vxe::ui::Widget& root) {
     m_search->setOnChange([this](const std::string& /*text*/) { rebuildGrid(); });
 
     auto& tabs = panel.add<Widget>();
-    tabs.style().direction = Direction::Row;
     tabs.style().gap = 2.0F;
+    Widget* tabRow = nullptr;
+    usize tabCount = 0;
     const auto addTab = [&](std::string name) {
-        auto& button = tabs.add<Button>(name.empty() ? "All" : name, [this, name] { showCategory(name); });
+        if (tabCount++ % kTabsPerRow == 0) {
+            tabRow = &tabs.add<Widget>();
+            tabRow->style().direction = Direction::Row;
+            tabRow->style().gap = 2.0F;
+        }
+        auto& button = tabRow->add<Button>(name.empty() ? "All" : name, [this, name] { showCategory(name); });
         button.style().grow = 1.0F;
         button.style().minWidth = 0.0F;
         m_tabs.emplace_back(std::move(name), &button);

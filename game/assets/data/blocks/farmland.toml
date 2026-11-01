@@ -1,0 +1,9 @@
+name = "farmland"
+display_name = "Farmland"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+top = "farmland"
+bottom = "dirt"
+side = "dirt"

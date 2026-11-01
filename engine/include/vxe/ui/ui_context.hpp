@@ -38,9 +38,9 @@ struct LayerOptions {
 // tooltips and draws everything with a UiRenderer.
 //
 // The scale is a whole number: Interface.UiScale, or with 0 (Auto) the
-// largest that fits a 320 x 240 UI pixel screen into the window, the
-// classic pixel art rule. Whole numbers keep every UI pixel the same size,
-// so text and pixel art stay crisp.
+// largest that leaves a screen of at least 480 x 300 UI pixels. The classic
+// 320 x 240 rule made everything huge on large monitors. Whole numbers keep
+// every UI pixel the same size, so text and pixel art stay crisp.
 //
 // Keyboard (E12.4): Tab and Shift+Tab walk the focusable widgets in tree
 // order, the arrows move to the nearest one in that direction, Enter
@@ -57,8 +57,8 @@ struct LayerOptions {
 class UiContext {
 public:
     // The smallest window, in UI pixels, the automatic scale keeps.
-    static constexpr u32 kReferenceWidth = 320;
-    static constexpr u32 kReferenceHeight = 240;
+    static constexpr u32 kReferenceWidth = 480;
+    static constexpr u32 kReferenceHeight = 300;
     static constexpr i32 kMaxScale = 8;
     // How long the pointer rests on a widget before its tooltip shows.
     static constexpr f32 kTooltipDelaySeconds = 0.5F;

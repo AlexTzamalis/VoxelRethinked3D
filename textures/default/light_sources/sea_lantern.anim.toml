@@ -1,0 +1,2 @@
+# Game ticks per frame, at 20 ticks per second.
+frametime = 5

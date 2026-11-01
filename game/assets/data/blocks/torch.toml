@@ -1,0 +1,6 @@
+name = "torch"
+display_name = "Torch"
+category = "Light"
+layer = "plant"
+emitted_light = 14
+variations = ["light_sources/torch"]

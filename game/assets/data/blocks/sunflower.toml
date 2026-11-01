@@ -1,0 +1,6 @@
+name = "sunflower"
+display_name = "Sunflower"
+category = "Plants"
+layer = "plant"
+tall_top = "sunflower_top"
+variations = ["crops/sunflower_bottom"]

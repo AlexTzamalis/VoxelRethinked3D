@@ -1,0 +1,5 @@
+name = "cactus_flower"
+display_name = "Cactus Flower"
+category = "Plants"
+layer = "plant"
+variations = ["crops/cactus_flower"]

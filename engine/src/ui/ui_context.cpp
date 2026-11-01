@@ -104,8 +104,8 @@ UiContext::UiContext(const UiContextDesc& desc)
     , m_scaleSetting(desc.settings->registerInt(
           {{.id = "Interface.UiScale",
             .displayName = "Interface scale",
-            .description = "Size of menus and the HUD in whole steps, so pixel art stays sharp. 0 picks the "
-                           "largest that fits the window."},
+            .description = "Size of menus, the hotbar and the block menu in whole steps, so pixel art "
+                           "stays sharp. 0 picks one that suits the window."},
            0,
            0,
            kMaxScale,
