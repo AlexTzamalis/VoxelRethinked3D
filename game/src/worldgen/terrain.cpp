@@ -37,6 +37,7 @@ constexpr i64 kTreeHeadroom = 32;    // The tallest tree, above any ground.
 constexpr i64 kFeatureCell = 19;     // Blocks per side of a boulder or fallen log cell.
 constexpr i64 kFeatureReach = 7;     // How far those reach from their cell's spot.
 constexpr usize kCacheColumns = 256; // Per thread, a power of two.
+constexpr f64 kFarRiverCell = 4.0;   // Far cells wider than this leave rivers and lakes out.
 constexpr i64 kBandHeight = 5;       // Blocks of one rock layer.
 
 constexpr u64 mix(u64 value) noexcept {
@@ -52,6 +53,11 @@ constexpr u64 hash3(u64 seed, i64 x, i64 y, i64 z) noexcept {
 
 i64 floorDiv(i64 value, i64 divisor) noexcept {
     return value >= 0 ? value / divisor : ((value + 1) / divisor) - 1;
+}
+
+// A lake's surface as a height in blocks.
+f64 lakeOf(f64 level) noexcept {
+    return level > kNoWater ? level + static_cast<f64>(Terrain::kSeaLevel) : kNoWater;
 }
 
 // A smooth wave with a period of 1, 1 at whole numbers and -1 half way, and
@@ -349,12 +355,14 @@ struct Terrain::Column {
     std::array<i32, vxe::kChunkArea> water{}; // The water surface over this column.
 };
 
-Terrain::Terrain(const TerrainBlocks& blocks, u64 seed, const PlanetPreset& preset) noexcept
+Terrain::Terrain(const TerrainBlocks& blocks, u64 seed, const PlanetPreset& preset, bool rivers) noexcept
     : m_blocks(blocks)
     , m_seed(seed)
     , m_identity(mix(seed) ^ vxe::hashBytes(std::as_bytes(std::span(&preset, 1))))
     , m_planet(seed, preset)
-    , m_climate(seed, m_planet) {}
+    , m_climate(seed, m_planet)
+    , m_rivers(m_planet)
+    , m_riversOn(rivers) {}
 
 void Terrain::gullies(f64 x, f64 z, f64 shortest, f64 strength, Ground& out, f64& slopeX,
                       f64& slopeZ) const noexcept {
@@ -419,8 +427,8 @@ Ground Terrain::ground(f64 x, f64 z, f64 shortest) const noexcept {
                .mountain = here.mountain,
                .rift = here.rift,
                .rough = here.rough,
-               .continent = here.continent,
-               .water = here.water > kNoWater ? here.water + static_cast<f64>(kSeaLevel) : kNoWater};
+               .continent = here.continent};
+    out.water = m_riversOn && shortest <= kFarRiverCell * 2.0 ? lakeOf(m_rivers.lakeAt(x, z)) : kNoWater;
     // Water carves what stands above the sea and is steep enough to run.
     const f64 strength = smooth(0.06, 0.55, out.slope) * smooth(2.0, 50.0, here.elevation);
     if (strength > 0.0) {
@@ -439,9 +447,21 @@ Ground Terrain::farGround(f64 x, f64 z, f64 cell) const noexcept {
                 .rift = here.rift,
                 .rough = here.rough,
                 .continent = here.continent,
-                .water = here.water > kNoWater ? here.water + static_cast<f64>(kSeaLevel) : kNoWater};
+                .water = kNoWater};
     }
     return ground(x, z, cell * 2.0);
+}
+
+void Terrain::carveInto(std::span<const RiverNetwork::Stretch> nearby, f64 x, f64 z, Ground& at) noexcept {
+    if (nearby.empty()) {
+        return;
+    }
+    const auto sea = static_cast<f64>(kSeaLevel);
+    const RiverNetwork::Carve carved = RiverNetwork::carve(nearby, x, z, at.height - sea);
+    at.height = carved.ground + sea;
+    if (carved.water > kNoWater) {
+        at.water = std::max(at.water, carved.water + sea);
+    }
 }
 
 BlockStateId Terrain::topOf(f64 x, f64 z, const Ground& at, Biome biome) const noexcept {
@@ -449,7 +469,7 @@ BlockStateId Terrain::topOf(f64 x, f64 z, const Ground& at, Biome biome) const n
     const f64 surface = std::max(at.water, static_cast<f64>(kSeaLevel));
     const bool underWater = at.height < surface;
     // Rivers and lakes have soft banks of the biome's floor.
-    if (at.water > kNoWater && at.height < at.water + 1.0) {
+    if (at.water > kNoWater && at.height < at.water + 0.5) {
         return look.floor;
     }
     if (!underWater) {
@@ -468,7 +488,14 @@ BlockStateId Terrain::topOf(f64 x, f64 z, const Ground& at, Biome biome) const n
 }
 
 Terrain::FarCell Terrain::farCell(f64 x, f64 z, f64 cell, const Climate::Field& field) const noexcept {
-    const Ground at = farGround(x, z, cell);
+    Ground at = farGround(x, z, cell);
+    // Rivers show as far as a cell can hold them.
+    if (m_riversOn && cell <= kFarRiverCell) {
+        thread_local std::vector<RiverNetwork::Stretch> nearby;
+        nearby.clear();
+        m_rivers.gather(x - cell, z - cell, x + cell, z + cell, nearby);
+        carveInto(nearby, x, z, at);
+    }
     const f64 above = at.height - static_cast<f64>(kSeaLevel);
     const ClimateSample weather = Climate::fromField(field, above, m_climate.coolPerBlock());
     const Biome biome = Climate::biome({.elevation = above,
@@ -499,6 +526,13 @@ void Terrain::buildColumn(i32 chunkX, i32 chunkZ, Column& column) const noexcept
         }
     }
     const Climate::Cell weatherCell = m_climate.cell(static_cast<f64>(origin.x), static_cast<f64>(origin.z));
+    thread_local std::vector<RiverNetwork::Stretch> nearby;
+    nearby.clear();
+    if (m_riversOn) {
+        m_rivers.gather(static_cast<f64>(origin.x), static_cast<f64>(origin.z),
+                        static_cast<f64>(origin.x + vxe::kChunkSize),
+                        static_cast<f64>(origin.z + vxe::kChunkSize), nearby);
+    }
     column.identity = m_identity;
     column.chunkX = chunkX;
     column.chunkZ = chunkZ;
@@ -536,6 +570,8 @@ void Terrain::buildColumn(i32 chunkX, i32 chunkZ, Column& column) const noexcept
             f64 above = here.height - static_cast<f64>(kSeaLevel);
             here.height +=
                 vxe::noise::gradient2(m_seed + 37, wx / 9.0, wz / 9.0).value * smooth(1.0, 8.0, above) * 1.6;
+            // Per block, not on the grid: a stream can be one block wide.
+            carveInto(nearby, wx, wz, here);
             above = here.height - static_cast<f64>(kSeaLevel);
             ClimateSample weather = Climate::sample(weatherCell, wx, wz, above);
             // Biome borders fray a little, so they never run as smooth curves.
@@ -623,11 +659,26 @@ vxe::BlockPos Terrain::spawnColumn() const {
             const Ground at = ground(static_cast<f64>(x), static_cast<f64>(z), kGullyWidest);
             const f64 above = at.height - static_cast<f64>(kSeaLevel);
             if (above > 6.0 && above < 70.0 && at.slope < 0.3) {
-                return {.x = x, .y = surfaceHeight(x, z), .z = z};
+                return {.x = x, .y = static_cast<i64>(std::floor(at.height)), .z = z};
             }
         }
     }
-    return {.x = 0, .y = surfaceHeight(0, 0), .z = 0};
+    return {.x = 0, .y = kSeaLevel + 8, .z = 0};
+}
+
+Ground Terrain::roughGround(f64 x, f64 z) const noexcept {
+    return farGround(x, z, kGullyWidest);
+}
+
+Biome Terrain::roughBiome(f64 x, f64 z) const noexcept {
+    const Ground at = roughGround(x, z);
+    const f64 above = at.height - static_cast<f64>(kSeaLevel);
+    return Climate::biome({.elevation = above,
+                           .continent = at.continent,
+                           .mountain = at.mountain,
+                           .rift = at.rift,
+                           .rough = at.rough},
+                          m_climate.sample(x, z, above));
 }
 
 std::optional<vxe::BlockPos> Terrain::findBiome(Biome biome, i64 fromX, i64 fromZ) const {

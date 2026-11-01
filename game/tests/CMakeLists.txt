@@ -11,6 +11,7 @@ add_executable(vr_tests
     game_state_tests.cpp
     climate_tests.cpp
     planet_tests.cpp
+    rivers_tests.cpp
     terrain_tests.cpp
     player_physics_tests.cpp
     world_store_tests.cpp

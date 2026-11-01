@@ -148,6 +148,46 @@ int main(int argc, char** argv) {
         return 1;
     }
     const vr::Terrain terrain(blocks.value(), seed);
+    if (view == "rivers") {
+        // Places to look at rivers on foot: the widest, a middle one, a high stream.
+        std::vector<vr::RiverNetwork::Stretch> stretches;
+        const auto start = std::chrono::steady_clock::now();
+        terrain.rivers().gather(100.0, 100.0, 120.0, 120.0, stretches);
+        const std::chrono::duration<f64> one = std::chrono::steady_clock::now() - start;
+        const auto second = std::chrono::steady_clock::now();
+        terrain.rivers().gather(8300.0, 100.0, 8320.0, 120.0, stretches);
+        const std::chrono::duration<f64> two = std::chrono::steady_clock::now() - second;
+        std::printf("first tile %.0f ms, the tile beside it %.0f ms\n", one.count() * 1000.0,
+                    two.count() * 1000.0);
+        stretches.clear();
+        terrain.rivers().gather(-3000.0, -3000.0, 3000.0, 3000.0, stretches);
+        const auto show = [](const char* name, const vr::RiverNetwork::Stretch& s) {
+            std::printf("%-8s %.0f %.0f level %.0f width %.1f, flows to %.0f %.0f\n", name, s.ax, s.az,
+                        s.levelA + vr::Terrain::kSeaLevel, s.widthA, s.bx, s.bz);
+        };
+        const vr::RiverNetwork::Stretch* wide = nullptr;
+        const vr::RiverNetwork::Stretch* middle = nullptr;
+        const vr::RiverNetwork::Stretch* high = nullptr;
+        for (const auto& stretch : stretches) {
+            if (wide == nullptr || stretch.widthA > wide->widthA) {
+                wide = &stretch;
+            }
+            if (stretch.widthA > 5.0 && stretch.widthA < 7.0 &&
+                (middle == nullptr || stretch.levelA > middle->levelA)) {
+                middle = &stretch;
+            }
+            if (high == nullptr || stretch.levelA > high->levelA) {
+                high = &stretch;
+            }
+        }
+        std::printf("%zu stretches\n", stretches.size());
+        if (wide != nullptr && middle != nullptr && high != nullptr) {
+            show("wide", *wide);
+            show("middle", *middle);
+            show("high", *high);
+        }
+        return 0;
+    }
     if (view == "locate") {
         // Where to look at each biome on foot.
         for (usize i = 0; i < vr::kBiomeCount; ++i) {

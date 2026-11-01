@@ -51,6 +51,8 @@ set(vrGameSources
     src/worldgen/climate.hpp
     src/worldgen/planet.cpp
     src/worldgen/planet.hpp
+    src/worldgen/rivers.cpp
+    src/worldgen/rivers.hpp
     src/worldgen/terrain.cpp
     src/worldgen/terrain.hpp
     src/worldgen/terrain_lod_sampler.cpp

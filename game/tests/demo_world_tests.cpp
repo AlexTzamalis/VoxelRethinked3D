@@ -48,7 +48,7 @@ vr::TerrainBlocks blocks() {
 } // namespace
 
 TEST_CASE("Terrain is deterministic and depends on the seed") {
-    const vr::Terrain terrain(blocks(), 12345);
+    const vr::Terrain terrain(blocks(), 12345, {}, false);
     const vr::Terrain other(blocks(), 999);
     auto first = std::make_unique<States>();
     auto second = std::make_unique<States>();
@@ -64,7 +64,7 @@ TEST_CASE("Terrain is deterministic and depends on the seed") {
 
 TEST_CASE("Terrain has a surface on its height and trees standing on it") {
     const vr::TerrainBlocks ids = blocks();
-    const vr::Terrain terrain(ids, 12345);
+    const vr::Terrain terrain(ids, 12345, {}, false);
     vxe::voxel::VoxelWorld world;
     auto states = std::make_unique<States>();
     // A block of chunks around the land, as one world, so trees and columns
@@ -146,7 +146,7 @@ TEST_CASE("The demo world streams in around the camera without a renderer") {
 TEST_CASE("Terrain chunks round trip through the chunk codec and region files by state name") {
     const auto ids = vr::TerrainBlocks::fromCatalog(catalog());
     REQUIRE(ids.hasValue());
-    const vr::Terrain terrain(ids.value(), 777);
+    const vr::Terrain terrain(ids.value(), 777, {}, false);
     const vr::CatalogStateNames names(catalog());
     const auto folder = std::filesystem::temp_directory_path() / "vr_tests" / "regions";
     std::error_code error;
@@ -196,7 +196,7 @@ TEST_CASE("Terrain chunks round trip through the chunk codec and region files by
 
 TEST_CASE("Far terrain carries the trees: crowns in fine levels, a leaf tint in coarse ones") {
     const vr::TerrainBlocks ids = blocks();
-    const vr::Terrain terrain(ids, 12345);
+    const vr::Terrain terrain(ids, 12345, {}, false);
     auto built = catalog().buildRegistry();
     REQUIRE(built.hasValue());
     const auto& view = built.value();

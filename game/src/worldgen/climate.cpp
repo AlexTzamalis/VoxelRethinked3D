@@ -142,7 +142,7 @@ Biome Climate::biome(const PlanetSample& ground, const ClimateSample& climate) n
     }
     // Shores belong to the coast. Low ground inland is just low ground, or a
     // sand or stone plain would appear in the middle of a country.
-    if (ground.elevation < 4.0 && ground.continent < 0.035) {
+    if (ground.elevation < 3.0 && ground.continent < 0.018) {
         if (ground.mountain > 0.09) {
             return Biome::StonyShore;
         }

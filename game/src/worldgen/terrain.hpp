@@ -3,6 +3,7 @@
 #include "worldgen/biome_looks.hpp"
 #include "worldgen/climate.hpp"
 #include "worldgen/planet.hpp"
+#include "worldgen/rivers.hpp"
 
 #include <vxe/core/types.hpp>
 #include <vxe/math/coords.hpp>
@@ -77,7 +78,10 @@ public:
     // The tree of a tree cell, if one grows there.
     [[nodiscard]] std::optional<PlacedTree> treeAt(vxe::i64 cellX, vxe::i64 cellZ) const;
 
-    Terrain(const TerrainBlocks& blocks, vxe::u64 seed, const PlanetPreset& preset = {}) noexcept;
+    // `rivers` off skips the drainage simulation, which takes a good part of a
+    // second per area: only tests that have nothing to do with water do that.
+    Terrain(const TerrainBlocks& blocks, vxe::u64 seed, const PlanetPreset& preset = {},
+            bool rivers = true) noexcept;
     // Climate keeps a pointer to the planet inside this object.
     Terrain(const Terrain&) = delete;
     Terrain& operator=(const Terrain&) = delete;
@@ -108,6 +112,11 @@ public:
     // The ground for far terrain cells of `cell` blocks.
     [[nodiscard]] Ground farGround(vxe::f64 x, vxe::f64 z, vxe::f64 cell) const noexcept;
 
+    // The ground and biome without rivers or the column cache: rough, but it
+    // can never wait for a river tile, so the main thread can ask.
+    [[nodiscard]] Ground roughGround(vxe::f64 x, vxe::f64 z) const noexcept;
+    [[nodiscard]] Biome roughBiome(vxe::f64 x, vxe::f64 z) const noexcept;
+
     // How much of the ground lies under crowns in a biome, 0 to 1.
     [[nodiscard]] vxe::f64 treeCover(Biome biome) const noexcept;
 
@@ -121,6 +130,7 @@ public:
 
     [[nodiscard]] const Planet& planet() const noexcept { return m_planet; }
     [[nodiscard]] const Climate& climate() const noexcept { return m_climate; }
+    [[nodiscard]] const RiverNetwork& rivers() const noexcept { return m_rivers; }
     [[nodiscard]] const TerrainBlocks& blocks() const noexcept { return m_blocks; }
 
 private:
@@ -136,6 +146,10 @@ private:
     [[nodiscard]] Ground ground(vxe::f64 x, vxe::f64 z, vxe::f64 shortest) const noexcept;
     void gullies(vxe::f64 x, vxe::f64 z, vxe::f64 shortest, vxe::f64 strength, Ground& out, vxe::f64& slopeX,
                  vxe::f64& slopeZ) const noexcept;
+
+    // Cuts the rivers among `nearby` into this ground.
+    static void carveInto(std::span<const RiverNetwork::Stretch> nearby, vxe::f64 x, vxe::f64 z,
+                          Ground& at) noexcept;
 
     // The block on top of a column of this ground in this biome.
     [[nodiscard]] vxe::voxel::BlockStateId topOf(vxe::f64 x, vxe::f64 z, const Ground& at,
@@ -158,6 +172,8 @@ private:
     vxe::u64 m_identity; // Tells this terrain's cached columns from another's.
     Planet m_planet;
     Climate m_climate;
+    RiverNetwork m_rivers;
+    bool m_riversOn;
 };
 
 } // namespace vr

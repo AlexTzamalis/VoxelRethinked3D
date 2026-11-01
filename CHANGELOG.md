@@ -2,6 +2,21 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#117] 2026-10-31, G3.5 Rivers from real drainage
+### Added
+- RiverNetwork: water drains over the real terrain on a 48 block grid. Priority flooding finds the way out of every hollow and fills lakes to their spill height.
+- Width comes from how much land drains through: thin streams high up join into rivers up to 22 blocks wide in the lowlands.
+- Channels are cut into the ground block by block, banks only ever lower it, and the water level only falls along the flow.
+
+### Changed
+- Narrower beaches. Terrain tests that are not about water leave rivers out.
+
+### Removed
+- The noise rivers and round lakes of #115.
+
+### Performance
+- A river tile takes 327 ms the first time and 156 ms beside a known one. Playable after 4.0 s cold and 2.6 s warm (targets 2.0 s and 1.0 s, not met).
+
 ## [#116] 2026-10-31, Add audio: music, ambience, footsteps and effects
 ### Added
 - vxe_audio: music, ambience that fades, one shot and positioned effects through miniaudio, loading on its own threads. A computer without sound stays silent.

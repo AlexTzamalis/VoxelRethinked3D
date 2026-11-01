@@ -23,7 +23,6 @@ struct PlanetPreset {
     vxe::f64 valleySize = 1100.0; // How far apart winding valleys run.
     vxe::f64 valleyDepth = 26.0;
     vxe::f64 terraceHeight = 22.0; // Of one step of a plateau.
-    vxe::f64 lakeSpacing = 760.0;  // Blocks between places a lake can lie.
     vxe::u32 ridgeOctaves = 6;
 
     // Continents of about 70 km divided by oceans hundreds of kilometers wide,
@@ -46,23 +45,21 @@ struct PlanetPreset {
                 .valleySize = 6000.0,
                 .valleyDepth = 40.0,
                 .terraceHeight = 34.0,
-                .lakeSpacing = 3000.0,
                 .ridgeOctaves = 8};
     }
 };
 
-// PlanetSample::water where no river or lake runs.
+// Where no river or lake runs.
 inline constexpr vxe::f64 kNoWater = -1.0e9;
 
 // One position of the world, seen from far above. Everything further down
 // the pipeline (climate, biomes, terrain) reads these fields.
 struct PlanetSample {
-    vxe::f64 elevation = 0.0;  // Blocks above sea level.
-    vxe::f64 continent = 0.0;  // Below 0 is ocean, far inland about 0.5.
-    vxe::f64 mountain = 0.0;   // 0 to 1: how much of a range stands here.
-    vxe::f64 rift = 0.0;       // 0 to 1: how much plates pull apart here.
-    vxe::f64 rough = 0.0;      // 0 is flat plains, 1 the roughest hills.
-    vxe::f64 water = kNoWater; // Surface of a river or lake here, above sea level.
+    vxe::f64 elevation = 0.0; // Blocks above sea level.
+    vxe::f64 continent = 0.0; // Below 0 is ocean, far inland about 0.5.
+    vxe::f64 mountain = 0.0;  // 0 to 1: how much of a range stands here.
+    vxe::f64 rift = 0.0;      // 0 to 1: how much plates pull apart here.
+    vxe::f64 rough = 0.0;     // 0 is flat plains, 1 the roughest hills.
 };
 
 // The planet layer (G3.1): continents, tectonic plates, and mountain ranges
@@ -88,6 +85,9 @@ public:
     Planet(vxe::u64 seed, const PlanetPreset& preset) noexcept;
 
     [[nodiscard]] PlanetSample sample(vxe::f64 x, vxe::f64 z) const noexcept;
+
+    // The height with less fine detail, for simulating where water goes.
+    [[nodiscard]] vxe::f64 drainageHeight(vxe::f64 x, vxe::f64 z) const noexcept;
 
     // How high the mountains stand here, roughly and without their crests:
     // what wind runs into. Cheaper than sample(), for looking at many places.
@@ -118,12 +118,14 @@ private:
     };
     [[nodiscard]] Mass mass(vxe::f64 x, vxe::f64 z, vxe::u32 continentOctaves) const noexcept;
 
-    // The land with no hills or crests, above sea level. So slow that it
-    // barely changes across a river, which makes it the rivers' water level:
-    // it falls towards the coast, so every river runs down to the sea.
-    [[nodiscard]] vxe::f64 lowland(const Mass& land) const noexcept;
-    void carveRivers(const Mass& land, PlanetSample& out) const noexcept;
-    void carveLakes(const Mass& land, PlanetSample& out) const noexcept;
+    // How many octaves each part of the height gets.
+    struct Detail {
+        vxe::u32 continent = 0;
+        vxe::u32 ridges = 0;
+        vxe::u32 hills = 0;
+        vxe::u32 swells = 0;
+    };
+    [[nodiscard]] PlanetSample sampleWith(vxe::f64 x, vxe::f64 z, const Detail& detail) const noexcept;
 
     PlanetPreset m_preset;
     vxe::u64 m_warpX;
@@ -133,7 +135,6 @@ private:
     vxe::u64 m_ridges;
     vxe::u64 m_giants;
     vxe::u64 m_hills;
-    vxe::u64 m_lakes;
 };
 
 } // namespace vr

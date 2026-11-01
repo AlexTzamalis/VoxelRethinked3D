@@ -18,15 +18,11 @@ using vxe::noise::smooth;
 using vxe::noise::unit;
 
 constexpr f64 kPlateJitter = 0.9;
-constexpr f64 kCoastShelf = 0.05;   // Continent values from the beach to the shelf's edge.
-constexpr f64 kLowland = 0.45;      // Continent value where the land stops rising by itself.
-constexpr f64 kCoastRise = 16.0;    // Blocks the land climbs right behind the beach.
-constexpr f64 kSeaReach = 0.5;      // How much of a range survives near a coast, at sea.
-constexpr f64 kMeanCrest = 0.7;     // A range's usual height, as a part of its tallest.
-constexpr f64 kRiverWidth = 0.011;  // Half a river, as a value of the valley noise.
-constexpr f64 kStreamWidth = 0.008; // The same for the streams that join rivers.
-constexpr f64 kBedDepth = 4.0;      // Blocks of water in the middle of a river.
-constexpr f64 kRiverEnd = 150.0;    // Blocks above the sea where rivers begin.
+constexpr f64 kCoastShelf = 0.05; // Continent values from the beach to the shelf's edge.
+constexpr f64 kLowland = 0.45;    // Continent value where the land stops rising by itself.
+constexpr f64 kCoastRise = 16.0;  // Blocks the land climbs right behind the beach.
+constexpr f64 kSeaReach = 0.5;    // How much of a range survives near a coast, at sea.
+constexpr f64 kMeanCrest = 0.7;   // A range's usual height, as a part of its tallest.
 constexpr vxe::u32 kContinentOctaves = 8;
 constexpr vxe::u32 kBarrierOctaves = 4;
 
@@ -54,8 +50,7 @@ Planet::Planet(u64 seed, const PlanetPreset& preset) noexcept
     , m_plates(stream(seed, 4))
     , m_ridges(stream(seed, 5))
     , m_giants(stream(seed, 6))
-    , m_hills(stream(seed, 7))
-    , m_lakes(stream(seed, 8)) {}
+    , m_hills(stream(seed, 7)) {}
 
 Planet::Tectonics Planet::tectonics(f64 x, f64 z) const noexcept {
     const f64 px = x / m_preset.plateSize;
@@ -156,7 +151,18 @@ Planet::Mass Planet::mass(f64 x, f64 z, vxe::u32 continentOctaves) const noexcep
 }
 
 PlanetSample Planet::sample(f64 x, f64 z) const noexcept {
-    const Mass land = mass(x, z, kContinentOctaves);
+    return sampleWith(
+        x, z, {.continent = kContinentOctaves, .ridges = m_preset.ridgeOctaves, .hills = 4, .swells = 3});
+}
+
+f64 Planet::drainageHeight(f64 x, f64 z) const noexcept {
+    // Water follows the large shapes, so the finest octaves can go, which
+    // halves the cost of the many heights a river tile needs.
+    return sampleWith(x, z, {.continent = kBarrierOctaves, .ridges = 3, .hills = 2, .swells = 1}).elevation;
+}
+
+PlanetSample Planet::sampleWith(f64 x, f64 z, const Detail& detail) const noexcept {
+    const Mass land = mass(x, z, detail.continent);
     const f64 continent = land.continent;
 
     // Land height with no mountains: the deep sea floor, a shelf up to the
@@ -170,7 +176,7 @@ PlanetSample Planet::sample(f64 x, f64 z) const noexcept {
                (m_preset.inlandHeight * smooth(0.1, kLowland, continent));
     }
 
-    const Fractal ridgeShape{.octaves = m_preset.ridgeOctaves, .frequency = 1.2 / m_preset.rangeWidth};
+    const Fractal ridgeShape{.octaves = detail.ridges, .frequency = 1.2 / m_preset.rangeWidth};
     const f64 ridge = vxe::noise::ridged2(m_ridges, land.warpedX, land.warpedZ, ridgeShape).value;
     // Most of a range is its broad body, highest along the plate border, so it
     // reads as one long massif with a spine. Crests only ride on top: stronger
@@ -184,10 +190,10 @@ PlanetSample Planet::sample(f64 x, f64 z) const noexcept {
     const Fractal roughShape{.octaves = 3, .frequency = 0.3 / m_preset.hillSize};
     const f64 rough =
         smooth(-0.3, 0.12, vxe::noise::fbm2(m_hills + 1, land.warpedX, land.warpedZ, roughShape).value);
-    const Fractal hillShape{.octaves = 4, .frequency = 1.0 / m_preset.hillSize};
+    const Fractal hillShape{.octaves = detail.hills, .frequency = 1.0 / m_preset.hillSize};
     const f64 hills = vxe::noise::fbm2(m_hills, land.warpedX, land.warpedZ, hillShape).value *
                       m_preset.hillHeight * land.inland * (0.08 + (0.92 * rough * rough));
-    const Fractal swellShape{.octaves = 3, .frequency = 3.2 / m_preset.hillSize};
+    const Fractal swellShape{.octaves = detail.swells, .frequency = 3.2 / m_preset.hillSize};
     const f64 swells = vxe::noise::fbm2(m_hills + 4, land.warpedX, land.warpedZ, swellShape).value *
                        m_preset.hillHeight * 0.16 * land.inland * (0.2 + (0.8 * rough));
     const f64 riftDrop = land.rift * m_preset.riftDepth * land.inland;
@@ -226,109 +232,11 @@ PlanetSample Planet::sample(f64 x, f64 z) const noexcept {
         const f64 over = elevation - m_preset.peakKnee;
         elevation = m_preset.peakKnee + (over / (1.0 + (over / (m_preset.peakCeiling - m_preset.peakKnee))));
     }
-    PlanetSample out{.elevation = elevation,
-                     .continent = continent,
-                     .mountain = std::min(mountain, 1.0),
-                     .rift = land.rift,
-                     .rough = rough};
-    carveRivers(land, out);
-    carveLakes(land, out);
-    return out;
-}
-
-f64 Planet::lowland(const Mass& land) const noexcept {
-    const f64 inland = m_preset.inlandHeight * smooth(0.1, kLowland, land.continent);
-    return inland + (land.strength * land.reach * land.tall * 0.42);
-}
-
-// Rivers run along the lines where slow noise crosses zero, the same lines that
-// cut the valleys, so they always lie at a valley's bottom. Streams come from a
-// finer noise and join the rivers where their lines cross. Water stands at the
-// level of the lowland, in whole blocks: as the land falls towards the coast
-// the river falls with it in small steps, which read as rapids.
-void Planet::carveRivers(const Mass& land, PlanetSample& out) const noexcept {
-    if (land.inland <= 0.0) {
-        return;
-    }
-    const Fractal riverShape{.octaves = 3, .frequency = 1.0 / m_preset.valleySize, .gain = 0.45};
-    const Fractal streamShape{.octaves = 3, .frequency = 2.4 / m_preset.valleySize, .gain = 0.45};
-    const f64 riverLine =
-        std::abs(vxe::noise::fbm2(m_hills + 2, land.warpedX, land.warpedZ, riverShape).value);
-    const f64 streamLine =
-        std::abs(vxe::noise::fbm2(m_hills + 5, land.warpedX, land.warpedZ, streamShape).value);
-    const f64 near =
-        std::min(riverLine / kRiverWidth, streamLine / kStreamWidth); // 0 in the middle, 1 at the bank.
-    if (near >= 3.0) {
-        return;
-    }
-    const f64 level = lowland(land) + 2.0;
-    // Rivers begin up in the hills and end in the sea, and the whole carve
-    // fades there: anything less leaves a cliff where the river starts. They
-    // also keep out of land standing far above them, or they would saw narrow
-    // gorges through it; the valley alone runs on there.
-    const f64 flowing = (1.0 - smooth(kRiverEnd * 0.7, kRiverEnd, level)) *
-                        smooth(-0.01, 0.03, out.continent) *
-                        (1.0 - smooth(40.0, 95.0, out.elevation - level));
-    if (flowing <= 0.0) {
-        return;
-    }
-    const f64 surface = std::floor(level);
-    // The ground comes down to a ledge just above the water from up to 3
-    // widths away, or up to it where the land lies lower, so a river never
-    // spills. Then the bed goes in, meeting the ledge at the bank.
-    const f64 ledge = surface + 1.0 + (2.0 * smooth(1.0, 2.2, near));
-    f64 carved = out.elevation + ((ledge - out.elevation) * (1.0 - smooth(1.0, 3.0, near)));
-    if (near < 1.0) {
-        const f64 bed = surface - (kBedDepth * (1.0 - (near * near)));
-        carved = std::min(carved, bed + ((surface + 1.0 - bed) * near * near * near));
-        if (flowing > 0.8) {
-            out.water = surface;
-        }
-    }
-    out.elevation += (carved - out.elevation) * flowing;
-}
-
-// Lakes lie in round hollows here and there, each at its own level: the ground
-// falls to a bed inside and is shaped to a shore around it. Their shape comes
-// from warped distance, so no lake is a circle. All of it fades before the
-// next cell or the mountains begin, so a lake can never end in a cut.
-void Planet::carveLakes(const Mass& land, PlanetSample& out) const noexcept {
-    const f64 calm = smooth(0.7, 1.0, land.inland) * (1.0 - smooth(0.04, 0.1, out.mountain));
-    if (calm <= 0.0) {
-        return;
-    }
-    const f64 px = land.warpedX / m_preset.lakeSpacing;
-    const f64 pz = land.warpedZ / m_preset.lakeSpacing;
-    const vxe::noise::WorleyResult cells = vxe::noise::worley2(m_lakes, px, pz, 0.8);
-    const vxe::noise::WorleyCell& cell = cells.nearest;
-    if (unit(cell.id) > 0.55) {
-        return;
-    }
-    const f64 size = (0.1 + (0.13 * unit(cell.id * 0x9E3779B97F4A7C15ULL)));
-    const f64 lumps =
-        vxe::noise::fbm2(m_lakes + 1, px * 7.0, pz * 7.0, {.octaves = 2, .frequency = 1.0}).value;
-    const f64 reach = cell.distance / (size * (1.0 + lumps));
-    if (reach >= 1.7) {
-        return;
-    }
-    const Mass middle =
-        mass(cell.pointX * m_preset.lakeSpacing, cell.pointZ * m_preset.lakeSpacing, kBarrierOctaves);
-    if (middle.inland < 1.0 || middle.strength > 0.05) {
-        return;
-    }
-    const f64 weight =
-        calm * (1.0 - smooth(1.0, 1.7, reach)) * smooth(0.0, 0.2, cells.second.distance - cell.distance);
-    if (weight <= 0.0) {
-        return;
-    }
-    const f64 surface = std::floor(lowland(middle) + 6.0);
-    const f64 shape =
-        reach < 1.0 ? surface + 1.0 - (15.0 * (1.0 - (reach * reach)) * (0.6 + (0.4 * unit(cell.id >> 3U))))
-                    : surface + 1.0 + (1.5 * smooth(1.0, 1.4, reach));
-    out.elevation += (shape - out.elevation) * weight;
-    if (reach < 1.0 && weight > 0.5) {
-        out.water = surface;
-    }
+    return {.elevation = elevation,
+            .continent = continent,
+            .mountain = std::min(mountain, 1.0),
+            .rift = land.rift,
+            .rough = rough};
 }
 
 f64 Planet::barrier(f64 x, f64 z) const noexcept {

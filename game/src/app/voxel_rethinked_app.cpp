@@ -1194,9 +1194,12 @@ SoundScene VoxelRethinkedApp::soundScene(const vxe::EngineContext& context) cons
     const vxe::i64 x = floorOf(m_camera.position.x);
     const vxe::i64 y = floorOf(m_camera.position.y);
     const vxe::i64 z = floorOf(m_camera.position.z);
-    scene.biome = terrain.biomeAt(x, z);
+    const auto wx0 = static_cast<vxe::f64>(x);
+    const auto wz0 = static_cast<vxe::f64>(z);
+    scene.biome = terrain.roughBiome(wx0, wz0);
     scene.altitude = static_cast<vxe::f32>(y - Terrain::kSeaLevel);
-    scene.cover = static_cast<vxe::f32>(std::max<vxe::i64>(terrain.surfaceHeight(x, z) - y, 0));
+    scene.cover =
+        static_cast<vxe::f32>(std::max(terrain.roughGround(wx0, wz0).height - m_camera.position.y, 0.0));
     scene.underWater = m_blocks->isLiquid(world.getBlock({.x = x, .y = y, .z = z}, vxe::voxel::kAirState));
     if (m_player && !m_freeCamera) {
         const PlayerState& player = m_player->state();
@@ -1225,8 +1228,7 @@ SoundScene VoxelRethinkedApp::soundScene(const vxe::EngineContext& context) cons
                     continue;
                 }
                 const vxe::f32 close = 1.0F - (static_cast<vxe::f32>(ring) / 32.0F);
-                vxe::f32& kind =
-                    terrain.waterLevel(wx, wz) == Terrain::kSeaLevel ? scene.sea : scene.nearWater;
+                vxe::f32& kind = y - down <= Terrain::kSeaLevel ? scene.sea : scene.nearWater;
                 kind = std::max(kind, close);
             }
         }
