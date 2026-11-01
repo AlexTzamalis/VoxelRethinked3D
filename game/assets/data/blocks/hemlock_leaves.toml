@@ -1,0 +1,13 @@
+# Placeholder art: a copy of spruce_leaves_overlay colored by the tint. Format: see stone.toml.
+name = "hemlock_leaves"
+display_name = "Hemlock Leaves"
+category = "Nature"
+layer = "cutout"
+light_opacity = 1
+culls_same_type = false
+tint = 10
+tint_color = "#3F7A5A"
+bushy = "advanced_leaves/hemlock_leaves"
+
+[textures]
+all = "hemlock_leaves"

@@ -38,6 +38,7 @@ struct Recipe {
     vxe::u8 deepDepth = 0;
     bool banded = false;
     bool dry = false;
+    TreeKind waterTree = TreeKind::Oak;
     float trees = 0.0F;
     float groves = 0.0F;
     std::array<TreeChoice, 6> treeKinds{};
@@ -106,6 +107,10 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .patchShare = 0.05F,
      .underDepth = 4,
      .deepDepth = 9,
+     .waterTree = TreeKind::Palm,
+     .trees = 0.05F,
+     .groves = 0.8F,
+     .treeKinds = {{{TreeKind::Palm, 1}}},
      .grass = 0.018F,
      .grassKinds = kDryGrass,
      .boulder = "sandstone",
@@ -200,7 +205,7 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .patchShare = 0.03F,
      .trees = 0.05F,
      .groves = 0.9F,
-     .treeKinds = {{{TreeKind::Spruce, 3}, {TreeKind::Birch, 2}, {TreeKind::Bush, 2}}},
+     .treeKinds = {{{TreeKind::Spruce, 3}, {TreeKind::Birch, 2}, {TreeKind::Poplar, 2}, {TreeKind::Bush, 2}}},
      .grass = 0.372F,
      .grassKinds = kMeadowGrass,
      .flowers = 0.165F,
@@ -244,7 +249,7 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .patch2Share = 0.12F,
      .trees = 0.468F,
      .groves = 0.4F,
-     .treeKinds = {{{TreeKind::Spruce, 7}, {TreeKind::Pine, 4}, {TreeKind::Bush, 1}}},
+     .treeKinds = {{{TreeKind::Spruce, 7}, {TreeKind::Pine, 4}, {TreeKind::Hemlock, 3}, {TreeKind::Bush, 1}}},
      .grass = 0.252F,
      .grassKinds = kColdGrass,
      .boulder = "mossy_cobblestone",
@@ -258,9 +263,10 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .patchShare = 0.3F,
      .patch2Share = 0.06F,
      .dry = true,
+     .waterTree = TreeKind::Olive,
      .trees = 0.08F,
      .groves = 0.7F,
-     .treeKinds = {{{TreeKind::Bush, 6}, {TreeKind::Oak, 1}}},
+     .treeKinds = {{{TreeKind::Bush, 6}, {TreeKind::Olive, 3}, {TreeKind::Oak, 1}}},
      .grass = 0.204F,
      .grassKinds = kDryGrass,
      .boulder = "granite",
@@ -272,7 +278,11 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .patchShare = 0.01F,
      .trees = 0.022F,
      .groves = 0.95F,
-     .treeKinds = {{{TreeKind::Oak, 5}, {TreeKind::BigOak, 2}, {TreeKind::Birch, 1}, {TreeKind::Bush, 2}}},
+     .treeKinds = {{{TreeKind::Oak, 5},
+                    {TreeKind::BigOak, 2},
+                    {TreeKind::Poplar, 3},
+                    {TreeKind::Birch, 1},
+                    {TreeKind::Bush, 2}}},
      .grass = 0.420F,
      .grassKinds = {{{"short_grass", 12}, {"tall_grass", 3}}},
      .flowers = 0.055F,
@@ -284,7 +294,7 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .floor = "dirt",
      .trees = 0.015F,
      .groves = 0.95F,
-     .treeKinds = {{{TreeKind::Oak, 3}, {TreeKind::Azalea, 2}, {TreeKind::Bush, 1}}},
+     .treeKinds = {{{TreeKind::Oak, 3}, {TreeKind::Azalea, 2}, {TreeKind::Poplar, 2}, {TreeKind::Bush, 1}}},
      .grass = 0.360F,
      .grassKinds = kMeadowGrass,
      .flowers = 0.303F,
@@ -309,7 +319,11 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .patchShare = 0.03F,
      .trees = 0.510F,
      .groves = 0.25F,
-     .treeKinds = {{{TreeKind::Birch, 6}, {TreeKind::TallBirch, 5}, {TreeKind::Oak, 1}}},
+     .treeKinds = {{{TreeKind::Birch, 6},
+                    {TreeKind::TallBirch, 5},
+                    {TreeKind::ForkedBirch, 4},
+                    {TreeKind::WeepingBirch, 3},
+                    {TreeKind::Oak, 1}}},
      .grass = 0.330F,
      .grassKinds = kMeadowGrass,
      .flowers = 0.055F,
@@ -319,7 +333,11 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
     {.biome = Biome::FlowerForest,
      .trees = 0.357F,
      .groves = 0.5F,
-     .treeKinds = {{{TreeKind::Azalea, 5}, {TreeKind::Oak, 3}, {TreeKind::Birch, 3}, {TreeKind::BigOak, 1}}},
+     .treeKinds = {{{TreeKind::Azalea, 5},
+                    {TreeKind::Oak, 3},
+                    {TreeKind::Birch, 3},
+                    {TreeKind::WeepingBirch, 2},
+                    {TreeKind::BigOak, 1}}},
      .grass = 0.300F,
      .grassKinds = kMeadowGrass,
      .flowers = 0.248F,
@@ -367,9 +385,10 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .patch = "coarse_dirt",
      .patchShare = 0.16F,
      .dry = true,
+     .waterTree = TreeKind::Palm,
      .trees = 0.09F,
      .groves = 0.6F,
-     .treeKinds = {{{TreeKind::Acacia, 8}, {TreeKind::Bush, 1}}},
+     .treeKinds = {{{TreeKind::Acacia, 8}, {TreeKind::Olive, 2}, {TreeKind::Bush, 1}}},
      .grass = 0.372F,
      .grassKinds = {{{"tall_grass", 5}, {"tall_dry_grass", 5}, {"short_grass", 6}}},
      .flowers = 0.011F,
@@ -386,6 +405,7 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .underDepth = 4,
      .deepDepth = 22,
      .dry = true,
+     .waterTree = TreeKind::Palm,
      .grass = 0.009F,
      .grassKinds = kDryGrass,
      .boulder = "sandstone",
@@ -399,6 +419,7 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .underDepth = 2,
      .banded = true,
      .dry = true,
+     .waterTree = TreeKind::Olive,
      .grass = 0.012F,
      .grassKinds = kDryGrass,
      .boulder = "red_sandstone",
@@ -412,7 +433,8 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .patch2Share = 0.1F,
      .trees = 0.74F,
      .groves = 0.12F,
-     .treeKinds = {{{TreeKind::TallSpruce, 8}, {TreeKind::Spruce, 4}, {TreeKind::Pine, 2}}},
+     .treeKinds =
+         {{{TreeKind::TallSpruce, 8}, {TreeKind::Hemlock, 5}, {TreeKind::Spruce, 4}, {TreeKind::Pine, 2}}},
      .grass = 0.2F,
      .grassKinds = kColdGrass,
      .boulder = "mossy_cobblestone",
@@ -428,7 +450,8 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .patch2Share = 0.06F,
      .trees = 0.680F,
      .groves = 0.2F,
-     .treeKinds = {{{TreeKind::GiantJungle, 3}, {TreeKind::Jungle, 6}, {TreeKind::Bush, 3}}},
+     .treeKinds =
+         {{{TreeKind::GiantJungle, 3}, {TreeKind::Jungle, 6}, {TreeKind::Palm, 2}, {TreeKind::Bush, 3}}},
      .grass = 0.432F,
      .grassKinds = {{{"fern", 6}, {"large_fern", 4}, {"tall_grass", 4}, {"short_grass", 2}}},
      .flowers = 0.028F,
@@ -438,6 +461,26 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .boulders = 0.08F,
      .fallenLogs = 0.3F,
      .logKind = TreeKind::Jungle},
+    {.biome = Biome::MapleForest,
+     .top = "autumn_grass_block",
+     .floor = "gravel",
+     .patch = "podzol",
+     .patchShare = 0.12F,
+     .trees = 0.52F,
+     .groves = 0.5F,
+     .treeKinds = {{{TreeKind::Maple, 6},
+                    {TreeKind::GoldMaple, 5},
+                    {TreeKind::ForkedBirch, 1},
+                    {TreeKind::Poplar, 1}}},
+     .grass = 0.24F,
+     .grassKinds = {{{"autumn_short_grass", 10}, {"fern", 2}, {"large_fern", 1}}},
+     .flowers = 0.01F,
+     .flowerKinds = {{{"lily_of_the_valley", 2}, {"allium", 1}}},
+     .boulder = "mossy_cobblestone",
+     .boulderMix = "stone",
+     .boulders = 0.08F,
+     .fallenLogs = 0.1F,
+     .logKind = TreeKind::Oak},
 }};
 
 struct Species {
@@ -463,6 +506,14 @@ constexpr std::array<Species, kTreeKindCount> kSpecies = {{
     {TreeKind::Azalea, "oak", "flowering_azalea_leaves", "oak_leaves", 0.45F},
     {TreeKind::Bush, "oak", "oak_leaves", "jungle_leaves", 0.3F},
     {TreeKind::TallSpruce, "spruce", "spruce_leaves", "dark_oak_leaves", 0.08F},
+    {TreeKind::Palm, "palm", "palm_leaves", "", 0.0F},
+    {TreeKind::Olive, "olive", "olive_leaves", "", 0.0F},
+    {TreeKind::Maple, "oak", "maple_leaves", "golden_maple_leaves", 0.2F},
+    {TreeKind::GoldMaple, "oak", "golden_maple_leaves", "maple_leaves", 0.2F},
+    {TreeKind::Hemlock, "spruce", "hemlock_leaves", "", 0.0F},
+    {TreeKind::Poplar, "pale_oak", "poplar_leaves", "", 0.0F},
+    {TreeKind::WeepingBirch, "birch", "birch_leaves", "", 0.0F},
+    {TreeKind::ForkedBirch, "birch", "birch_leaves", "flowering_azalea_leaves", 0.04F},
 }};
 
 // Finds states by name and remembers the first name that was missing.
@@ -528,8 +579,10 @@ vxe::Result<TerrainBlocks> TerrainBlocks::fromCatalog(const BlockCatalog& catalo
     blocks.iron = state("iron_ore");
     blocks.gold = state("gold_ore");
     blocks.floor = state("foundation_stone");
-    blocks.soils = {state("grass_block"), state("dirt"), state("coarse_dirt"), state("podzol"),
-                    state("rooted_dirt"), state("mud"),  state("snowy_grass"), state("muddy_mangrove_roots")};
+    blocks.soils = {
+        state("grass_block"),       state("dirt"), state("coarse_dirt"), state("podzol"),
+        state("rooted_dirt"),       state("mud"),  state("snowy_grass"), state("muddy_mangrove_roots"),
+        state("autumn_grass_block")};
     blocks.watersideCount = resolvePlants(kWaterside, blocks.waterside, state);
     for (const Species& species : kSpecies) {
         const std::string wood(species.wood);
@@ -555,6 +608,7 @@ vxe::Result<TerrainBlocks> TerrainBlocks::fromCatalog(const BlockCatalog& catalo
         look.deepDepth = recipe.deepDepth;
         look.banded = recipe.banded;
         look.dry = recipe.dry;
+        look.waterTree = recipe.waterTree;
         look.trees = recipe.trees;
         look.groves = recipe.groves;
         look.treeKinds = recipe.treeKinds;

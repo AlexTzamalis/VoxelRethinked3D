@@ -39,6 +39,7 @@ constexpr i64 kFeatureReach = 7;          // How far those reach from their cell
 constexpr usize kCacheColumns = 256;      // Per thread, a power of two.
 constexpr f64 kFarRiverCell = 4.0;        // Far cells wider than this leave rivers and lakes out.
 constexpr f64 kDryGreenDamp = 0.8;        // The same on dry land, where water does less.
+constexpr f64 kPalmWarmth = 16.0;         // Degrees: cooler coasts have no palms.
 constexpr f64 kGreenDamp = 0.45;          // How damp ground must be to turn green by itself.
 constexpr f64 kDryWatersidePlants = 0.16; // The same on dry land.
 constexpr f64 kWatersidePlants = 0.72;    // Share of the wettest ground under plants.
@@ -258,12 +259,17 @@ void buildTree(const TreeStamp& builder, const Terrain::Tree& tree, i64 ground) 
     case TreeKind::TallSpruce:
     case TreeKind::Spruce: {
         // Skirts of branches, wider further down, alternating with thin rings.
+        // The wood stops below the tip, so that the peak is all leaves, and a
+        // thick trunk thins out well before it.
         const i64 crownTop = ground + tree.height;
         for (i64 layer = 0; layer < tree.crownDepth; ++layer) {
             const i64 wide = std::min<i64>((layer + 2) / 3 + 1, tree.radius);
             builder.disc(x, crownTop - layer, z, layer == 0 ? 0 : (layer % 2 == 0 ? wide : wide - 1), false);
         }
-        trunk(builder, x, ground, z, crownTop, tree.kind == TreeKind::TallSpruce && tree.height > 23);
+        trunk(builder, x, ground, z, crownTop - 1, false);
+        if (tree.kind == TreeKind::TallSpruce && tree.height > 23) {
+            trunk(builder, x, ground, z, crownTop - 9, true);
+        }
         break;
     }
     case TreeKind::Pine: {
@@ -321,6 +327,132 @@ void buildTree(const TreeStamp& builder, const Terrain::Tree& tree, i64 ground) 
         builder.log(x, ground + 1, z);
         builder.blob(x, ground + 2, z, 2, 1);
         break;
+    case TreeKind::Palm: {
+        // A slim trunk that curves away from straight, and long fronds that
+        // arch out from its head and hang down at their tips.
+        const i64 dx = tree.crownX - x;
+        const i64 dz = tree.crownZ - z;
+        i64 lastX = x;
+        i64 lastZ = z;
+        for (i64 y = 1; y <= tree.trunk; ++y) {
+            const i64 px = x + ((dx * y * y) / (tree.trunk * tree.trunk));
+            const i64 pz = z + ((dz * y * y) / (tree.trunk * tree.trunk));
+            builder.log(lastX, ground + y, lastZ);
+            builder.log(px, ground + y, pz);
+            lastX = px;
+            lastZ = pz;
+        }
+        const i64 head = ground + tree.trunk;
+        builder.disc(lastX, head, lastZ, 1, false);
+        builder.leaf(lastX, head + 1, lastZ);
+        static constexpr std::array<std::array<i64, 2>, 8> kWays = {
+            {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}}};
+        for (const auto& way : kWays) {
+            const i64 reach = 4 + roll(2) - (way[0] != 0 && way[1] != 0 ? 1 : 0);
+            for (i64 step = 1; step <= reach; ++step) {
+                const i64 drop = step < 3 ? 0 : (step - 2);
+                const i64 fx = lastX + (way[0] * step);
+                const i64 fz = lastZ + (way[1] * step);
+                builder.leaf(fx, head + 1 - drop, fz);
+                if (step == reach) {
+                    builder.leaf(fx, head - drop, fz);
+                }
+            }
+        }
+        break;
+    }
+    case TreeKind::Olive: {
+        // Short and gnarled: a thick stump that splits low into crooked limbs,
+        // each with a small flat crown.
+        trunk(builder, x, ground, z, ground + tree.trunk, true);
+        const i64 fork = ground + tree.trunk;
+        branch(builder, x + 1, z, fork, 3 - roll(2), roll(3) - 1, 2, 2);
+        branch(builder, x, z, fork, -3 + roll(2), roll(3) - 1, 1 + roll(2), 2);
+        branch(builder, x, z + 1, fork, roll(3) - 1, 3 - roll(2), 2, 2);
+        branch(builder, x, z, fork, roll(3) - 1, -3 + roll(2), 1 + roll(2), 2);
+        builder.blob(x, ground + tree.height - 1, z, 2, 1);
+        builder.log(x, fork, z);
+        builder.log(x, fork + 1, z);
+        break;
+    }
+    case TreeKind::Maple:
+    case TreeKind::GoldMaple: {
+        // A full round crown, taller than wide, with lobes on its flanks.
+        builder.blob(x, top, z, 4, 3);
+        builder.blob(x, top + 3, z, 3, 2);
+        branch(builder, x, z, top - 3, 2 + roll(2), roll(3) - 1, 2, 2);
+        branch(builder, x, z, top - 3, -2 - roll(2), roll(3) - 1, 2, 2);
+        trunk(builder, x, ground, z, top + 2, false);
+        break;
+    }
+    case TreeKind::Hemlock: {
+        // Slimmer than a spruce and softer: short, ragged boughs whose tips
+        // hang down, and a leader that nods over at the very top.
+        const i64 crownTop = ground + tree.height;
+        builder.leaf(x, crownTop, z);
+        builder.leaf(x, crownTop - 1, z);
+        builder.leaf(x + 1, crownTop, z);
+        for (i64 layer = 2; layer < tree.crownDepth; ++layer) {
+            const i64 wide = std::min<i64>((layer / 4) + 1, tree.radius);
+            const i64 y = crownTop - layer;
+            builder.disc(x, y, z, layer % 3 == 2 ? wide : std::max<i64>(wide - 1, 1), true);
+            if (layer % 3 == 2) {
+                builder.leaf(x + wide + 1, y - 1, z);
+                builder.leaf(x - wide - 1, y - 1, z);
+                builder.leaf(x, y - 1, z + wide + 1);
+                builder.leaf(x, y - 1, z - wide - 1);
+            }
+        }
+        trunk(builder, x, ground, z, crownTop - 1, false);
+        break;
+    }
+    case TreeKind::Poplar: {
+        // A tall narrow column, widest low in its middle, tapering to a point.
+        const i64 crownTop = ground + tree.height;
+        const i64 first = crownTop - tree.crownDepth;
+        for (i64 y = first; y <= crownTop; ++y) {
+            const i64 depth = y - first;
+            const i64 left = crownTop - y;
+            builder.disc(x, y, z, left < 2 ? 0 : (depth > 1 && left > 4 ? 2 : 1), left > 2);
+        }
+        trunk(builder, x, ground, z, crownTop - 2, false);
+        break;
+    }
+    case TreeKind::WeepingBirch: {
+        // A rounded head with long strands of leaves hanging from its rim.
+        builder.blob(x, top, z, 3, 2);
+        static constexpr std::array<std::array<i64, 2>, 12> kStrands = {{{4, 0},
+                                                                         {-4, 0},
+                                                                         {0, 4},
+                                                                         {0, -4},
+                                                                         {3, 2},
+                                                                         {3, -2},
+                                                                         {-3, 2},
+                                                                         {-3, -2},
+                                                                         {2, 3},
+                                                                         {2, -3},
+                                                                         {-2, 3},
+                                                                         {-2, -3}}};
+        for (const auto& strand : kStrands) {
+            const i64 length = 3 + roll(4);
+            for (i64 down = 0; down < length; ++down) {
+                builder.leaf(x + strand[0], top - down, z + strand[1]);
+            }
+        }
+        trunk(builder, x, ground, z, top + 1, false);
+        break;
+    }
+    case TreeKind::ForkedBirch: {
+        // Splits into two or three leaning stems, each with its own head.
+        const i64 fork = top - 4;
+        builder.blob(x, top, z, 2, 2);
+        const i64 sideX = 2 + roll(2);
+        const i64 sideZ = roll(5) - 2;
+        branch(builder, x, z, fork, sideX, sideZ, 3, 2);
+        branch(builder, x, z, fork + 1, -sideX, -sideZ, 3 - roll(2), 2);
+        trunk(builder, x, ground, z, top + 1, false);
+        break;
+    }
     }
 }
 
@@ -967,6 +1099,9 @@ std::optional<Terrain::Tree> Terrain::treeIn(i64 cellX, i64 cellZ, Biome biome, 
         pickWeighted(std::span<const TreeChoice>(look.treeKinds.data(), look.treeCount), unit(mix(h)));
     Tree tree;
     tree.kind = choice != nullptr ? choice->kind : TreeKind::Oak;
+    if (look.waterTree != TreeKind::Oak && damp > 0.05) {
+        tree.kind = look.waterTree;
+    }
     tree.seed = mix(h + 5);
     tree.x = (cellX * kTreeCell) + static_cast<i64>((h >> 8U) % kTreeCell);
     tree.z = (cellZ * kTreeCell) + static_cast<i64>((h >> 16U) % kTreeCell);
@@ -1057,6 +1192,53 @@ std::optional<Terrain::Tree> Terrain::treeIn(i64 cellX, i64 cellZ, Biome biome, 
         tree.crownDepth = 3;
         tree.radius = 2;
         break;
+    case TreeKind::Palm: {
+        tree.trunk = 8 + (size % 6);
+        tree.height = tree.trunk + 1;
+        tree.crownDepth = 4;
+        tree.radius = 5;
+        const i64 way = static_cast<i64>((h >> 34U) % 4U);
+        tree.crownX += way == 0 ? 2 : (way == 1 ? -2 : 1);
+        tree.crownZ += way == 2 ? 2 : (way == 3 ? -2 : -1);
+        break;
+    }
+    case TreeKind::Olive:
+        tree.trunk = 2 + (size % 2);
+        tree.height = 7 + (size % 2);
+        tree.crownDepth = 4;
+        tree.radius = 4;
+        break;
+    case TreeKind::Maple:
+    case TreeKind::GoldMaple:
+        tree.trunk = 6 + (size % 3);
+        tree.height = tree.trunk + 5;
+        tree.crownDepth = 8;
+        tree.radius = 4;
+        break;
+    case TreeKind::Hemlock:
+        tree.height = 16 + (size % 9);
+        tree.trunk = tree.height - 1;
+        tree.crownDepth = tree.height - 3;
+        tree.radius = 3;
+        break;
+    case TreeKind::Poplar:
+        tree.height = 14 + (size % 7);
+        tree.trunk = tree.height - 2;
+        tree.crownDepth = tree.height - 3;
+        tree.radius = 2;
+        break;
+    case TreeKind::WeepingBirch:
+        tree.trunk = 8 + (size % 4);
+        tree.height = tree.trunk + 2;
+        tree.crownDepth = 6;
+        tree.radius = 4;
+        break;
+    case TreeKind::ForkedBirch:
+        tree.trunk = 8 + (size % 4);
+        tree.height = tree.trunk + 2;
+        tree.crownDepth = 5;
+        tree.radius = 4;
+        break;
     }
     return tree;
 }
@@ -1069,12 +1251,21 @@ std::optional<Terrain::PlacedTree> Terrain::treeAt(i64 cellX, i64 cellZ) const {
     const i64 z = (cellZ * kTreeCell) + static_cast<i64>((h >> 16U) % kTreeCell);
     const Column& at = columnAt(x, z);
     const auto index = static_cast<usize>(((z & 15) * vxe::kChunkSize) + (x & 15));
-    if (!at.soil[index] || at.lean[index] > 0.0F) {
+    const BiomeLook& look = m_blocks.biomes[static_cast<usize>(at.biome[index])];
+    // Palms and olives root in the sand their biomes are made of.
+    const bool sandy =
+        look.waterTree != TreeKind::Oak && at.top[index] == look.top && at.heights[index] >= at.water[index];
+    if ((!at.soil[index] && !sandy) || at.lean[index] > 0.0F) {
         return std::nullopt;
     }
     const i64 ground = at.heights[index];
     const std::optional<Tree> tree = treeIn(cellX, cellZ, at.biome[index], static_cast<f64>(at.damp[index]));
     if (!tree) {
+        return std::nullopt;
+    }
+    // A palm belongs on a warm shore. Asked only for palms, since it costs a climate look.
+    if (tree->kind == TreeKind::Palm &&
+        m_climate.sample(static_cast<f64>(x), static_cast<f64>(z), 0.0).temperature < kPalmWarmth) {
         return std::nullopt;
     }
     return PlacedTree{.tree = *tree, .ground = ground};

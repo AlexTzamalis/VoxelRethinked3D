@@ -1,0 +1,20 @@
+# Placeholder art: a copy of the acacia log. Format: see stone.toml.
+name = "olive_log"
+display_name = "Olive Log"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "olive_log"
+
+[[variants]]
+properties = { axis = "y" }
+textures = { top = "olive_log_top", bottom = "olive_log_top" }
+
+[[variants]]
+properties = { axis = "x" }
+textures = { east = "olive_log_top", west = "olive_log_top" }
+
+[[variants]]
+properties = { axis = "z" }
+textures = { south = "olive_log_top", north = "olive_log_top" }

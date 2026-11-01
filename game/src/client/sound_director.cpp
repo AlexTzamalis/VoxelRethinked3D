@@ -62,6 +62,7 @@ bool isForest(Biome biome) noexcept {
     case Biome::FlowerForest:
     case Biome::DarkForest:
     case Biome::PaleForest:
+    case Biome::MapleForest:
     case Biome::Jungle:
     case Biome::Swamp:
     case Biome::Taiga:

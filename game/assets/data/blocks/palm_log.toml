@@ -1,0 +1,20 @@
+# Placeholder art: a copy of the jungle log. Format: see stone.toml.
+name = "palm_log"
+display_name = "Palm Log"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "palm_log"
+
+[[variants]]
+properties = { axis = "y" }
+textures = { top = "palm_log_top", bottom = "palm_log_top" }
+
+[[variants]]
+properties = { axis = "x" }
+textures = { east = "palm_log_top", west = "palm_log_top" }
+
+[[variants]]
+properties = { axis = "z" }
+textures = { south = "palm_log_top", north = "palm_log_top" }

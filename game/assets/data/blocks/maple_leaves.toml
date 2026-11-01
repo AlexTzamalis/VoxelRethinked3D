@@ -1,0 +1,13 @@
+# Placeholder art: a copy of birch_leaves colored by the tint. Format: see stone.toml.
+name = "maple_leaves"
+display_name = "Maple Leaves"
+category = "Nature"
+layer = "cutout"
+light_opacity = 1
+culls_same_type = false
+tint = 6
+tint_color = "#F0642C"
+bushy = "advanced_leaves/maple_leaves"
+
+[textures]
+all = "maple_leaves"

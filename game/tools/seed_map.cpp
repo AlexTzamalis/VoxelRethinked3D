@@ -91,6 +91,7 @@ constexpr std::array<Color, vr::kBiomeCount> kBiomeColors = {{
     {196, 104, 58},  // Badlands
     {24, 150, 62},   // Jungle
     {30, 72, 58},    // Deep Spruce Forest
+    {196, 92, 36},   // Maple Forest
 }};
 
 // Cold blue through white to hot red, around 10 degrees.

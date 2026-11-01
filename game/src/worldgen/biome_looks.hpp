@@ -27,8 +27,16 @@ enum class TreeKind : vxe::u8 {
     Azalea,
     Bush,
     TallSpruce,
+    Palm,
+    Olive,
+    Maple,
+    GoldMaple,
+    Hemlock,
+    Poplar,
+    WeepingBirch,
+    ForkedBirch,
 };
-inline constexpr vxe::usize kTreeKindCount = 14;
+inline constexpr vxe::usize kTreeKindCount = 22;
 
 // What a kind of tree is made of. Some leaves are mixed with a second kind,
 // so crowns are not one flat color.
@@ -64,8 +72,10 @@ struct BiomeLook {
     vxe::f32 patch2Share = 0.0F;
     vxe::u8 underDepth = 3;
     vxe::u8 deepDepth = 0;
-    bool banded = false;    // Colored rock layers, as in badlands.
-    bool dry = false;       // Water does little here: thin green along rivers.
+    bool banded = false; // Colored rock layers, as in badlands.
+    bool dry = false;    // Water does little here: thin green along rivers.
+    // What grows at water here, rooted in sand too. Oak means the biome's own trees.
+    TreeKind waterTree = TreeKind::Oak;
     vxe::f32 trees = 0.0F;  // Chance of a tree per tree cell.
     vxe::f32 groves = 0.0F; // 0 is even, 1 gathers the trees into groups with clearings.
     vxe::u8 treeCount = 0;
@@ -102,7 +112,7 @@ struct TerrainBlocks {
     vxe::voxel::BlockStateId iron = 0;
     vxe::voxel::BlockStateId gold = 0;
     vxe::voxel::BlockStateId floor = 0;
-    std::array<vxe::voxel::BlockStateId, 8> soils{}; // What plants and trees root in.
+    std::array<vxe::voxel::BlockStateId, 9> soils{}; // What plants and trees root in.
     std::array<TreeBlocks, kTreeKindCount> trees{};
     std::array<PlantChoice, 7> waterside{}; // What crowds the banks of rivers and lakes.
     vxe::u8 watersideCount = 0;

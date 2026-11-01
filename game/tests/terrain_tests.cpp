@@ -191,6 +191,30 @@ TEST_CASE("A tree's crown reaches the height the far terrain expects") {
     CHECK(checked > 10);
 }
 
+TEST_CASE("The peak of a large spruce is all leaves") {
+    const Terrain terrain(blocks(), 12345, PlanetPreset{}, false);
+    const vxe::voxel::BlockStateId wood = blocks().trees[static_cast<usize>(TreeKind::TallSpruce)].log;
+    auto states = std::make_unique<States>();
+    usize checked = 0;
+    for (i64 z = -200; z < 200 && checked < 20; ++z) {
+        for (i64 x = -200; x < 200 && checked < 20; ++x) {
+            const auto placed = terrain.treeAt(x * 7, z * 7);
+            if (!placed || placed->tree.kind != TreeKind::TallSpruce || placed->tree.height <= 23) {
+                continue;
+            }
+            // The whole thin top: no wood shows on the tip or beside the leader.
+            for (i64 y = 0; y < 2; ++y) {
+                const vxe::BlockPos block{
+                    .x = placed->tree.x, .y = placed->ground + placed->tree.height - y, .z = placed->tree.z};
+                terrain.generate(vxe::toChunk(block), *states);
+                CHECK((*states)[vxe::toLocal(block).index()] != wood);
+            }
+            ++checked;
+        }
+    }
+    CHECK(checked > 3);
+}
+
 TEST_CASE("locate finds biomes") {
     const Terrain terrain(blocks(), 12345, PlanetPreset{}, false);
     const auto found = terrain.findBiome(Biome::Plains, 0, 0);

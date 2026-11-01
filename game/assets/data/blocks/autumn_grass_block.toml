@@ -1,0 +1,17 @@
+# The ground of maple woods, gold where other land is green. Until biomes color
+# the grass themselves (G3.7) this is its own block. Format: see stone.toml.
+name = "autumn_grass_block"
+display_name = "Autumn Grass Block"
+category = "Nature"
+layer = "opaque"
+tint = 12
+tint_color = "#C9A545"
+tint_faces = ["top", "side"]
+
+[textures]
+top = "autumn_grass_top"
+bottom = "dirt"
+side = "autumn_grass_side"
+
+[overlays]
+side = "autumn_grass_side_overlay"

@@ -58,7 +58,7 @@ public:
     // Trees: at most one per 5 x 5 block cell, reaching at most 7 blocks from
     // the trunk. Shared with the far terrain sampler.
     static constexpr vxe::i64 kTreeCell = 5;
-    static constexpr vxe::i64 kTreeReach = 7;
+    static constexpr vxe::i64 kTreeReach = 8;
 
     // One tree: where it stands and what it is, from the seed and the biome.
     struct Tree {

@@ -1,0 +1,13 @@
+# Placeholder art: a copy of birch_leaves colored by the tint. Format: see stone.toml.
+name = "palm_leaves"
+display_name = "Palm Leaves"
+category = "Nature"
+layer = "cutout"
+light_opacity = 1
+culls_same_type = false
+tint = 9
+tint_color = "#5FA33A"
+bushy = "advanced_leaves/palm_leaves"
+
+[textures]
+all = "palm_leaves"

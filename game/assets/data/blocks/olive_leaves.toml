@@ -1,0 +1,13 @@
+# Placeholder art: a copy of birch_leaves colored by the tint. Format: see stone.toml.
+name = "olive_leaves"
+display_name = "Olive Leaves"
+category = "Nature"
+layer = "cutout"
+light_opacity = 1
+culls_same_type = false
+tint = 8
+tint_color = "#8F9E72"
+bushy = "advanced_leaves/olive_leaves"
+
+[textures]
+all = "olive_leaves"

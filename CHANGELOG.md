@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#120] 2026-11-01, G3.6 New trees and the Maple Forest
+### Added
+- Palm, olive, maple, golden maple, hemlock and poplar trees, and weeping and forked birches.
+- Maple Forest biome with red and gold trees and autumn grass.
+- Palms on warm beaches and at desert and savanna water, olives at dry rivers.
+
+### Fixed
+- The peaks of large spruces are covered in leaves.
+
 ## [#119] 2026-11-01, G3.5 Natural river shapes and larger rivers
 ### Changed
 - Rivers follow curves and wander, with no corners, and join at an angle.

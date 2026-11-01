@@ -1,0 +1,13 @@
+# Placeholder art: a copy of birch_leaves colored by the tint. Format: see stone.toml.
+name = "poplar_leaves"
+display_name = "Poplar Leaves"
+category = "Nature"
+layer = "cutout"
+light_opacity = 1
+culls_same_type = false
+tint = 11
+tint_color = "#7CA843"
+bushy = "advanced_leaves/poplar_leaves"
+
+[textures]
+all = "poplar_leaves"

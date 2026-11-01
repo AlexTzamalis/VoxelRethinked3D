@@ -183,6 +183,10 @@ Biome Climate::biome(const PlanetSample& ground, const ClimateSample& climate) n
             if (variety < 0.4) {
                 return Biome::Forest;
             }
+            // The cooler end of the leafy woods turns red and gold.
+            if (heat < 15.0 && variety > 0.55) {
+                return Biome::MapleForest;
+            }
             return variety < 0.75 ? Biome::BirchForest : Biome::FlowerForest;
         }
         return variety < 0.6 ? Biome::DarkForest : Biome::PaleForest;
