@@ -38,6 +38,23 @@ std::vector<std::filesystem::path> filesIn(const std::filesystem::path& folder, 
     return files;
 }
 
+f32 pitchOf(StepSound material) noexcept {
+    switch (material) {
+    case StepSound::Grass:
+        return 1.15F;
+    case StepSound::Leaves:
+        return 1.4F;
+    case StepSound::Stone:
+        return 0.8F;
+    default:
+        return 1.0F;
+    }
+}
+
+f32 volumeOf(StepSound material) noexcept {
+    return material == StepSound::Leaves ? 0.45F : 0.85F;
+}
+
 bool isForest(Biome biome) noexcept {
     switch (biome) {
     case Biome::Forest:
@@ -64,17 +81,30 @@ StepSound stepSoundOf(std::string_view name) noexcept {
     if (has("snow")) {
         return StepSound::Snow;
     }
+    if (has("leaves")) {
+        return StepSound::Leaves;
+    }
     if (has("planks") || has("log")) {
         return StepSound::Wood;
+    }
+    // Polished and shining blocks ring; the rest of the rock crunches.
+    if (has("polished") || has("lumen") || has("glass") || has("foundation")) {
+        return StepSound::Metal;
+    }
+    if (has("gravel") || has("cobble")) {
+        return StepSound::Gravel;
+    }
+    if (has("stone") || has("granite") || has("andesite") || has("tuff") || has("calcite") || has("basalt") ||
+        has("deepslate") || has("brick") || has("ore")) {
+        return StepSound::Stone;
     }
     if (has("sand") || has("clay")) {
         return StepSound::Dry;
     }
-    if (has("gravel") || has("cobble") || has("stone") || has("granite") || has("andesite") || has("tuff") ||
-        has("calcite") || has("basalt") || has("deepslate") || has("brick")) {
-        return StepSound::Gravel;
+    if (has("coarse") || has("rooted") || has("mud") || has("podzol") || has("roots")) {
+        return StepSound::Rough;
     }
-    return StepSound::Dirt;
+    return has("grass") ? StepSound::Grass : StepSound::Dirt;
 }
 
 SoundDirector::SoundDirector(vxe::audio::AudioSystem& audio, std::filesystem::path folder)
@@ -85,7 +115,20 @@ SoundDirector::SoundDirector(vxe::audio::AudioSystem& audio, std::filesystem::pa
     m_night = filesIn(ambient, "night-ambient");
     m_light = filesIn(ambient, "light-ambient");
     m_music = filesIn(ambient, "ambient-");
-    m_impacts = filesIn(m_folder / "block", "ground-impact");
+    const std::filesystem::path block = m_folder / "block";
+    const auto digs = [&](StepSound material, std::string_view prefix) {
+        m_digs.at(static_cast<usize>(material)) = filesIn(block, prefix);
+    };
+    digs(StepSound::Dirt, "dig-dirt");
+    digs(StepSound::Grass, "dig-dirt");
+    digs(StepSound::Leaves, "dig-dirt");
+    digs(StepSound::Rough, "dig-stone");
+    digs(StepSound::Stone, "dig-stone");
+    digs(StepSound::Gravel, "dig-gravel");
+    digs(StepSound::Dry, "dig-sand");
+    digs(StepSound::Snow, "dig-snow");
+    digs(StepSound::Wood, "dig-wood");
+    digs(StepSound::Metal, "dig-metal");
     m_glass = filesIn(m_folder / "block", "glass-break");
     m_clicks = filesIn(m_folder / "ui", "mouse-click");
     m_whooshes = filesIn(m_folder / "ui", "whoosh");
@@ -149,33 +192,50 @@ void SoundDirector::updateAmbience(const SoundScene& scene) {
 }
 
 void SoundDirector::updateSteps(const SoundScene& scene) {
-    const std::filesystem::path steps = m_folder / "footsteps";
-    std::filesystem::path file;
+    // Fewer recordings than kinds of ground, so some share one at another pitch:
+    // the same steps sound lighter on grass and harder on stone.
+    struct Step {
+        std::string_view file;
+        f32 pitch = 1.0F;
+        f32 volume = 0.55F;
+    };
+    Step step;
     switch (scene.step) {
     case StepSound::None:
-        break;
     case StepSound::Dirt:
-        file = steps / "footsteps-dirt.mp3";
+        step = {.file = "footsteps-dirt.mp3"};
+        break;
+    case StepSound::Grass:
+        step = {.file = "footsteps-dirt.mp3", .pitch = 1.14F, .volume = 0.42F};
+        break;
+    case StepSound::Leaves:
+        step = {.file = "footsteps-dirt.mp3", .pitch = 1.32F, .volume = 0.3F};
+        break;
+    case StepSound::Rough:
+        step = {.file = "footsteps-dirt-gravel.mp3"};
+        break;
+    case StepSound::Stone:
+        step = {.file = "footsteps-dirt-gravel.mp3", .pitch = 0.82F, .volume = 0.6F};
         break;
     case StepSound::Gravel:
-        file = steps / "footsteps-gravel.mp3";
+        step = {.file = "footsteps-gravel.mp3", .volume = 0.6F};
         break;
     case StepSound::Dry:
-        file = steps / "footsteps-dry.mp3";
+        step = {.file = "footsteps-dry.mp3"};
         break;
     case StepSound::Snow:
-        file = steps / "footsteps-in-thin-snow.mp3";
+        step = {.file = "footsteps-in-thin-snow.mp3"};
         break;
     case StepSound::Wood:
-        file = steps / "footsteps-on-wood.mp3";
+        step = {.file = "footsteps-on-wood.mp3"};
         break;
     case StepSound::Metal:
-        file = steps / "footsteps-metal.mp3";
+        step = {.file = "footsteps-metal.mp3", .volume = 0.4F};
         break;
     }
-    const bool stepping = scene.walking && !scene.underWater && !file.empty();
-    m_audio.setLoop("steps", file.empty() ? steps / "footsteps-dirt.mp3" : file, Bus::Effects,
-                    stepping ? 0.55F : 0.0F, kStepFade, scene.sprinting ? 1.3F : 1.0F);
+    const bool stepping = scene.walking && !scene.underWater && scene.step != StepSound::None;
+    m_audio.setLoop("steps", m_folder / "footsteps" / step.file, Bus::Effects, stepping ? step.volume : 0.0F,
+                    kStepFade, step.pitch * (scene.sprinting ? 1.3F : 1.0F));
 }
 
 void SoundDirector::updateMusic(f64 deltaSeconds) {
@@ -189,16 +249,26 @@ void SoundDirector::updateMusic(f64 deltaSeconds) {
     }
 }
 
-void SoundDirector::blockBroken(const vxe::DVec3& position, bool glass) {
-    const auto& files = glass && !m_glass.empty() ? m_glass : m_impacts;
+// A block's impact in the file's own voice, lighter things higher up. Breaking
+// sits a little lower than placing, and a small random pitch keeps a row of
+// the same block from sounding like one sample.
+void SoundDirector::blockBroken(const vxe::DVec3& position, StepSound material, bool glass) {
+    if (glass && !m_glass.empty()) {
+        m_audio.playAt(pick(m_glass), position, Bus::Effects, 0.8F, 0.9F + (randomUnit() * 0.2F));
+        return;
+    }
+    const auto& files = m_digs.at(static_cast<usize>(material));
     if (!files.empty()) {
-        m_audio.playAt(pick(files), position, Bus::Effects, 0.8F, 0.85F + (randomUnit() * 0.3F));
+        m_audio.playAt(pick(files), position, Bus::Effects, volumeOf(material),
+                       pitchOf(material) * (0.88F + (randomUnit() * 0.12F)));
     }
 }
 
-void SoundDirector::blockPlaced(const vxe::DVec3& position) {
-    if (!m_impacts.empty()) {
-        m_audio.playAt(pick(m_impacts), position, Bus::Effects, 0.6F, 1.05F + (randomUnit() * 0.25F));
+void SoundDirector::blockPlaced(const vxe::DVec3& position, StepSound material) {
+    const auto& files = m_digs.at(static_cast<usize>(material));
+    if (!files.empty()) {
+        m_audio.playAt(pick(files), position, Bus::Effects, volumeOf(material) * 0.75F,
+                       pitchOf(material) * (1.04F + (randomUnit() * 0.12F)));
     }
 }
 

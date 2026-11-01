@@ -2,7 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
-## [#117] 2026-10-31, G3.5 Rivers from real drainage
+## [#118] 2026-11-01, Footsteps and block sounds by material, life along water
+### Added
+- Short impacts per material in sounds/block (dig-*), cut from the footstep recordings, for breaking and placing.
+- Footsteps for grass, rough ground, stone, metal like blocks and leaves, from all seven recordings.
+- Banks of rivers and lakes turn green, even in dry biomes, with plants and more trees along them.
+
+### Changed
+- Fewer thin streams high in the mountains.
+
+ 2026-10-31, G3.5 Rivers from real drainage
 ### Added
 - RiverNetwork: water drains over the real terrain on a 48 block grid. Priority flooding finds the way out of every hollow and fills lakes to their spill height.
 - Width comes from how much land drains through: thin streams high up join into rivers up to 22 blocks wide in the lowlands.

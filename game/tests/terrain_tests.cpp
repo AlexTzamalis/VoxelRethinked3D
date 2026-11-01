@@ -5,8 +5,10 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <utility>
+#include <vector>
 
 using namespace vr;
 using vxe::f64;
@@ -223,4 +225,31 @@ TEST_CASE("Rivers and lakes hold water above the sea, inside their banks") {
     CHECK(wet > 300);
     CHECK(highest > Terrain::kSeaLevel + 8);
     CHECK(spills * 5 < wet); // Of 4 sides per column: under 5% of the edges.
+}
+
+TEST_CASE("Water brings life to its banks") {
+    const Terrain terrain(blocks(), 12345);
+    std::vector<RiverNetwork::Stretch> stretches;
+    terrain.rivers().gather(-1500.0, -1500.0, 1500.0, 1500.0, stretches);
+    REQUIRE(stretches.size() > 20);
+    usize banks = 0;
+    usize green = 0;
+    for (usize i = 0; i < stretches.size(); i += 7) {
+        const RiverNetwork::Stretch& stretch = stretches[i];
+        // Beside the river, across its direction of flow.
+        const f64 alongX = stretch.bx - stretch.ax;
+        const f64 alongZ = stretch.bz - stretch.az;
+        const f64 length = std::max(std::hypot(alongX, alongZ), 1.0);
+        const f64 side = (stretch.widthA * 0.5) + 3.0;
+        const auto x = static_cast<i64>(std::floor(stretch.ax - ((alongZ / length) * side)));
+        const auto z = static_cast<i64>(std::floor(stretch.az + ((alongX / length) * side)));
+        if (terrain.surfaceHeight(x, z) < terrain.waterLevel(x, z)) {
+            continue; // In the water after all.
+        }
+        ++banks;
+        green += blocks().isSoil(terrain.topBlock(x, z)) ? 1U : 0U;
+    }
+    MESSAGE(green << " of " << banks << " bank columns can grow plants");
+    REQUIRE(banks > 10);
+    CHECK(green * 2 > banks);
 }

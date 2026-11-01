@@ -30,15 +30,17 @@ constexpr f64 kSlopeReach = 6.0;     // Blocks over which the planet's slope is 
 constexpr f64 kGullyWidest = 90.0;   // Blocks across the widest gullies.
 constexpr f64 kGullyStrength = 0.15; // Depth of a gully, as a part of its width.
 constexpr int kGullyOctaves = 3;
-constexpr f64 kRockSlope = 1.6;      // Steeper ground than this holds no soil.
-constexpr f64 kSnowSlope = 3.4;      // Steeper ground than this holds no snow.
-constexpr f64 kOverhangMost = 12.0;  // Blocks a rock face leans at most.
-constexpr i64 kTreeHeadroom = 32;    // The tallest tree, above any ground.
-constexpr i64 kFeatureCell = 19;     // Blocks per side of a boulder or fallen log cell.
-constexpr i64 kFeatureReach = 7;     // How far those reach from their cell's spot.
-constexpr usize kCacheColumns = 256; // Per thread, a power of two.
-constexpr f64 kFarRiverCell = 4.0;   // Far cells wider than this leave rivers and lakes out.
-constexpr i64 kBandHeight = 5;       // Blocks of one rock layer.
+constexpr f64 kRockSlope = 1.6;        // Steeper ground than this holds no soil.
+constexpr f64 kSnowSlope = 3.4;        // Steeper ground than this holds no snow.
+constexpr f64 kOverhangMost = 12.0;    // Blocks a rock face leans at most.
+constexpr i64 kTreeHeadroom = 32;      // The tallest tree, above any ground.
+constexpr i64 kFeatureCell = 19;       // Blocks per side of a boulder or fallen log cell.
+constexpr i64 kFeatureReach = 7;       // How far those reach from their cell's spot.
+constexpr usize kCacheColumns = 256;   // Per thread, a power of two.
+constexpr f64 kFarRiverCell = 4.0;     // Far cells wider than this leave rivers and lakes out.
+constexpr f64 kGreenDamp = 0.45;       // How damp ground must be to turn green by itself.
+constexpr f64 kWatersidePlants = 0.72; // Share of the wettest ground under plants.
+constexpr i64 kBandHeight = 5;         // Blocks of one rock layer.
 
 constexpr u64 mix(u64 value) noexcept {
     value += 0x9E3779B97F4A7C15ULL;
@@ -352,6 +354,7 @@ struct Terrain::Column {
     std::array<BlockStateId, vxe::kChunkArea> top{};
     std::array<Biome, vxe::kChunkArea> biome{};
     std::array<bool, vxe::kChunkArea> soil{}; // Plants and trees can root here.
+    std::array<f32, vxe::kChunkArea> damp{};  // How much water feeds the ground here.
     std::array<i32, vxe::kChunkArea> water{}; // The water surface over this column.
 };
 
@@ -462,6 +465,7 @@ void Terrain::carveInto(std::span<const RiverNetwork::Stretch> nearby, f64 x, f6
     if (carved.water > kNoWater) {
         at.water = std::max(at.water, carved.water + sea);
     }
+    at.damp = std::max(at.damp, carved.damp);
 }
 
 BlockStateId Terrain::topOf(f64 x, f64 z, const Ground& at, Biome biome) const noexcept {
@@ -477,6 +481,12 @@ BlockStateId Terrain::topOf(f64 x, f64 z, const Ground& at, Biome biome) const n
         if (at.slope > (snowy ? kSnowSlope : kRockSlope) && !look.banded) {
             return m_blocks.stone;
         }
+    }
+    // Water brings green, even into dry land: banks grow grass where the biome
+    // around them is sand or bare rock. Snow stays snow.
+    const BlockStateId snow = m_blocks.biomes[static_cast<usize>(Biome::SnowyPeaks)].top;
+    if (!underWater && at.damp > kGreenDamp && look.top != snow && look.top != m_blocks.soils[6]) {
+        return m_blocks.soils[0];
     }
     if (look.patchShare > 0.0F && inPatch(m_seed + 47, x, z, static_cast<f64>(look.patchShare))) {
         return look.patch;
@@ -572,6 +582,10 @@ void Terrain::buildColumn(i32 chunkX, i32 chunkZ, Column& column) const noexcept
                 vxe::noise::gradient2(m_seed + 37, wx / 9.0, wz / 9.0).value * smooth(1.0, 8.0, above) * 1.6;
             // Per block, not on the grid: a stream can be one block wide.
             carveInto(nearby, wx, wz, here);
+            // A lake feeds its shores the way a river feeds its banks.
+            if (here.water > kNoWater) {
+                here.damp = std::max(here.damp, 1.0 - smooth(0.0, 6.0, here.height - here.water));
+            }
             above = here.height - static_cast<f64>(kSeaLevel);
             ClimateSample weather = Climate::sample(weatherCell, wx, wz, above);
             // Biome borders fray a little, so they never run as smooth curves.
@@ -597,6 +611,7 @@ void Terrain::buildColumn(i32 chunkX, i32 chunkZ, Column& column) const noexcept
             const auto lean =
                 static_cast<f32>(kOverhangMost * smooth(1.8, 3.4, here.slope) * smooth(30.0, 140.0, above));
             column.lean[index] = lean;
+            column.damp[index] = static_cast<f32>(here.damp);
             column.leanMost = std::max(column.leanMost, lean);
             column.lowest = std::min(column.lowest, height);
             column.highest = std::max(column.highest, height);
@@ -915,9 +930,9 @@ void Terrain::placeFeatures(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kC
     }
 }
 
-std::optional<Terrain::Tree> Terrain::treeIn(i64 cellX, i64 cellZ, Biome biome) const noexcept {
+std::optional<Terrain::Tree> Terrain::treeIn(i64 cellX, i64 cellZ, Biome biome, f64 damp) const noexcept {
     const BiomeLook& look = m_blocks.biomes[static_cast<usize>(biome)];
-    if (look.treeCount == 0) {
+    if (look.treeCount == 0 && damp <= 0.0) {
         return std::nullopt;
     }
     const u64 h = hash3(m_seed + 17, cellX, 0, cellZ);
@@ -931,6 +946,8 @@ std::optional<Terrain::Tree> Terrain::treeIn(i64 cellX, i64 cellZ, Biome biome) 
         const f64 grove = smooth(-0.15, 0.4, wood) * 2.4;
         chance *= 1.0 + ((grove - 1.0) * static_cast<f64>(look.groves));
     }
+    // Trees crowd along water. A biome with none of its own grows oaks there.
+    chance += damp * 0.32;
     if (unit(h) >= chance) {
         return std::nullopt;
     }
@@ -1044,7 +1061,7 @@ std::optional<Terrain::PlacedTree> Terrain::treeAt(i64 cellX, i64 cellZ) const {
         return std::nullopt;
     }
     const i64 ground = at.heights[index];
-    const std::optional<Tree> tree = treeIn(cellX, cellZ, at.biome[index]);
+    const std::optional<Tree> tree = treeIn(cellX, cellZ, at.biome[index], static_cast<f64>(at.damp[index]));
     if (!tree) {
         return std::nullopt;
     }
@@ -1071,11 +1088,16 @@ void Terrain::placeTrees(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChun
     }
 }
 
-const PlantChoice* Terrain::plantAt(i64 x, i64 z, const BiomeLook& look) const noexcept {
+const PlantChoice* Terrain::plantAt(i64 x, i64 z, const BiomeLook& look, f64 damp) const noexcept {
     const u64 h = hash3(m_seed + 67, x, 0, z);
     const f64 roll = unit(h);
     const auto wx = static_cast<f64>(x);
     const auto wz = static_cast<f64>(z);
+    // Where water feeds the ground plants crowd in, whatever the biome.
+    if (damp > 0.0 && look.top != m_blocks.soils[6] && unit(mix(h + 2)) < damp * kWatersidePlants) {
+        return pickWeighted(std::span<const PlantChoice>(m_blocks.waterside.data(), m_blocks.watersideCount),
+                            unit(mix(h + 3)));
+    }
     if (look.flowers > 0.0F && roll < 0.3 && look.flowerCount > 0 &&
         vxe::noise::gradient2(m_seed + 71, wx / 13.0, wz / 13.0).value >
             0.5 - (static_cast<f64>(look.flowers) * 1.05)) {
@@ -1116,7 +1138,8 @@ void Terrain::placePlants(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChu
                 continue;
             }
             const BiomeLook& look = m_blocks.biomes[static_cast<usize>(at.biome[index])];
-            const PlantChoice* plant = plantAt(origin.x + x, origin.z + z, look);
+            const PlantChoice* plant =
+                plantAt(origin.x + x, origin.z + z, look, static_cast<f64>(at.damp[index]));
             if (plant == nullptr) {
                 continue;
             }

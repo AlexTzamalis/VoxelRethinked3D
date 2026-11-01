@@ -103,6 +103,8 @@ struct TerrainBlocks {
     vxe::voxel::BlockStateId floor = 0;
     std::array<vxe::voxel::BlockStateId, 8> soils{}; // What plants and trees root in.
     std::array<TreeBlocks, kTreeKindCount> trees{};
+    std::array<PlantChoice, 7> waterside{}; // What crowds the banks of rivers and lakes.
+    vxe::u8 watersideCount = 0;
     std::array<BiomeLook, kBiomeCount> biomes{};
 
     [[nodiscard]] bool isSoil(vxe::voxel::BlockStateId state) const noexcept {

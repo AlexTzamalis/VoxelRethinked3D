@@ -53,6 +53,7 @@ public:
     struct Carve {
         vxe::f64 ground = 0.0;     // The ground after cutting; only ever lower.
         vxe::f64 water = kNoWater; // The water surface, if in a river.
+        vxe::f64 damp = 0.0;       // 1 at the water, falling to 0 away from it.
     };
 
     // How far from a stretch its banks can reach, in blocks.

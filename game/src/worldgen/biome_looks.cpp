@@ -69,6 +69,14 @@ constexpr std::array<Weighted, 7> kAllFlowers = {{{"allium", 3},
 constexpr std::array<Weighted, 7> kMeadowFlowers = {
     {{"cornflower", 4}, {"allium", 3}, {"azure_bluet", 3}, {"poppy", 2}, {"lilac", 1}, {"peony", 1}}};
 
+constexpr std::array<Weighted, 7> kWaterside = {{{"tall_grass", 6},
+                                                 {"fern", 6},
+                                                 {"short_grass", 5},
+                                                 {"large_fern", 3},
+                                                 {"blue_orchid", 1},
+                                                 {"lily_of_the_valley", 1},
+                                                 {"firefly_bush", 1}}};
+
 constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
     {.biome = Biome::DeepOcean,
      .top = "sand",
@@ -517,6 +525,7 @@ vxe::Result<TerrainBlocks> TerrainBlocks::fromCatalog(const BlockCatalog& catalo
     blocks.floor = state("foundation_stone");
     blocks.soils = {state("grass_block"), state("dirt"), state("coarse_dirt"), state("podzol"),
                     state("rooted_dirt"), state("mud"),  state("snowy_grass"), state("muddy_mangrove_roots")};
+    blocks.watersideCount = resolvePlants(kWaterside, blocks.waterside, state);
     for (const Species& species : kSpecies) {
         const std::string wood(species.wood);
         blocks.trees.at(static_cast<std::size_t>(species.kind)) = {

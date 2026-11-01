@@ -920,12 +920,19 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
                         const vxe::DVec3 middle(static_cast<vxe::f64>(position.x) + 0.5,
                                                 static_cast<vxe::f64>(position.y) + 0.5,
                                                 static_cast<vxe::f64>(position.z) + 0.5);
-                        if (state == vxe::voxel::kAirState && m_blocks->isSolid(before)) {
-                            const bool glass =
-                                m_blocks->stateName(before).find("glass") != std::string_view::npos;
-                            m_sounds->blockBroken(middle, glass);
-                        } else if (state != vxe::voxel::kAirState && m_blocks->isSolid(state)) {
-                            m_sounds->blockPlaced(middle);
+                        if (state == vxe::voxel::kAirState && before != vxe::voxel::kAirState &&
+                            !m_blocks->isLiquid(before)) {
+                            // Plants have no material of their own: they rustle.
+                            const std::string_view name = m_blocks->stateName(before);
+                            const StepSound material =
+                                m_blocks->isSolid(before) ? stepSoundOf(name) : StepSound::Leaves;
+                            m_sounds->blockBroken(middle, material,
+                                                  name.find("glass") != std::string_view::npos);
+                        } else if (state != vxe::voxel::kAirState) {
+                            const StepSound material = m_blocks->isSolid(state)
+                                                           ? stepSoundOf(m_blocks->stateName(state))
+                                                           : StepSound::Leaves;
+                            m_sounds->blockPlaced(middle, material);
                         }
                     }
                     return changed;

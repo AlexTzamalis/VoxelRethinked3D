@@ -24,6 +24,7 @@ struct Ground {
     vxe::f64 rough = 0.0;
     vxe::f64 continent = 0.0;
     vxe::f64 water = kNoWater; // Height of a river or lake surface, in blocks.
+    vxe::f64 damp = 0.0;       // 0 to 1: how much water feeds the ground here.
 };
 
 // The world's terrain (G3.3, G3.4, G3.6): the planet's heights, carved by an
@@ -155,13 +156,15 @@ private:
     [[nodiscard]] vxe::voxel::BlockStateId topOf(vxe::f64 x, vxe::f64 z, const Ground& at,
                                                  Biome biome) const noexcept;
     // The tree of a tree cell for a biome, before asking about its ground.
-    [[nodiscard]] std::optional<Tree> treeIn(vxe::i64 cellX, vxe::i64 cellZ, Biome biome) const noexcept;
+    [[nodiscard]] std::optional<Tree> treeIn(vxe::i64 cellX, vxe::i64 cellZ, Biome biome,
+                                             vxe::f64 damp) const noexcept;
 
     [[nodiscard]] vxe::voxel::BlockStateId stoneAt(vxe::i64 x, vxe::i64 y, vxe::i64 z, vxe::f64 a,
                                                    vxe::f64 b) const noexcept;
     [[nodiscard]] vxe::voxel::BlockStateId bandAt(vxe::i64 x, vxe::i64 y, vxe::i64 z,
                                                   bool banded) const noexcept;
-    [[nodiscard]] const PlantChoice* plantAt(vxe::i64 x, vxe::i64 z, const BiomeLook& look) const noexcept;
+    [[nodiscard]] const PlantChoice* plantAt(vxe::i64 x, vxe::i64 z, const BiomeLook& look,
+                                             vxe::f64 damp) const noexcept;
 
     void placeFeatures(vxe::ChunkPos chunk, std::span<vxe::voxel::BlockStateId, vxe::kChunkVolume> out) const;
     void placeTrees(vxe::ChunkPos chunk, std::span<vxe::voxel::BlockStateId, vxe::kChunkVolume> out) const;

@@ -160,7 +160,7 @@ int main(int argc, char** argv) {
         std::printf("first tile %.0f ms, the tile beside it %.0f ms\n", one.count() * 1000.0,
                     two.count() * 1000.0);
         stretches.clear();
-        terrain.rivers().gather(-3000.0, -3000.0, 3000.0, 3000.0, stretches);
+        terrain.rivers().gather(-9000.0, -9000.0, 9000.0, 9000.0, stretches);
         const auto show = [](const char* name, const vr::RiverNetwork::Stretch& s) {
             std::printf("%-8s %.0f %.0f level %.0f width %.1f, flows to %.0f %.0f\n", name, s.ax, s.az,
                         s.levelA + vr::Terrain::kSeaLevel, s.widthA, s.bx, s.bz);
@@ -185,6 +185,25 @@ int main(int argc, char** argv) {
             show("wide", *wide);
             show("middle", *middle);
             show("high", *high);
+        }
+        // A bank of a real river in each biome, to stand on in the game: x, ground
+        // height, z and the direction the river runs.
+        std::array<bool, vr::kBiomeCount> seen{};
+        for (const auto& s : stretches) {
+            const f64 alongX = s.bx - s.ax;
+            const f64 alongZ = s.bz - s.az;
+            const f64 length = std::max(std::hypot(alongX, alongZ), 1.0);
+            const f64 side = (s.widthA * 0.5) + 4.0;
+            const auto x = static_cast<vxe::i64>(std::floor(s.ax - ((alongZ / length) * side)));
+            const auto z = static_cast<vxe::i64>(std::floor(s.az + ((alongX / length) * side)));
+            const auto biome = static_cast<usize>(terrain.biomeAt(x, z));
+            if (s.widthA < 4.0 || seen.at(biome)) {
+                continue;
+            }
+            seen.at(biome) = true;
+            std::printf("bank %s %lld %lld %lld %.2f %.2f\n", vr::kBiomeNames.at(biome).data(),
+                        static_cast<long long>(x), static_cast<long long>(terrain.surfaceHeight(x, z)),
+                        static_cast<long long>(z), alongX / length, alongZ / length);
         }
         return 0;
     }

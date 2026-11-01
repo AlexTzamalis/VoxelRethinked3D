@@ -6,6 +6,7 @@
 #include <vxe/core/types.hpp>
 #include <vxe/math/vector.hpp>
 
+#include <array>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -17,12 +18,17 @@ namespace vr {
 enum class StepSound : vxe::u8 {
     None,
     Dirt,
+    Grass,
+    Rough, // Coarse ground: mud, roots, podzol.
     Gravel,
-    Dry,
+    Stone,
+    Dry, // Sand and clay.
     Snow,
     Wood,
-    Metal
+    Metal, // Hard, smooth blocks.
+    Leaves,
 };
+inline constexpr vxe::usize kStepSoundCount = 11;
 
 // What the player's surroundings are like right now.
 struct SoundScene {
@@ -48,6 +54,7 @@ struct SoundScene {
 //   Water       water/water-stream, as loud as the water is near
 //   Caves       water/dripping-water-in-cave under enough ground
 //   Footsteps   footsteps/*, by the block underfoot, faster when sprinting
+//   Blocks      block/dig-*, short impacts by material, for breaking and placing
 //   Music       ambient/ambient-*, a track now and then with quiet between
 //
 // Every category is read from the sounds folder at startup, so adding a file
@@ -61,8 +68,8 @@ public:
     void update(const SoundScene& scene, vxe::f64 deltaSeconds);
 
     // One shots from what happens in the world.
-    void blockBroken(const vxe::DVec3& position, bool glass);
-    void blockPlaced(const vxe::DVec3& position);
+    void blockBroken(const vxe::DVec3& position, StepSound material, bool glass);
+    void blockPlaced(const vxe::DVec3& position, StepSound material);
     void splash(const vxe::DVec3& position);
 
     // The interface.
@@ -90,7 +97,7 @@ private:
     std::vector<std::filesystem::path> m_night;
     std::vector<std::filesystem::path> m_light;
     std::vector<std::filesystem::path> m_music;
-    std::vector<std::filesystem::path> m_impacts;
+    std::array<std::vector<std::filesystem::path>, kStepSoundCount> m_digs; // By StepSound.
     std::vector<std::filesystem::path> m_glass;
     std::vector<std::filesystem::path> m_clicks;
     std::vector<std::filesystem::path> m_whooshes;

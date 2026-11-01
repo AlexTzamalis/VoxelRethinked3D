@@ -32,6 +32,7 @@ constexpr u32 kFirstStream = 14; // Cells of rain that make a stream.
 constexpr f64 kWidest = 22.0;    // Blocks across the largest river.
 constexpr f32 kLakeDepth = 6.0F; // A hollow this deep or more holds a lake.
 constexpr f64 kBelowPlan = 6.0;  // Blocks a river runs below the planned ground.
+constexpr f64 kDampReach = 14.0; // Blocks beyond a river's banks that its water still feeds.
 constexpr i64 kBucket = 240;     // Blocks per side of a bucket of the stretch index.
 constexpr i64 kBuckets = kTileSize / kBucket;
 constexpr usize kCachedHeights = 64;
@@ -57,6 +58,14 @@ Spot spotOf(i64 cellX, i64 cellZ) noexcept {
                  ((vxe::noise::unit(h) - 0.5) * half * 1.3),
             .z = (static_cast<f64>(cellZ) + 0.5) * static_cast<f64>(kCell) +
                  ((vxe::noise::unit(h * 0x9E3779B97F4A7C15ULL) - 0.5) * half * 1.3)};
+}
+
+// How much rain makes a stream at this height. High up it takes far more:
+// without flowing water, thin streams on steep ground are where still water looks
+// least natural, so mountains keep only their larger ones.
+u32 rainForStream(f32 filled) noexcept {
+    const f64 height = vxe::noise::smooth(70.0, 170.0, static_cast<f64>(filled));
+    return kFirstStream + static_cast<u32>(height * 240.0);
 }
 
 // How wide a river is that carries the rain of this many cells. The square
@@ -263,7 +272,7 @@ std::shared_ptr<const RiverNetwork::Tile> RiverNetwork::buildTile(TileKey key) c
             if (lake) {
                 out->lakes[static_cast<usize>((z * kTileCells) + x)] = std::floor(filled[cell]);
             }
-            if (rain[cell] < kFirstStream || next[cell] == kNoNext) {
+            if (rain[cell] < rainForStream(filled[cell]) || next[cell] == kNoNext) {
                 continue;
             }
             const usize below = next[cell];
@@ -371,11 +380,13 @@ RiverNetwork::Carve RiverNetwork::carve(std::span<const Stretch> stretches, f64 
             const f64 depth = 1.0 + std::min(half * 0.55, 5.0);
             out.ground = std::min(out.ground, level - (depth * (1.0 - (side * side))));
             out.water = std::max(out.water, level);
+            out.damp = 1.0;
         } else {
             // The banks: the ground leans back from the water, as a valley
             // does. Only ever cut, never raised: water makes its own way.
             const f64 away = distance - half;
             out.ground = std::min(out.ground, level + 1.0 + (away * away * 0.045) + (away * 0.3));
+            out.damp = std::max(out.damp, 1.0 - std::min(away / (kDampReach + half), 1.0));
         }
     }
     return out;
