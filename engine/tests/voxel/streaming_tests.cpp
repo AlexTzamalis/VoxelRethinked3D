@@ -400,8 +400,8 @@ TEST_CASE("The ground at the edge of the view loads before sky and rock near the
     Rig rig(true, -24, 24);
     rig.source.ground = 0;
     rig.set("World.Streaming.RenderDistance", 4);
-    rig.set("World.Streaming.VerticalRenderDistance", 14);
-    rig.moveTo({.x = 0, .y = 12, .z = 0}); // High above the ground.
+    rig.set("World.Streaming.VerticalRenderDistance", 16);
+    rig.moveTo({.x = 0, .y = 15, .z = 0}); // High above the ground.
     rig.settle();
     // Jobs finish out of order, so a few ground chunks may land after the first
     // sky chunk, but nearly all of them must come before it.
@@ -410,7 +410,7 @@ TEST_CASE("The ground at the edge of the view loads before sky and rock near the
     bool skySeen = false;
     const usize total = rig.source.order.size();
     for (const ChunkPos& at : rig.source.order) {
-        skySeen = skySeen || (at.y >= 5 && at.y <= 8); // By neither the ground nor the camera.
+        skySeen = skySeen || (at.y >= 5 && at.y <= 8); // Beside neither the ground nor the camera.
         if (std::abs(at.y) <= 4) {
             ++ground;
             groundBeforeSky += skySeen ? 0U : 1U;

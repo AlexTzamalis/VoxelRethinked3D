@@ -23,7 +23,9 @@ constexpr f32 kVerticalWeight = 2.0F;
 // chunks near the camera loaded, a scan is mostly hash lookups that find
 // something, and this keeps one such update far below the budget.
 constexpr usize kMaxScanPerUpdate = 16384;
-constexpr i64 kCameraLayers = 3; // Layers around the camera that load with the ground.
+// Layers around the camera that load with the ground. Enough for the spawn area
+// (4 layers) with the two rings a chunk needs around it to get its light and mesh.
+constexpr i64 kCameraLayers = 6;
 constexpr i64 kGroundLayers = 4; // Layers around the ground that load first.
 // The pending heap holds at least this many candidates, else twice the
 // load jobs in flight: enough to pick well, small enough to rescore at once.

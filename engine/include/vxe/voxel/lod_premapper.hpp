@@ -7,6 +7,7 @@
 #include <vxe/voxel/lod_manager.hpp>
 #include <vxe/voxel/lod_tile.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <vector>
@@ -55,6 +56,8 @@ public:
 
     // Starts more tiles as slots free up. Call every frame until isDone().
     void update();
+    // Tiles in work at once, changeable while running.
+    void setMaxJobs(u32 count) noexcept { m_maxJobs.store(std::max(count, 1U), std::memory_order_relaxed); }
     // Stops starting tiles; running ones finish (or stop early) by themselves.
     void cancel();
 
@@ -88,7 +91,7 @@ private:
     stats::StatRegistry* m_stats;
     LodSampleOptions m_options;
     u64 m_hash;
-    u32 m_maxJobs;
+    std::atomic<u32> m_maxJobs;
     jobs::Priority m_priority;
 
     std::vector<LodTileKey> m_tiles;

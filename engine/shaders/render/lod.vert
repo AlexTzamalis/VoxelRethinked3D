@@ -28,6 +28,8 @@ VXE_BINDING_STD140(1, 0) uniform LodParams {
 
 layout(location = 0) out vec3 vColor;
 layout(location = 1) out vec3 vRelative; // Camera relative position, for the coverage map.
+layout(location = 2) out vec2 vUv;       // In blocks, as on chunks: one texture per block.
+layout(location = 3) flat out uint vMaterial;
 
 // Brightness per face (+X, -X, +Y, -Y, +Z, -Z), as on chunks.
 const float kFaceShade[6] = float[6](0.8, 0.8, 1.0, 0.5, 0.65, 0.65);
@@ -89,6 +91,15 @@ void main() {
     }
     const vec3 local = origin + edgeA * float(corner == 1u || corner == 2u) + edgeB * float(corner >= 2u);
     const vec3 relative = vec3(tile.origin.xyz) + local - frame.cameraFraction.xyz;
+    // Textures repeat every block, so the tile's whole blocks can go. That keeps
+    // the numbers small and the texture exact however far the tile is.
+    const vec3 block = vec3(tile.origin.xyz & ivec3(63)) + local;
+    if (face == 2u || face == 3u) {
+        vUv = block.xz;
+    } else {
+        vUv = vec2(face < 2u ? block.z : block.x, -block.y);
+    }
+    vMaterial = w2 >> 20u;
     vRelative = relative;
     gl_Position = frame.viewProjection * vec4(relative, 1.0);
 

@@ -2,6 +2,24 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#125] 2026-11-02, Far terrain with texture detail and wider detail rings
+### Added
+- Far terrain shows the detail of real block textures, with the colors it had before, so it fades out with distance without a seam.
+
+### Changed
+- Each level of far terrain reaches three times further: 2 block detail to 1,536 blocks by default, not 512, and 4 block detail to 3,072.
+- Far terrain settings Graphics.LOD.DetailTiles and JobsInFlight replace HalfExtentTiles and MaxJobsInFlight, with new defaults.
+- More far terrain tiles at once: 12 jobs, 8,192 tiles and 512 MB.
+- The 4 block level samples the far path instead of whole terrain columns.
+
+### Fixed
+- Building far terrain no longer takes every worker from the chunks under the player.
+- Entering a world waited for all sky and rock chunks: the spawn check reached past the layers loaded first.
+- Holes in far terrain in the shape of the loaded chunks, every 2,048 blocks: the coverage map repeats, and far ground read the map cells of columns near the camera.
+
+### Performance
+- Render distance 32, vertical 32: 26,258 chunks loaded in the first 5 s (was 2,792), a new world playable in 12.6 s (was over 20 s), a known world in 4.0 s (was 14.3 s).
+
 ## [#124] 2026-11-02, Share terrain columns between threads
 ### Performance
 - Worker threads reuse each other's terrain columns instead of each building its own.

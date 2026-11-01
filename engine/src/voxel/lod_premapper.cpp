@@ -80,7 +80,7 @@ void LodPremapper::update() {
         m_busy.pop_back();
     }
     while (!m_cancelled.load(std::memory_order_relaxed) && m_next < m_tiles.size() &&
-           m_busy.size() < m_maxJobs) {
+           m_busy.size() < m_maxJobs.load(std::memory_order_relaxed)) {
         if (m_free.empty()) {
             m_slots.push_back(std::make_unique<Slot>());
             m_free.push_back(m_slots.back().get());

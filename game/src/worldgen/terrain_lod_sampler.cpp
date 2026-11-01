@@ -20,7 +20,7 @@ namespace {
 
 // Bumped whenever the terrain or this sampler changes what it makes, so cached
 // tiles of older versions are thrown away.
-constexpr vxe::u32 kGeneratorVersion = 19;
+constexpr vxe::u32 kGeneratorVersion = 20;
 constexpr i32 kNoCrown = std::numeric_limits<i32>::min();
 // How far crowns stand above the ground on average.
 constexpr i64 kCrownAboveGround = 8;
@@ -133,7 +133,9 @@ bool TerrainLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
                                    vxe::voxel::LodTileBuilder& builder, const std::atomic<bool>& cancelled) {
     const i64 cell = key.cellSize();
     constexpr u32 kCells = vxe::voxel::kLodTileCells;
-    const bool fine = cell <= 4;
+    // Whole terrain columns only for the finest level: a level of 4 block cells
+    // would build ten times as many of them for detail the far path has too.
+    const bool fine = cell <= 2;
     thread_local std::vector<i64> heights;
     thread_local std::vector<vxe::voxel::BlockStateId> tops;
     thread_local std::vector<f64> covers;

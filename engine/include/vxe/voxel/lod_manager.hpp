@@ -115,8 +115,8 @@ struct LodSettings {
 // finer levels first; every ring of every level comes before the next ring,
 // so the horizon appears as fast as the near ground.
 //
-// Settings (Graphics.LOD): Enabled, Levels, HalfExtentTiles, MaxSpansPerCell,
-// CavesInLod and MaxJobsInFlight, all live. Changing the spans or caves makes
+// Settings (Graphics.LOD): Enabled, Levels, DetailTiles, MaxSpansPerCell,
+// CavesInLod and JobsInFlight, all live. Changing the spans or caves makes
 // every tile stale (they are part of the cache hash) and samples them again.
 // Quality presets in group "Graphics.LOD" (Low, Medium, High, Ultra) set the
 // levels, level size and spans; Ultra reaches past 32,000 blocks (Section 2).

@@ -1066,6 +1066,8 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
     }
     const vxe::render::BlockTextures* textures = m_texturePacks->textures();
     context.renderer->chunks().setTextures(textures->texture, textures->sampler);
+    context.renderer->lod().setTextures(textures->texture, textures->sampler,
+                                        static_cast<vxe::u32>(m_blocks->textureKeys().size()));
     context.renderer->chunks().setTextureAnimations(m_texturePacks->animations());
     context.renderer->chunks().setTextureLooks(m_blocks->textureLooks());
     context.renderer->chunks().setTintColors(m_blocks->tintColors());
@@ -1305,6 +1307,7 @@ void VoxelRethinkedApp::onShutdown(vxe::EngineContext& context) {
     }
     if (context.renderer != nullptr) {
         context.renderer->chunks().setTextures({}, {});
+        context.renderer->lod().setTextures({}, {}, 0);
         context.renderer->setUi({});
     }
     m_screens.reset();

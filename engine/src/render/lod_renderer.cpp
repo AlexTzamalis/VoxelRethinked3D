@@ -147,6 +147,16 @@ Result<std::unique_ptr<LodRenderer>> LodRenderer::create(const LodRendererDesc& 
         return coverage.error().withContext("LOD renderer");
     }
     r.m_coverage = coverage.value();
+    auto noTextures = device.createTexture({.type = rhi::TextureType::Texture2DArray,
+                                            .format = rhi::Format::RGBA8Unorm,
+                                            .width = 1,
+                                            .height = 1,
+                                            .usage = rhi::TextureUsage::Sampled,
+                                            .debugName = "LOD no textures"});
+    if (!noTextures) {
+        return noTextures.error().withContext("LOD renderer");
+    }
+    r.m_noTextures = noTextures.value();
     auto sampler = device.createSampler({.minFilter = rhi::Filter::Nearest,
                                          .magFilter = rhi::Filter::Nearest,
                                          .mipmapMode = rhi::MipmapMode::None,
@@ -240,6 +250,7 @@ LodRenderer::~LodRenderer() {
     }
     if (m_coverage.isValid()) {
         m_device.destroy(m_coverage);
+        m_device.destroy(m_noTextures);
     }
     if (m_coverageSampler.isValid()) {
         m_device.destroy(m_coverageSampler);
@@ -254,6 +265,13 @@ LodRenderer::~LodRenderer() {
 void LodRenderer::setViewSize(u32 width, u32 height) noexcept {
     m_viewWidth = std::max(width, 1U);
     m_viewHeight = std::max(height, 1U);
+}
+
+void LodRenderer::setTextures(rhi::TextureHandle textures, rhi::SamplerHandle sampler,
+                              u32 layerCount) noexcept {
+    m_textures = textures;
+    m_textureSampler = sampler;
+    m_textureLayers = layerCount;
 }
 
 void LodRenderer::setMaterialColors(std::span<const u32> colors) {
@@ -351,8 +369,11 @@ void LodRenderer::beginFrame(const Camera& camera) {
     if (m_coverageDiscard.get()) {
         coverage = m_showCoverage.get() ? 2.0F : 1.0F;
     }
-    // w: bit 0 color by level, bit 1 face shading.
-    const f32 flags = (m_colorLevels.get() ? 1.0F : 0.0F) + (m_faceShading > 0.5F ? 2.0F : 0.0F);
+    // w: bit 0 color by level, bit 1 face shading, bit 2 textures, the rest the
+    // count of texture layers. A float holds all of it exactly.
+    const bool textured = m_textures.isValid() && m_textureSampler.isValid();
+    const f32 flags = (m_colorLevels.get() ? 1.0F : 0.0F) + (m_faceShading > 0.5F ? 2.0F : 0.0F) +
+                      (textured ? 4.0F + static_cast<f32>(m_textureLayers * 8U) : 0.0F);
     const LodParams params{.params = Vec4(m_daylight, m_brightness, coverage, flags)};
     if (params.params != m_lastParams) {
         m_lastParams = params.params;
@@ -513,7 +534,14 @@ void LodRenderer::buildDraws() {
             std::clamp<i64>(value, std::numeric_limits<i32>::min() / 2, std::numeric_limits<i32>::max() / 2));
     };
     for (auto& [id, tile] : m_tiles) {
-        if (fullyCovered(tile)) {
+        // The map repeats, so a tile whole map widths away reads the coverage of
+        // the columns near the camera. Real chunks only stand near the camera.
+        const i64 column = (tile.originX >> kChunkShift) - camera.chunk.x;
+        const i64 row = (tile.originZ >> kChunkShift) - camera.chunk.z;
+        const i64 across = (i64{tile.cellSize} * 64) / kChunkSize;
+        const bool inMap = column > -kLodCoverageSize / 2 && column + across <= kLodCoverageSize / 2 &&
+                           row > -kLodCoverageSize / 2 && row + across <= kLodCoverageSize / 2;
+        if (inMap && fullyCovered(tile)) {
             ++m_coveredTiles;
             continue;
         }
@@ -556,6 +584,12 @@ void LodRenderer::record(rhi::CommandList& commands) {
     commands.bindStorageBuffer(2, 1, m_tileInfo.current(), 0, usize{m_maxTiles} * sizeof(TileInfo));
     commands.bindStorageBuffer(2, 2, m_materials, 0, kLodMaterialCount * sizeof(u32));
     commands.bindTexture(2, 3, m_coverage, m_coverageSampler);
+    if (m_textures.isValid() && m_textureSampler.isValid()) {
+        commands.bindTexture(2, 4, m_textures, m_textureSampler);
+    } else {
+        // Nothing reads it then, but every binding needs a texture.
+        commands.bindTexture(2, 4, m_noTextures, m_coverageSampler);
+    }
     commands.bindIndexBuffer(m_indices, rhi::IndexType::Uint16);
     commands.multiDrawIndexedIndirect(m_draws.current(), 0, m_drawCount);
 }

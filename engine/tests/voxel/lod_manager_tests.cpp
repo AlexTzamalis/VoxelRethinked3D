@@ -126,7 +126,8 @@ struct Rig { // NOLINT(clang-analyzer-optin.performance.Padding): members in lif
                                                                      .cache = cache.get(),
                                                                      .sink = &sink,
                                                                      .stats = &stats});
-        set("Graphics.LOD.MaxJobsInFlight", 8);
+        set("Graphics.LOD.JobsInFlight", 8);
+        set("Graphics.LOD.DetailTiles", 4); // Few tiles: these tests are about the logic.
     }
     ~Rig() { manager.reset(); }
     Rig(const Rig&) = delete;
@@ -263,7 +264,7 @@ TEST_CASE("Turning far terrain off removes every tile; on brings them back") {
     rig.set("Graphics.LOD.Levels", 7);
     rig.settle();
     CHECK(rig.sink.tiles.size() == 64 + (6 * 48));
-    rig.set("Graphics.LOD.HalfExtentTiles", 7); // Odd: counts as 6.
+    rig.set("Graphics.LOD.DetailTiles", 7); // Odd: counts as 6.
     rig.settle();
     CHECK(rig.sink.tiles.size() == 144 + (6 * 108));
     rig.checkShowsClipmap();
@@ -291,16 +292,16 @@ TEST_CASE("LOD quality presets set the reach; Ultra passes 32,000 blocks") {
     REQUIRE(rig.settings.applyPreset("Graphics.LOD", "Ultra").hasValue());
     CHECK(rig.settings.currentPreset("Graphics.LOD") == "Ultra");
     rig.settle();
-    CHECK(rig.manager->counts().wanted == 64 + (7 * 48));
+    CHECK(rig.manager->counts().wanted == 1024 + (6 * 768)); // 7 levels of 16 tiles each way.
     rig.stats.endFrame(1.0 / 60.0);
     CHECK(rig.stats.value(rig.stats.find("Voxel.Lod.ReachBlocks")) >= 32000.0);
-    CHECK(rig.stats.value(rig.stats.find("Voxel.Lod.Level8.Wanted")) == doctest::Approx(48.0));
-    CHECK(rig.stats.value(rig.stats.find("Voxel.Lod.Level8.Ready")) == doctest::Approx(48.0));
+    CHECK(rig.stats.value(rig.stats.find("Voxel.Lod.Level7.Wanted")) == doctest::Approx(768.0));
+    CHECK(rig.stats.value(rig.stats.find("Voxel.Lod.Level7.Ready")) == doctest::Approx(768.0));
     rig.checkShowsClipmap();
 
     REQUIRE(rig.settings.applyPreset("Graphics.LOD", "Low").hasValue());
     rig.settle();
-    CHECK(rig.manager->counts().wanted == 64 + (3 * 48));
+    CHECK(rig.manager->counts().wanted == 256 + (3 * 192));
     rig.checkShowsClipmap();
 }
 

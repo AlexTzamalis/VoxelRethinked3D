@@ -127,19 +127,41 @@ TEST_CASE("LOD uploads stop at the frame's budget and continue next frame") {
     submit(*device, *renderer);
 }
 
+TEST_CASE("A far tile is not hidden by the coverage of columns a whole map width away") {
+    const auto device = rhi::createNullDevice();
+    config::SettingsRegistry settings;
+    auto renderer = makeLodRenderer(*device, settings);
+    // A tile whole map widths ahead of the camera, on the same texels as columns
+    // beside it. Those columns hold real chunks, the tile's own do not.
+    const i32 mapBlocks = render::kLodCoverageSize * kChunkSize;
+    const FakeTile far(1, mapBlocks / 128, 0, 6);
+    for (i32 z = 0; z < 8; ++z) {
+        for (i32 x = 0; x < 8; ++x) {
+            renderer->setCovered(x, z, true);
+        }
+    }
+    render::Camera camera;
+    camera.yaw = 1.5707963F; // Along +X.
+    camera.position = DVec3(8.0, 80.0, 64.0);
+    renderer->beginFrame(camera);
+    REQUIRE(renderer->upload(far.geometry) == UploadResult::Uploaded);
+    submit(*device, *renderer);
+    CHECK(renderer->drawnTiles() == 1);
+}
+
 TEST_CASE("The LOD coverage map wraps chunk columns around") {
     const auto device = rhi::createNullDevice();
     config::SettingsRegistry settings;
     auto renderer = makeLodRenderer(*device, settings);
     renderer->setCovered(-1, -1, true);
     CHECK(renderer->isCovered(-1, -1));
-    CHECK(renderer->isCovered(127, 127)); // The same texel.
-    CHECK(renderer->isCovered(-129, 255));
+    CHECK(renderer->isCovered(255, 255)); // The same texel.
+    CHECK(renderer->isCovered(-257, 511));
     CHECK_FALSE(renderer->isCovered(0, 0));
     // Covered part of the way up is not hidden as a whole.
     renderer->setCoveredBelow(5, 5, 12);
     CHECK_FALSE(renderer->isCovered(5, 5));
-    renderer->setCovered(127, -129, false);
+    renderer->setCovered(255, -257, false);
     CHECK_FALSE(renderer->isCovered(-1, -1));
     renderer->setCovered(5, 6, true);
     renderer->clearCoverage();

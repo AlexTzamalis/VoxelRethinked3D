@@ -66,6 +66,7 @@ TEST_CASE("The LOD render sink meshes and uploads every tile the manager shows")
     voxel::LodRenderSink sink(*renderer, jobs);
     auto manager = std::make_unique<voxel::LodManager>(
         voxel::LodManagerDesc{.jobs = &jobs, .settings = &settings, .sampler = &sampler, .sink = &sink});
+    REQUIRE(settings.set("Graphics.LOD.DetailTiles", config::SettingValue{4}).hasValue());
     render::Camera camera;
     camera.position = DVec3(0.0, 100.0, 0.0);
     const Stopwatch clock;

@@ -78,6 +78,7 @@ DemoWorld::DemoWorld(const DemoWorldDesc& desc, const TerrainBlocks& blocks)
                                    .sink = m_lodSink ? &*m_lodSink : nullptr,
                                    .stats = desc.stats});
     if (m_lodCache) {
+        m_premapJobs = desc.jobs->workerCount();
         const vxe::DVec3 spawn = spawnPosition();
         m_premap = std::make_unique<vxe::voxel::LodPremapper>(
             vxe::voxel::LodPremapDesc{.jobs = desc.jobs,
@@ -88,7 +89,12 @@ DemoWorld::DemoWorld(const DemoWorldDesc& desc, const TerrainBlocks& blocks)
                                       .clipmap = m_lod->clipmapDesc(),
                                       .centerX = static_cast<vxe::i64>(spawn.x),
                                       .centerZ = static_cast<vxe::i64>(spawn.z),
-                                      .radius = vxe::i64{1} << 30U});
+                                      .radius = vxe::i64{1} << 30U,
+                                      // Beside the chunks, not ahead of them: a sampling
+                                      // job runs for milliseconds, and with every worker
+                                      // on one the ground under the player has to wait.
+                                      .maxJobsInFlight = std::max(desc.jobs->workerCount() / 3, 2U),
+                                      .priority = vxe::jobs::Priority::Low});
     }
     m_streaming =
         std::make_unique<vxe::voxel::StreamingManager>(vxe::voxel::StreamingDesc{.world = &m_world,
@@ -188,6 +194,10 @@ void DemoWorld::update(const vxe::render::Camera& camera) {
     m_streaming->update({.position = camera.position, .forward = camera.forward()});
     // Far terrain waits for the premap, so its tiles come from the cache.
     if (m_premap) {
+        // With the ground under the player done, the workers are free for it.
+        if (m_streaming->isAreaReady(std::min(kSpawnRadius, m_streaming->renderDistance()), kSpawnLayers)) {
+            m_premap->setMaxJobs(m_premapJobs);
+        }
         m_premap->update();
         if (m_premap->isDone()) {
             const vxe::voxel::LodPremapper::Progress progress = m_premap->progress();

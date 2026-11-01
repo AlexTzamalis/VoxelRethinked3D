@@ -153,6 +153,7 @@ TEST_CASE("A LodManager starting on a premapped area loads every tile from the c
     }
     const u32 baked = sampler.calls.load();
     voxel::LodManager manager({.jobs = &jobs, .settings = &settings, .sampler = &sampler, .cache = &cache});
+    REQUIRE(settings.set("Graphics.LOD.DetailTiles", config::SettingValue{4}).hasValue()); // As baked.
     const Stopwatch clock;
     do {
         manager.update(DVec3(40.0, 80.0, 40.0));

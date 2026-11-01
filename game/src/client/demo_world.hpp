@@ -150,6 +150,7 @@ private:
     vxe::BlockPos m_spawn;
     vxe::voxel::VoxelWorld m_world;
     DemoChunkSource m_source;
+    vxe::u32 m_premapJobs = 1;
     CatalogStateNames m_names;
     std::optional<WorldSaver> m_saver;
     std::optional<vxe::voxel::ChunkRenderSink> m_sink;

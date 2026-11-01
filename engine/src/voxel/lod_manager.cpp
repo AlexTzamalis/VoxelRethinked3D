@@ -14,7 +14,7 @@
 namespace vxe::voxel {
 namespace {
 
-// The most job slots, whatever Graphics.LOD.MaxJobsInFlight says.
+// The most job slots, whatever Graphics.LOD.JobsInFlight says.
 constexpr i32 kMaxSlots = 64;
 
 // True if the block rectangles of two tiles overlap.
@@ -67,10 +67,11 @@ LodSettings::LodSettings(config::SettingsRegistry& settings) {
     levels = integer("Graphics.LOD.Levels", "Far terrain levels",
                      "How many levels of detail. Each level doubles the cell size and the reach.", 6, 1, 12,
                      1, config::Visibility::Normal);
-    halfExtent = integer("Graphics.LOD.HalfExtentTiles", "Far terrain level size",
-                         "Tiles from the camera to the edge of each level. More is farther and smoother "
-                         "between levels, and costs tiles. Odd values count as the even value below.",
-                         4, 2, 16, 2, config::Visibility::Advanced);
+    halfExtent = integer("Graphics.LOD.DetailTiles", "Far terrain detail",
+                         "How far each level of detail reaches, in tiles. More keeps fine detail "
+                         "further out, and costs memory and sampling time. Odd values count as the "
+                         "even value below.",
+                         12, 2, 16, 2, config::Visibility::Normal);
     maxSpans = integer("Graphics.LOD.MaxSpansPerCell", "Far terrain spans per cell",
                        "Vertical runs of terrain per cell: more keeps overhangs and floating islands.", 4, 1,
                        static_cast<i32>(kLodMaxSpansPerCell), 1, config::Visibility::Advanced);
@@ -80,9 +81,9 @@ LodSettings::LodSettings(config::SettingsRegistry& settings) {
                                                    "far away, and slower to sample.",
                                     .visibility = config::Visibility::Advanced},
                                    false});
-    maxJobs = integer("Graphics.LOD.MaxJobsInFlight", "Far terrain jobs",
-                      "Tiles loaded or sampled at the same time. They run below chunk work.", 4, 1, kMaxSlots,
-                      1, config::Visibility::Developer);
+    maxJobs = integer("Graphics.LOD.JobsInFlight", "Far terrain jobs",
+                      "Tiles loaded or sampled at the same time. They run below chunk work.", 12, 1,
+                      kMaxSlots, 1, config::Visibility::Developer);
     freeze =
         settings.registerBool({{.id = "Debug.LOD.Freeze",
                                 .displayName = "Freeze far terrain",
@@ -102,13 +103,13 @@ LodSettings::LodSettings(config::SettingsRegistry& settings) {
     const auto preset = [&settings](std::string_view name, i32 levelCount, i32 half, i32 spans) {
         settings.definePreset("Graphics.LOD", name,
                               {{"Graphics.LOD.Levels", config::SettingValue{levelCount}},
-                               {"Graphics.LOD.HalfExtentTiles", config::SettingValue{half}},
+                               {"Graphics.LOD.DetailTiles", config::SettingValue{half}},
                                {"Graphics.LOD.MaxSpansPerCell", config::SettingValue{spans}}});
     };
-    preset("Low", 4, 4, 2);    // 3,072 to 4,096 blocks.
-    preset("Medium", 5, 4, 3); // 6,144 to 8,192 blocks.
-    preset("High", 6, 4, 4);   // 12,288 to 16,384 blocks (the defaults).
-    preset("Ultra", 8, 4, 4);  // 49,152 to 65,536 blocks.
+    preset("Low", 4, 8, 2);    // To 8,192 blocks.
+    preset("Medium", 5, 8, 3); // To 16,384 blocks.
+    preset("High", 6, 12, 4);  // To 49,152 blocks (the defaults).
+    preset("Ultra", 7, 16, 4); // To 131,072 blocks.
 }
 
 void LodManager::registerStats() {

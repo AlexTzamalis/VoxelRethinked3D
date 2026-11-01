@@ -26,7 +26,7 @@ namespace vxe::render {
 inline constexpr usize kLodQuadBytes = 12;
 // Chunk columns along each side of the coverage map. Columns wrap around it,
 // so any render distance below half of it works (Section 13.5).
-inline constexpr i32 kLodCoverageSize = 128;
+inline constexpr i32 kLodCoverageSize = 256; // Also in lod.frag. Twice the widest chunk view.
 // Colors in the LOD material table (voxel::kLodMaxMaterial + 1).
 inline constexpr usize kLodMaterialCount = 4096;
 
@@ -51,8 +51,8 @@ struct LodRendererDesc {
     rhi::ShaderFileReader shaders{};
     rhi::Format colorFormat = rhi::Format::RGBA16Float;
     rhi::Format depthFormat = rhi::Format::D32Float;
-    usize arenaBytes = usize{96} << 20U; // Quads of every shown tile.
-    u32 maxTiles = 2048;
+    usize arenaBytes = usize{512} << 20U; // Quads of every shown tile.
+    u32 maxTiles = 8192;
     usize stagingBytesPerFrame = usize{8} << 20U;
 };
 
@@ -115,6 +115,10 @@ public:
     // RGBA8 colors (0xAABBGGRR, as unpackUnorm4x8 reads them), at most
     // kLodMaterialCount; missing entries stay magenta.
     void setMaterialColors(std::span<const u32> colors);
+    // The chunks' block textures, whose detail far terrain shows: materials
+    // below `layerCount` are texture layers. Not owned; invalid handles leave
+    // plain colors.
+    void setTextures(rhi::TextureHandle textures, rhi::SamplerHandle sampler, u32 layerCount) noexcept;
     // Marks a chunk column as drawn by real chunks (or not any more).
     void setCovered(i32 chunkX, i32 chunkZ, bool covered) noexcept;
     // Real chunks stand in this column up to the top of chunk layer `topChunkY`,
@@ -193,6 +197,10 @@ private:
     rhi::BufferHandle m_arena{};
     rhi::BufferHandle m_indices{};
     rhi::BufferHandle m_materials{};
+    rhi::TextureHandle m_textures{};
+    rhi::SamplerHandle m_textureSampler{};
+    u32 m_textureLayers = 0;
+    rhi::TextureHandle m_noTextures{}; // Bound until block textures arrive.
     rhi::TextureHandle m_coverage{};
     rhi::SamplerHandle m_coverageSampler{};
     rhi::PipelineHandle m_pipeline{};

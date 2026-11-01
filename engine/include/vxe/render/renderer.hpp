@@ -34,7 +34,7 @@ struct RendererDesc {
     rhi::ShaderFileReader shaders{};
     usize chunkArenaBytes = usize{1024} << 20U;
     u32 maxChunks = 131072;
-    usize lodArenaBytes = usize{96} << 20U;
+    usize lodArenaBytes = usize{512} << 20U;
 };
 
 // The engine's standard frame (Section 8.1), owned by the main loop: every
