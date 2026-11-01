@@ -4,7 +4,10 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <map>
+#include <numbers>
 #include <utility>
 #include <vector>
 
@@ -110,4 +113,50 @@ TEST_CASE("Another world never sees the last world's rivers") {
     const auto second = firstStretch(2);
     CHECK(first != second);
     CHECK(firstStretch(1) == first);
+}
+
+TEST_CASE("Banks meet the water at its own level") {
+    const std::array<RiverNetwork::Stretch, 1> river{{{.ax = -200.0,
+                                                       .az = 0.0,
+                                                       .bx = 400.0,
+                                                       .bz = 0.0,
+                                                       .levelA = 20.0,
+                                                       .levelB = 20.0,
+                                                       .widthA = 12.0,
+                                                       .widthB = 12.0}}};
+    usize edges = 0;
+    for (f64 x = 0.0; x < 200.0; x += 1.0) {
+        for (f64 z = -40.0; z < 40.0; z += 1.0) {
+            const RiverNetwork::Carve here = RiverNetwork::carve(river, x, z, 40.0);
+            const RiverNetwork::Carve next = RiverNetwork::carve(river, x, z + 1.0, 40.0);
+            if ((here.water > kNoWater) != (next.water > kNoWater)) {
+                const RiverNetwork::Carve& dry = here.water > kNoWater ? next : here;
+                CHECK(dry.ground == doctest::Approx(20.0));
+                ++edges;
+            }
+        }
+    }
+    CHECK(edges >= 400);
+}
+
+TEST_CASE("Rivers bend without corners") {
+    // Follows every river from piece to piece. A corner would be a sharp turn.
+    const std::vector<RiverNetwork::Stretch>& all = area();
+    usize joints = 0;
+    usize sharp = 0;
+    for (const RiverNetwork::Stretch& piece : all) {
+        for (const RiverNetwork::Stretch& after : all) {
+            if (after.ax != piece.bx || after.az != piece.bz) {
+                continue;
+            }
+            const f64 turn = std::atan2(after.bz - after.az, after.bx - after.ax) -
+                             std::atan2(piece.bz - piece.az, piece.bx - piece.ax);
+            const f64 angle = std::abs(std::remainder(turn, 2.0 * std::numbers::pi));
+            ++joints;
+            sharp += angle > 1.25 ? 1U : 0U;
+        }
+    }
+    MESSAGE(joints << " joints, " << sharp << " sharp");
+    CHECK(joints * 2 > all.size());
+    CHECK(sharp * 50 < joints);
 }

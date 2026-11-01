@@ -30,17 +30,19 @@ constexpr f64 kSlopeReach = 6.0;     // Blocks over which the planet's slope is 
 constexpr f64 kGullyWidest = 90.0;   // Blocks across the widest gullies.
 constexpr f64 kGullyStrength = 0.15; // Depth of a gully, as a part of its width.
 constexpr int kGullyOctaves = 3;
-constexpr f64 kRockSlope = 1.6;        // Steeper ground than this holds no soil.
-constexpr f64 kSnowSlope = 3.4;        // Steeper ground than this holds no snow.
-constexpr f64 kOverhangMost = 12.0;    // Blocks a rock face leans at most.
-constexpr i64 kTreeHeadroom = 32;      // The tallest tree, above any ground.
-constexpr i64 kFeatureCell = 19;       // Blocks per side of a boulder or fallen log cell.
-constexpr i64 kFeatureReach = 7;       // How far those reach from their cell's spot.
-constexpr usize kCacheColumns = 256;   // Per thread, a power of two.
-constexpr f64 kFarRiverCell = 4.0;     // Far cells wider than this leave rivers and lakes out.
-constexpr f64 kGreenDamp = 0.45;       // How damp ground must be to turn green by itself.
-constexpr f64 kWatersidePlants = 0.72; // Share of the wettest ground under plants.
-constexpr i64 kBandHeight = 5;         // Blocks of one rock layer.
+constexpr f64 kRockSlope = 1.6;           // Steeper ground than this holds no soil.
+constexpr f64 kSnowSlope = 3.4;           // Steeper ground than this holds no snow.
+constexpr f64 kOverhangMost = 12.0;       // Blocks a rock face leans at most.
+constexpr i64 kTreeHeadroom = 32;         // The tallest tree, above any ground.
+constexpr i64 kFeatureCell = 19;          // Blocks per side of a boulder or fallen log cell.
+constexpr i64 kFeatureReach = 7;          // How far those reach from their cell's spot.
+constexpr usize kCacheColumns = 256;      // Per thread, a power of two.
+constexpr f64 kFarRiverCell = 4.0;        // Far cells wider than this leave rivers and lakes out.
+constexpr f64 kDryGreenDamp = 0.8;        // The same on dry land, where water does less.
+constexpr f64 kGreenDamp = 0.45;          // How damp ground must be to turn green by itself.
+constexpr f64 kDryWatersidePlants = 0.16; // The same on dry land.
+constexpr f64 kWatersidePlants = 0.72;    // Share of the wettest ground under plants.
+constexpr i64 kBandHeight = 5;            // Blocks of one rock layer.
 
 constexpr u64 mix(u64 value) noexcept {
     value += 0x9E3779B97F4A7C15ULL;
@@ -466,6 +468,7 @@ void Terrain::carveInto(std::span<const RiverNetwork::Stretch> nearby, f64 x, f6
         at.water = std::max(at.water, carved.water + sea);
     }
     at.damp = std::max(at.damp, carved.damp);
+    at.shore = carved.shore && at.height >= carved.ground;
 }
 
 BlockStateId Terrain::topOf(f64 x, f64 z, const Ground& at, Biome biome) const noexcept {
@@ -485,8 +488,17 @@ BlockStateId Terrain::topOf(f64 x, f64 z, const Ground& at, Biome biome) const n
     // Water brings green, even into dry land: banks grow grass where the biome
     // around them is sand or bare rock. Snow stays snow.
     const BlockStateId snow = m_blocks.biomes[static_cast<usize>(Biome::SnowyPeaks)].top;
-    if (!underWater && at.damp > kGreenDamp && look.top != snow && look.top != m_blocks.soils[6]) {
-        return m_blocks.soils[0];
+    if (!underWater && look.top != snow && look.top != m_blocks.soils[6]) {
+        // On dry land only the wettest ground turns, and only in pieces.
+        const bool green =
+            look.dry ? at.damp > kDryGreenDamp && inPatch(m_seed + 59, x, z, 0.55) : at.damp > kGreenDamp;
+        // Sand and gravel of the river bed show at the water's edge.
+        if (at.shore && inPatch(m_seed + 53, x, z, 0.5)) {
+            return look.floor;
+        }
+        if (green) {
+            return m_blocks.soils[0];
+        }
     }
     if (look.patchShare > 0.0F && inPatch(m_seed + 47, x, z, static_cast<f64>(look.patchShare))) {
         return look.patch;
@@ -947,7 +959,7 @@ std::optional<Terrain::Tree> Terrain::treeIn(i64 cellX, i64 cellZ, Biome biome, 
         chance *= 1.0 + ((grove - 1.0) * static_cast<f64>(look.groves));
     }
     // Trees crowd along water. A biome with none of its own grows oaks there.
-    chance += damp * 0.32;
+    chance += damp * (look.dry ? 0.09 : 0.32);
     if (unit(h) >= chance) {
         return std::nullopt;
     }
@@ -1094,7 +1106,8 @@ const PlantChoice* Terrain::plantAt(i64 x, i64 z, const BiomeLook& look, f64 dam
     const auto wx = static_cast<f64>(x);
     const auto wz = static_cast<f64>(z);
     // Where water feeds the ground plants crowd in, whatever the biome.
-    if (damp > 0.0 && look.top != m_blocks.soils[6] && unit(mix(h + 2)) < damp * kWatersidePlants) {
+    const f64 thrive = look.dry ? kDryWatersidePlants : kWatersidePlants;
+    if (damp > 0.0 && look.top != m_blocks.soils[6] && unit(mix(h + 2)) < damp * thrive) {
         return pickWeighted(std::span<const PlantChoice>(m_blocks.waterside.data(), m_blocks.watersideCount),
                             unit(mix(h + 3)));
     }

@@ -65,6 +65,7 @@ struct BiomeLook {
     vxe::u8 underDepth = 3;
     vxe::u8 deepDepth = 0;
     bool banded = false;    // Colored rock layers, as in badlands.
+    bool dry = false;       // Water does little here: thin green along rivers.
     vxe::f32 trees = 0.0F;  // Chance of a tree per tree cell.
     vxe::f32 groves = 0.0F; // 0 is even, 1 gathers the trees into groups with clearings.
     vxe::u8 treeCount = 0;

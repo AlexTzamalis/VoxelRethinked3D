@@ -25,6 +25,7 @@ struct Ground {
     vxe::f64 continent = 0.0;
     vxe::f64 water = kNoWater; // Height of a river or lake surface, in blocks.
     vxe::f64 damp = 0.0;       // 0 to 1: how much water feeds the ground here.
+    bool shore = false;        // On the flat strip beside a river.
 };
 
 // The world's terrain (G3.3, G3.4, G3.6): the planet's heights, carved by an

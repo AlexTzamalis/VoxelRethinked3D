@@ -29,16 +29,19 @@ constexpr i64 kWindowCells = kTileCells * 3; // A tile sees itself and its 8 nei
 constexpr u32 kNoNext = 0xFFFFFFFFU;
 constexpr f32 kFlood = 0.01F;    // Rise per cell in filled hollows, so water still has a way.
 constexpr u32 kFirstStream = 14; // Cells of rain that make a stream.
-constexpr f64 kWidest = 22.0;    // Blocks across the largest river.
+constexpr f64 kWidest = 52.0;    // Blocks across the largest river.
 constexpr f32 kLakeDepth = 6.0F; // A hollow this deep or more holds a lake.
 constexpr f64 kBelowPlan = 6.0;  // Blocks a river runs below the planned ground.
 constexpr f64 kDampReach = 14.0; // Blocks beyond a river's banks that its water still feeds.
+constexpr int kCurvePieces = 3;  // Straight pieces per curve between two cells.
+constexpr f64 kWander = 13.0;    // Blocks a river strays from its path, at most.
 constexpr i64 kBucket = 240;     // Blocks per side of a bucket of the stretch index.
 constexpr i64 kBuckets = kTileSize / kBucket;
 constexpr usize kCachedHeights = 64;
 constexpr usize kCachedTiles = 32;
 constexpr f32 kNoLake = -1.0e6F;
 constexpr u64 kSpotSalt = 0x51ED270B7A1CE5ULL;
+constexpr u64 kWanderSalt = 0x7A11E5C0DE0ULL;
 
 i64 floorDiv(i64 value, i64 divisor) noexcept {
     return value >= 0 ? value / divisor : ((value + 1) / divisor) - 1;
@@ -72,7 +75,7 @@ u32 rainForStream(f32 filled) noexcept {
 // root is how real rivers grow: ten times the land, about three times the width.
 f64 widthOf(u32 cells) noexcept {
     const f64 extra = static_cast<f64>(cells - std::min(cells, kFirstStream));
-    return std::min(1.2 + (std::sqrt(extra) * 0.55), kWidest);
+    return std::min(1.6 + (std::sqrt(extra) * 0.85), kWidest);
 }
 
 // The water surface of a river running through ground filled to this height.
@@ -279,33 +282,63 @@ std::shared_ptr<const RiverNetwork::Tile> RiverNetwork::buildTile(TileKey key) c
             if (lake && filled[below] - height[below] >= kLakeDepth) {
                 continue; // Under the lake itself.
             }
-            const i64 belowX = static_cast<i64>(below) % kWindowCells;
-            const i64 belowZ = static_cast<i64>(below) / kWindowCells;
-            const Spot a = spotOf((key.x * kTileCells) + x, (key.z * kTileCells) + z);
-            const Spot b = spotOf((key.x * kTileCells) + belowX - kTileCells,
-                                  (key.z * kTileCells) + belowZ - kTileCells);
-            // Well below the planned ground, and never rising, since the filled
-            // surface only falls along the flow. The plan is rougher than the
-            // real ground, so this is what keeps water inside a trench it cut,
-            // instead of standing above some lower spot beside it.
-            const Stretch stretch{.ax = a.x,
-                                  .az = a.z,
-                                  .bx = b.x,
-                                  .bz = b.z,
-                                  .levelA = riverLevel(filled[cell]),
-                                  .levelB = riverLevel(filled[below]),
-                                  .widthA = widthOf(rain[cell]),
-                                  .widthB = widthOf(rain[below])};
-            const auto number = static_cast<u32>(out->stretches.size());
-            out->stretches.push_back(stretch);
-            const f64 reach = kBankReach + 1.0;
-            const i64 firstX = floorDiv(static_cast<i64>(std::min(a.x, b.x) - reach) - originX, kBucket);
-            const i64 lastX = floorDiv(static_cast<i64>(std::max(a.x, b.x) + reach) - originX, kBucket);
-            const i64 firstZ = floorDiv(static_cast<i64>(std::min(a.z, b.z) - reach) - originZ, kBucket);
-            const i64 lastZ = floorDiv(static_cast<i64>(std::max(a.z, b.z) + reach) - originZ, kBucket);
-            for (i64 bz = std::max<i64>(firstZ, 0); bz <= std::min(lastZ, kBuckets - 1); ++bz) {
-                for (i64 bx = std::max<i64>(firstX, 0); bx <= std::min(lastX, kBuckets - 1); ++bx) {
-                    out->buckets[static_cast<usize>((bz * kBuckets) + bx)].push_back(number);
+            const auto spotAt = [&](usize window) {
+                const i64 cellX = static_cast<i64>(window) % kWindowCells;
+                const i64 cellZ = static_cast<i64>(window) / kWindowCells;
+                return spotOf((key.x * kTileCells) + cellX - kTileCells,
+                              (key.z * kTileCells) + cellZ - kTileCells);
+            };
+            // One cell's river is a curve from halfway to the next spot, around
+            // that spot, to halfway to the one after it. Each curve leaves the
+            // way the last one arrived, so a river has no corners, and rivers
+            // that join flow into each other at an angle instead of meeting at
+            // a point. The water never rises: the filled surface only falls
+            // along the flow, and it runs well below the planned ground, since
+            // the plan is rougher than the real ground and this keeps the water
+            // inside the trench it cut.
+            const usize beyond = next[below];
+            const bool ends = beyond == kNoNext || filled[below] <= 0.0F;
+            const usize last = ends ? below : beyond;
+            const Spot a = spotAt(cell);
+            const Spot b = spotAt(below);
+            const Spot c = spotAt(last);
+            const Spot from{.x = (a.x + b.x) * 0.5, .z = (a.z + b.z) * 0.5};
+            const Spot to{.x = (b.x + c.x) * 0.5, .z = (b.z + c.z) * 0.5};
+            const f64 levelFrom = (riverLevel(filled[cell]) + riverLevel(filled[below])) * 0.5;
+            const f64 levelTo = (riverLevel(filled[below]) + riverLevel(filled[last])) * 0.5;
+            const f64 widthFrom = (widthOf(rain[cell]) + widthOf(rain[below])) * 0.5;
+            const f64 widthTo = (widthOf(rain[below]) + widthOf(rain[last])) * 0.5;
+            const auto pointAt = [&](f64 t) {
+                const f64 u = 1.0 - t;
+                return Spot{.x = (u * u * from.x) + (2.0 * u * t * b.x) + (t * t * to.x),
+                            .z = (u * u * from.z) + (2.0 * u * t * b.z) + (t * t * to.z)};
+            };
+            for (int piece = 0; piece < kCurvePieces; ++piece) {
+                const f64 t0 = static_cast<f64>(piece) / kCurvePieces;
+                const f64 t1 = static_cast<f64>(piece + 1) / kCurvePieces;
+                const Spot p0 = pointAt(t0);
+                const Spot p1 = pointAt(t1);
+                const Stretch stretch{.ax = p0.x,
+                                      .az = p0.z,
+                                      .bx = p1.x,
+                                      .bz = p1.z,
+                                      .levelA = levelFrom + ((levelTo - levelFrom) * t0),
+                                      .levelB = levelFrom + ((levelTo - levelFrom) * t1),
+                                      .widthA = widthFrom + ((widthTo - widthFrom) * t0),
+                                      .widthB = widthFrom + ((widthTo - widthFrom) * t1)};
+                const auto number = static_cast<u32>(out->stretches.size());
+                out->stretches.push_back(stretch);
+                const f64 reach = kBankReach + kWander + 1.0;
+                const i64 firstX =
+                    floorDiv(static_cast<i64>(std::min(p0.x, p1.x) - reach) - originX, kBucket);
+                const i64 lastX = floorDiv(static_cast<i64>(std::max(p0.x, p1.x) + reach) - originX, kBucket);
+                const i64 firstZ =
+                    floorDiv(static_cast<i64>(std::min(p0.z, p1.z) - reach) - originZ, kBucket);
+                const i64 lastZ = floorDiv(static_cast<i64>(std::max(p0.z, p1.z) + reach) - originZ, kBucket);
+                for (i64 bz = std::max<i64>(firstZ, 0); bz <= std::min(lastZ, kBuckets - 1); ++bz) {
+                    for (i64 bx = std::max<i64>(firstX, 0); bx <= std::min(lastX, kBuckets - 1); ++bx) {
+                        out->buckets[static_cast<usize>((bz * kBuckets) + bx)].push_back(number);
+                    }
                 }
             }
         }
@@ -360,14 +393,29 @@ void RiverNetwork::gather(f64 minX, f64 minZ, f64 maxX, f64 maxZ, std::vector<St
 RiverNetwork::Carve RiverNetwork::carve(std::span<const Stretch> stretches, f64 x, f64 z,
                                         f64 ground) noexcept {
     Carve out{.ground = ground};
+    if (stretches.empty()) {
+        return out;
+    }
+    // Rivers stray from their path by slow noise, which gives them bends far
+    // smaller than a drainage cell, and quick noise frays their edges. Reading
+    // the river at a shifted position does this for water and banks together.
+    const f64 slowX = vxe::noise::gradient2(kWanderSalt, x / 58.0, z / 58.0).value;
+    const f64 slowZ = vxe::noise::gradient2(kWanderSalt + 1, x / 58.0, z / 58.0).value;
+    const f64 quickX = vxe::noise::gradient2(kWanderSalt + 2, x / 11.0, z / 11.0).value;
+    const f64 quickZ = vxe::noise::gradient2(kWanderSalt + 3, x / 11.0, z / 11.0).value;
+    const f64 readX = x + (slowX * kWander * 0.8) + (quickX * kWander * 0.2);
+    const f64 readZ = z + (slowZ * kWander * 0.8) + (quickZ * kWander * 0.2);
+    // How wide the flat strip beside the water is here.
+    const f64 strip = (vxe::noise::gradient2(kWanderSalt + 4, x / 23.0, z / 23.0).value * 0.5) + 0.5;
     for (const Stretch& s : stretches) {
         const f64 abX = s.bx - s.ax;
         const f64 abZ = s.bz - s.az;
         const f64 length = (abX * abX) + (abZ * abZ);
         const f64 along =
-            length > 0.0 ? std::clamp((((x - s.ax) * abX) + ((z - s.az) * abZ)) / length, 0.0, 1.0) : 0.0;
-        const f64 gapX = x - (s.ax + (abX * along));
-        const f64 gapZ = z - (s.az + (abZ * along));
+            length > 0.0 ? std::clamp((((readX - s.ax) * abX) + ((readZ - s.az) * abZ)) / length, 0.0, 1.0)
+                         : 0.0;
+        const f64 gapX = readX - (s.ax + (abX * along));
+        const f64 gapZ = readZ - (s.az + (abZ * along));
         const f64 distance = std::sqrt((gapX * gapX) + (gapZ * gapZ));
         const f64 half = (s.widthA + ((s.widthB - s.widthA) * along)) * 0.5;
         if (distance >= half + kBankReach) {
@@ -377,17 +425,29 @@ RiverNetwork::Carve RiverNetwork::carve(std::span<const Stretch> stretches, f64 
         if (distance < half) {
             // The channel: cut down into the rock, deeper in wide water.
             const f64 side = distance / half;
-            const f64 depth = 1.0 + std::min(half * 0.55, 5.0);
+            const f64 depth = 1.0 + std::min(half * 0.45, 9.0);
             out.ground = std::min(out.ground, level - (depth * (1.0 - (side * side))));
             out.water = std::max(out.water, level);
             out.damp = 1.0;
-        } else {
-            // The banks: the ground leans back from the water, as a valley
-            // does. Only ever cut, never raised: water makes its own way.
-            const f64 away = distance - half;
-            out.ground = std::min(out.ground, level + 1.0 + (away * away * 0.045) + (away * 0.3));
-            out.damp = std::max(out.damp, 1.0 - std::min(away / (kDampReach + half), 1.0));
+            continue;
         }
+        // The banks. First a strip level with the water, at least one block
+        // wide, since real water laps at its shore instead of standing in a
+        // trench. Then the ground leans back gently, steeper further out, and
+        // fades into the land so that the cut has no outer edge. Only ever
+        // cut, never raised: water makes its own way.
+        const f64 away = distance - half;
+        const f64 shelf = 1.0 + (strip * 3.0) + (half * 0.2);
+        out.damp = std::max(out.damp, 1.0 - std::min(away / (kDampReach + half), 1.0));
+        if (away < shelf) {
+            out.ground = std::min(out.ground, level);
+            out.shore = true;
+            continue;
+        }
+        const f64 rise = away - shelf;
+        const f64 bank = level + (rise * 0.12) + (rise * rise * 0.014);
+        const f64 fade = vxe::noise::smooth(44.0, kBankReach, away);
+        out.ground = std::min(out.ground, bank + ((std::max(ground, bank) - bank) * fade));
     }
     return out;
 }

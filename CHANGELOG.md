@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#119] 2026-11-01, G3.5 Natural river shapes and larger rivers
+### Changed
+- Rivers follow curves and wander, with no corners, and join at an angle.
+- A flat strip level with the water runs along every river, then the banks lean back gently.
+- The largest rivers are 52 blocks wide, not 22, and deeper.
+- Dry land turns green only right at the water, in pieces, with far fewer plants.
+
 ## [#118] 2026-11-01, Footsteps and block sounds by material, life along water
 ### Added
 - Short impacts per material in sounds/block (dig-*), cut from the footstep recordings, for breaking and placing.
