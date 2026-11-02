@@ -67,8 +67,9 @@ public:
     // Makes the clouds of a world. Takes a few milliseconds, for world entry.
     void setSeed(u64 seed);
     // Moves the wind and uploads this frame's parameters. Once per frame.
-    // `cover` is the share of the sky under clouds (Atmosphere::cloudCover).
-    void update(f64 deltaSeconds, f32 cover);
+    // `cover` is the share of the sky under clouds (Atmosphere::cloudCover), and
+    // `timeSpeed` scales the wind with the day (SkyRenderer::timeSpeed).
+    void update(f64 deltaSeconds, f32 cover, f32 timeSpeed);
     // The noise of kCloudNoiseImage, or nothing for plain edges.
     void setNoise(const PackImage* image);
     // Draws the clouds into their layer: a half size target cleared to nothing,

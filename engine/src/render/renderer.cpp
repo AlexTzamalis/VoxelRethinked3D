@@ -272,7 +272,7 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
     const u32 height = std::max(m_device.backBufferHeight(), 1U);
     m_graph->setOutputSize(width, height);
     m_sky->update(time.deltaSeconds);
-    m_clouds->update(time.deltaSeconds, m_sky->atmosphere().cloudCover);
+    m_clouds->update(time.deltaSeconds, m_sky->atmosphere().cloudCover, m_sky->timeSpeed());
     const f32 daylight = daylightOf(m_sky->params());
     const Vec3 skyLight(m_sky->params().skyLight);
     m_chunks->setDaylight(daylight);

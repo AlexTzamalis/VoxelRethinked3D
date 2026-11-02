@@ -17,6 +17,8 @@ constexpr std::array<Mode, 4> kPresentModes{{
      .displayName = "Mailbox (low latency, no tearing)"},
 }};
 
+constexpr std::array<i32, 14> kFrameRates = {0, 30, 60, 75, 90, 120, 144, 165, 180, 240, 300, 360, 500, 1000};
+
 } // namespace
 
 FramePacer::FramePacer(const FramePacerDesc& desc)
@@ -26,7 +28,8 @@ FramePacer::FramePacer(const FramePacerDesc& desc)
     config::EnumSettingDesc<rhi::PresentMode> mode;
     mode.id = "Video.PresentMode";
     mode.displayName = "Vertical sync";
-    mode.description = "How finished frames reach the screen.";
+    mode.description = "Holds the game at your screen's rate, without tearing. A frame rate limit "
+                       "replaces it.";
     mode.defaultValue = rhi::PresentMode::Vsync;
     mode.options = kPresentModes;
     m_presentMode = settings.registerEnum(mode);
@@ -35,7 +38,17 @@ FramePacer::FramePacer(const FramePacerDesc& desc)
         return settings.registerInt(
             {{.id = id, .displayName = name, .description = description}, defaultValue, 0, 1000, 1});
     };
-    m_fpsLimit = limit("Video.FpsLimit", "Frame rate limit", "Frames per second cap. 0 for none.", 0);
+    m_fpsLimit = settings.registerInt({{.id = "Video.FpsLimit",
+                                        .displayName = "Frame rate limit",
+                                        .description = "Most frames per second. A limit works by itself, "
+                                                       "so vertical sync stops while one is set, and the "
+                                                       "picture can tear. Menus have their own limit."},
+                                       0,
+                                       0,
+                                       1000,
+                                       1,
+                                       kFrameRates,
+                                       "Unlimited"});
     m_fpsLimitUnfocused = limit("Video.FpsLimitUnfocused", "Frame rate in the background",
                                 "Cap while the window is not focused. 0 for none.", 30);
     m_fpsLimitInMenus = limit("Video.FpsLimitInMenus", "Frame rate in menus",
@@ -49,7 +62,11 @@ FramePacer::FramePacer(const FramePacerDesc& desc)
 }
 
 void FramePacer::update() {
-    const rhi::PresentMode mode = m_presentMode.get();
+    // Vertical sync would hold a limit above the screen's rate at that rate,
+    // so a limit the player picked would seem to do nothing.
+    const rhi::PresentMode chosen = m_presentMode.get();
+    const bool synced = chosen == rhi::PresentMode::Vsync || chosen == rhi::PresentMode::Adaptive;
+    const rhi::PresentMode mode = synced && m_fpsLimit.get() > 0 ? rhi::PresentMode::Immediate : chosen;
     if (!m_applied || mode != m_appliedMode) {
         m_device.setPresentMode(mode);
         m_appliedMode = mode;

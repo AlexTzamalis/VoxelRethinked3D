@@ -2,6 +2,17 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#132] 2026-11-02, FPS counter, a frame rate limit that works
+### Added
+- An FPS counter in the top left corner, with Show FPS in the Video settings.
+
+### Fixed
+- The frame rate limit did nothing above the screen's rate, since vertical sync held the game there. A limit now works by itself.
+- The limit is a list of values instead of a slider where one pixel was six frames.
+
+### Changed
+- The wind follows the day's length, like weather and fog already did.
+
 ## [#131] 2026-11-02, Soft volumetric clouds
 ### Changed
 - Clouds are marched as real volumes at half resolution, worn by the pack's noise and lit towards the sun or moon, with bright tops, dark bellies and soft edges.

@@ -30,6 +30,8 @@ SettingInfo makeInfo(const CommonDesc& desc, SettingType type, SettingValue defa
                        .min = 0.0,
                        .max = 0.0,
                        .step = 0.0,
+                       .choices = {},
+                       .zeroName = {},
                        .options = {},
                        .maxLength = 0};
 }
@@ -179,6 +181,8 @@ Setting<i32> SettingsRegistry::registerInt(const IntSettingDesc& desc) {
     info.min = desc.min;
     info.max = desc.max;
     info.step = desc.step;
+    info.choices.assign(desc.choices.begin(), desc.choices.end());
+    info.zeroName = std::string(desc.zeroName);
     return Setting<i32>(this, addEntry(std::move(info), SettingType::Int));
 }
 

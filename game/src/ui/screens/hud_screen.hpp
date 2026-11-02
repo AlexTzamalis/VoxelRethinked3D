@@ -11,7 +11,7 @@
 
 namespace vr {
 
-// The crosshair and the hotbar, drawn from pack images (ui/crosshair.png,
+// The frame counter, the crosshair and the hotbar, drawn from pack images (ui/crosshair.png,
 // ui/hotbar_slot.png, ui/hotbar_selected.png) with the blocks' icons. The
 // selected block's name shows above the bar for a moment after it changes.
 class HudWidget final : public vxe::ui::Widget {
@@ -22,7 +22,7 @@ public:
         , m_catalog(catalog) {}
 
     // Brings the widget up to date; redraws only after a change.
-    void sync(bool shown, vxe::f32 opacity, vxe::f32 deltaSeconds);
+    void sync(bool shown, bool showFps, vxe::f32 opacity, vxe::f32 deltaSeconds);
     void draw(vxe::ui::DrawContext& context) const override;
 
 private:
@@ -34,6 +34,11 @@ private:
     vxe::f32 m_opacity = 1.0F;
     vxe::f32 m_nameSeconds = 0.0F; // How much longer the name shows.
     std::string m_name;
+    // The frame counter: frames over a quarter second, so the number can be read.
+    bool m_showFps = false;
+    vxe::u32 m_fpsFrames = 0;
+    vxe::f32 m_fpsSeconds = 0.0F;
+    std::string m_fpsText;
 };
 
 // In the world while playing: no cursor, no backdrop, only the HUD.

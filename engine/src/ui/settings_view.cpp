@@ -304,6 +304,21 @@ void SettingsView::addRow(Widget& page, const config::SettingInfo& info) {
     }
     case config::SettingType::Int:
     case config::SettingType::Float: {
+        if (!info.choices.empty()) {
+            std::vector<std::string> names;
+            names.reserve(info.choices.size());
+            for (const i32 choice : info.choices) {
+                names.push_back(choice == 0 && !info.zeroName.empty() ? info.zeroName
+                                                                      : std::to_string(choice));
+            }
+            auto& cycle = row.add<CycleButton>(std::move(names), 0, [this, source](usize index) {
+                static_cast<void>(m_settings.set(source->id, config::SettingValue{source->choices[index]}));
+            });
+            cycle.style().width = kControlWidth;
+            cycle.style().shrink = 0.0F;
+            control = &cycle;
+            break;
+        }
         const bool whole = info.type == config::SettingType::Int;
         auto& slider =
             row.add<Slider>(info.min, info.max, whole ? std::max(1.0, info.step) : info.step, info.min,
@@ -381,6 +396,19 @@ void SettingsView::refresh() {
             break;
         case config::SettingType::Int:
         case config::SettingType::Float: {
+            if (!row.info->choices.empty()) {
+                // A value set by hand shows as the nearest choice.
+                const i32 stored = std::get<i32>(current);
+                const auto& choices = row.info->choices;
+                usize nearest = 0;
+                for (usize i = 1; i < choices.size(); ++i) {
+                    if (std::abs(choices[i] - stored) < std::abs(choices[nearest] - stored)) {
+                        nearest = i;
+                    }
+                }
+                dynamic_cast<CycleButton&>(*row.control).setIndex(nearest);
+                break;
+            }
             auto* slider = dynamic_cast<Slider*>(row.control);
             if (!slider->dragging()) {
                 slider->setValue(row.info->type == config::SettingType::Int

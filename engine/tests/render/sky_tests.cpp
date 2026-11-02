@@ -78,6 +78,17 @@ TEST_CASE("An overcast day is grey and dim") {
     CHECK(grey.sunColor.r < bright.sunColor.r * 0.3F);
 }
 
+TEST_CASE("Time speed follows the length of the day") {
+    const auto device = rhi::createNullDevice();
+    config::SettingsRegistry settings;
+    auto sky = makeSky(*device, settings, nullptr);
+    CHECK(sky->timeSpeed() == doctest::Approx(1.0F));
+    REQUIRE(settings.set("Graphics.Sky.DayMinutes", 5.0F).hasValue());
+    CHECK(sky->timeSpeed() == doctest::Approx(4.0F));
+    REQUIRE(settings.set("Graphics.Sky.DayMinutes", 0.0F).hasValue());
+    CHECK(sky->timeSpeed() == doctest::Approx(1.0F)); // A stopped clock leaves a normal wind.
+}
+
 TEST_CASE("The clock counts days, and a saved clock wins over the setting") {
     const auto device = rhi::createNullDevice();
     config::SettingsRegistry settings;

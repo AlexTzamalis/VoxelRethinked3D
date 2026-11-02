@@ -1025,7 +1025,7 @@ void VoxelRethinkedApp::updateHotbar(vxe::EngineContext& context, vxe::f64 delta
         }
     }
     if (auto* hud = dynamic_cast<HudScreen*>(m_screens->bottom()); hud != nullptr && hud->hud() != nullptr) {
-        hud->hud()->sync(m_settings->showHud.get(), m_settings->hudOpacity.get(),
+        hud->hud()->sync(m_settings->showHud.get(), m_settings->showFps.get(), m_settings->hudOpacity.get(),
                          static_cast<vxe::f32>(deltaSeconds));
     }
 }

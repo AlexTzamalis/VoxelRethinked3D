@@ -18,6 +18,7 @@ namespace {
 // The sun's path is tilted this far from straight overhead, so noon light
 // comes from the side and terrain gets shape.
 constexpr f32 kSunPathTilt = 0.5F; // Radians, about 29 degrees.
+constexpr f32 kNormalDayMinutes = 20.0F;
 
 constexpr std::array<config::EnumSettingDesc<WeatherChoice>::Option, 5> kWeatherOptions = {
     {{WeatherChoice::Auto, "Auto", "Auto"},
@@ -283,6 +284,11 @@ void SkyRenderer::update(f64 deltaSeconds) {
         m_stats->set(m_timeStat, static_cast<f64>(m_state.hours));
         m_stats->set(m_elevationStat, static_cast<f64>(glm::degrees(std::asin(m_params.sunDirection.y))));
     }
+}
+
+f32 SkyRenderer::timeSpeed() const noexcept {
+    const f32 minutes = m_dayLength.get();
+    return minutes > 0.0F ? kNormalDayMinutes / minutes : 1.0F;
 }
 
 void SkyRenderer::setClockHours(f64 hours) noexcept {

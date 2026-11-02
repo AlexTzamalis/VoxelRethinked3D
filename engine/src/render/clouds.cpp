@@ -133,7 +133,8 @@ CloudRenderer::CloudRenderer(const CloudDesc& desc)
     quality.options = kQualities;
     m_quality = settings.registerEnum(quality);
     m_speed = number("Graphics.Clouds.Speed", "Cloud speed",
-                     "How fast the wind moves clouds, in blocks per second.", 3.0F, 0.0F, 64.0F, 0.5F);
+                     "How fast the wind moves clouds in a 20 minute day, in blocks per second.", 3.0F, 0.0F,
+                     64.0F, 0.5F);
 }
 
 Result<std::unique_ptr<CloudRenderer>> CloudRenderer::create(const CloudDesc& desc) {
@@ -274,9 +275,9 @@ void CloudRenderer::setNoise(const PackImage* image) {
     m_noiseLoaded = true;
 }
 
-void CloudRenderer::update(f64 deltaSeconds, f32 cover) {
+void CloudRenderer::update(f64 deltaSeconds, f32 cover, f32 timeSpeed) {
     m_cover = std::clamp(cover * m_coverScale.get(), 0.0F, 1.0F);
-    const f64 moved = static_cast<f64>(m_speed.get()) * deltaSeconds;
+    const f64 moved = static_cast<f64>(m_speed.get() * timeSpeed) * deltaSeconds;
     m_windX = std::fmod(m_windX + (moved * std::cos(kWindAngle)), kMapBlocks);
     m_windZ = std::fmod(m_windZ + (moved * std::sin(kWindAngle)), kMapBlocks);
     const CloudParams params{

@@ -15,6 +15,25 @@
 
 using namespace vxe;
 
+TEST_CASE("A frame rate limit works by itself, whatever vertical sync says") {
+    const auto device = rhi::createNullDevice();
+    config::SettingsRegistry settings;
+    render::FramePacer pacer({.device = device.get(), .settings = &settings});
+    pacer.update();
+    CHECK(pacer.appliedMode() == rhi::PresentMode::Vsync);
+    REQUIRE(settings.set("Video.FpsLimit", 240).hasValue());
+    pacer.update();
+    CHECK(pacer.appliedMode() == rhi::PresentMode::Immediate);
+    REQUIRE(settings.set("Video.FpsLimit", 0).hasValue());
+    pacer.update();
+    CHECK(pacer.appliedMode() == rhi::PresentMode::Vsync);
+    REQUIRE(settings.value("Video.FpsLimit").hasValue());
+    const auto info = settings.find("Video.FpsLimit");
+    REQUIRE(info != nullptr);
+    CHECK(info->choices.size() > 5);
+    CHECK(info->zeroName == "Unlimited");
+}
+
 TEST_CASE("The lowest frame rate cap that applies wins") {
     const auto device = rhi::createNullDevice();
     config::SettingsRegistry settings;

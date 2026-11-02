@@ -115,6 +115,9 @@ public:
     // is the depth the scene was drawn with, sampled, not attached.
     void record(rhi::CommandList& commands, rhi::TextureHandle sceneDepth) const;
 
+    // How fast the world's time runs against a normal 20 minute day. Weather and
+    // fog follow the clock by themselves; the wind asks for this.
+    [[nodiscard]] f32 timeSpeed() const noexcept;
     // What the air is like right now, from the clock and the world's weather.
     [[nodiscard]] const Atmosphere& atmosphere() const noexcept { return m_atmosphere; }
     // The weather of a world. Set it when a world starts.

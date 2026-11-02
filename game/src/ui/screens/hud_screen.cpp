@@ -4,6 +4,7 @@
 #include <vxe/ui/pixel_font.hpp>
 
 #include <cmath>
+#include <format>
 #include <string_view>
 
 namespace vr {
@@ -17,13 +18,24 @@ constexpr f32 kCrosshair = 9.0F; // The size of ui/crosshair.png.
 constexpr f32 kIcon = 16.0F;
 constexpr f32 kBottomGap = 3.0F;
 constexpr f32 kNameSeconds = 2.0F;
+constexpr f32 kFpsSeconds = 0.25F;
+constexpr f32 kFpsMargin = 4.0F;
 
 } // namespace
 
-void HudWidget::sync(bool shown, f32 opacity, f32 deltaSeconds) {
-    bool changed = shown != m_shown || opacity != m_opacity;
+void HudWidget::sync(bool shown, bool showFps, f32 opacity, f32 deltaSeconds) {
+    bool changed = shown != m_shown || opacity != m_opacity || showFps != m_showFps;
     m_shown = shown;
+    m_showFps = showFps;
     m_opacity = opacity;
+    ++m_fpsFrames;
+    m_fpsSeconds += deltaSeconds;
+    if (m_fpsSeconds >= kFpsSeconds) {
+        m_fpsText = std::format("{:.0f} FPS", static_cast<f32>(m_fpsFrames) / m_fpsSeconds);
+        m_fpsFrames = 0;
+        m_fpsSeconds = 0.0F;
+        changed = changed || showFps;
+    }
     if (m_hotbar.selected != m_drawn.selected || m_hotbar.slots != m_drawn.slots) {
         const bool otherBlock = m_hotbar.current() != m_drawn.current();
         m_drawn = m_hotbar;
@@ -49,10 +61,13 @@ void HudWidget::sync(bool shown, f32 opacity, f32 deltaSeconds) {
 }
 
 void HudWidget::draw(vxe::ui::DrawContext& context) const {
+    const vxe::ui::UiRect& box = rect();
+    if (m_showFps && !m_fpsText.empty() && context.font() != nullptr) {
+        context.text(m_fpsText, box.x + kFpsMargin, box.y + kFpsMargin, context.theme().colors.text, true);
+    }
     if (!m_shown) {
         return;
     }
-    const vxe::ui::UiRect& box = rect();
     const auto alpha = static_cast<vxe::u8>(std::lround(m_opacity * 255.0F));
     const vxe::u32 tint = vxe::ui::rgba(255, 255, 255, alpha);
     const f32 centerX = std::floor(box.width / 2.0F);

@@ -65,6 +65,10 @@ GameSettings::GameSettings(vxe::config::SettingsRegistry& settings)
                                       .displayName = "Show HUD",
                                       .description = "The crosshair and hotbar (F1)."},
                                      true}))
+    , showFps(settings.registerBool({{.id = "Video.ShowFps",
+                                      .displayName = "Show FPS",
+                                      .description = "Frames per second in the top left corner."},
+                                     true}))
     , fontSample(settings.registerBool({{.id = "Debug.Ui.FontSample",
                                          .displayName = "Font sample",
                                          .description = "Shows the UI font at scales 1 to 4.",

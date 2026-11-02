@@ -34,6 +34,8 @@ public:
     // Applies the present mode if it changed. Call once per frame before
     // presenting (cheap when nothing changed).
     void update();
+    // The present mode in use: the chosen one, unless a frame rate limit replaces vertical sync.
+    [[nodiscard]] rhi::PresentMode appliedMode() const noexcept { return m_appliedMode; }
     // Waits until the next frame may start. Call once per frame after present.
     void wait(bool windowFocused, bool inMenu);
     // The limit wait() uses in that state, 0 for none.

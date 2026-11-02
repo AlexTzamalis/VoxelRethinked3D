@@ -27,6 +27,7 @@ struct GameSettings {
     // Interface
     vxe::config::Setting<vxe::f32> hudOpacity;
     vxe::config::Setting<bool> showHud; // F1 flips it.
+    vxe::config::Setting<bool> showFps;
     // Debug
     vxe::config::Setting<bool> fontSample;   // The UI font at scales 1 to 4.
     vxe::config::Setting<bool> freezeCamera; // Mouse and keys leave the camera alone (baking).

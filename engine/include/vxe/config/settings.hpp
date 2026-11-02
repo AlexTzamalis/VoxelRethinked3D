@@ -87,6 +87,9 @@ struct SettingInfo {
     f64 min = 0.0;
     f64 max = 0.0;
     f64 step = 0.0;
+    // Whole number settings shown as a list.
+    std::vector<i32> choices;
+    std::string zeroName;
     // Enum settings only.
     std::vector<EnumOption> options;
     // String settings only.
@@ -113,6 +116,10 @@ struct IntSettingDesc : CommonDesc {
     i32 min = 0;
     i32 max = 100;
     i32 step = 1;
+    // The values worth picking, ascending. Menus then offer these as a list
+    // instead of a slider; any value in the range stays valid by hand.
+    std::span<const i32> choices{};
+    std::string_view zeroName{}; // The list's name for 0, for example "Unlimited".
 };
 
 struct FloatSettingDesc : CommonDesc {
