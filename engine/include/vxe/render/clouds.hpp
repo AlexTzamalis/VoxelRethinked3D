@@ -39,7 +39,7 @@ struct CloudDesc {
 // Blocky volumetric clouds (G9.5), one fullscreen pass over the scene color
 // that samples the scene depth. See clouds.frag for how they are drawn.
 //
-// Settings, all live (Graphics.Clouds.*): Enabled, Height, Thickness, Cover,
+// Settings, all live (Graphics.Clouds.*): Enabled, Height, Thickness, CoverScale,
 // Softness and Speed.
 //
 // Thread safety: main thread only.
@@ -55,7 +55,8 @@ public:
     // Makes the clouds of a world. Takes a few milliseconds, for world entry.
     void setSeed(u64 seed);
     // Moves the wind and uploads this frame's parameters. Once per frame.
-    void update(f64 deltaSeconds);
+    // `cover` is the share of the sky under clouds (Atmosphere::cloudCover).
+    void update(f64 deltaSeconds, f32 cover);
     // Draws the clouds. Record after the sky, in a raster pass with only the
     // scene color attached (load) and the frame constants bound.
     void record(rhi::CommandList& commands, rhi::TextureHandle sceneDepth, const SkyRenderer& sky) const;
@@ -74,7 +75,8 @@ private:
     config::Setting<bool> m_enabled;
     config::Setting<f32> m_height;
     config::Setting<f32> m_thickness;
-    config::Setting<f32> m_cover;
+    config::Setting<f32> m_coverScale;
+    f32 m_cover = 0.0F; // This frame's share of sky.
     config::Setting<f32> m_softness;
     config::Setting<f32> m_speed;
 };

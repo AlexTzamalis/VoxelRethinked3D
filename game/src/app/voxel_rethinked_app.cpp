@@ -978,6 +978,7 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
     m_demo = std::move(demo).value();
     if (context.renderer != nullptr) {
         context.renderer->clouds().setSeed(m_world ? m_world->seed : DemoWorldDesc{}.seed);
+        context.renderer->sky().setWeatherSeed(m_world ? m_world->seed : DemoWorldDesc{}.seed);
         context.renderer->sky().setClockHours(m_world && m_world->player ? m_world->player->clockHours
                                                                          : kFirstMorning);
     }

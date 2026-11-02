@@ -7,6 +7,7 @@
 #include <vxe/math/vector.hpp>
 #include <vxe/render/cpu_write_ring.hpp>
 #include <vxe/render/texture_pack.hpp>
+#include <vxe/render/weather.hpp>
 #include <vxe/rhi/command_list.hpp>
 #include <vxe/rhi/device.hpp>
 #include <vxe/rhi/shader_source.hpp>
@@ -62,6 +63,7 @@ struct SkyState {
     bool bodiesLoaded = false; // The sun and moon images are there.
     bool galaxyLoaded = false; // The galaxy image is there.
     f32 clearness = 0.3F;      // 0 to 1: how clear the air is. A clear night shows the galaxy.
+    f32 overcast = 0.0F;       // 0 to 1: how grey and dim the day is.
     bool skyEnabled = true;
     bool fogEnabled = true;
     f32 fogStart = 32.0F;
@@ -91,7 +93,7 @@ struct SkyDesc {
 //
 // Settings, all live (Graphics.Sky.*): Enabled, TimeOfDay, DayMinutes
 // (0 stops the clock), SunSize, FogEnabled, FogStart, FogDensity,
-// FogHeightFalloff, FogBaseHeight. Changing TimeOfDay by hand moves the clock
+// FogHeightFalloff, FogBaseHeight, Weather. Changing TimeOfDay by hand moves the clock
 // to that hour of the same day. Stats: Render.Sky.TimeOfDay and
 // Render.Sky.SunElevation.
 //
@@ -112,6 +114,11 @@ public:
     // color attached (load), after binding the frame constants. `sceneDepth`
     // is the depth the scene was drawn with, sampled, not attached.
     void record(rhi::CommandList& commands, rhi::TextureHandle sceneDepth) const;
+
+    // What the air is like right now, from the clock and the world's weather.
+    [[nodiscard]] const Atmosphere& atmosphere() const noexcept { return m_atmosphere; }
+    // The weather of a world. Set it when a world starts.
+    void setWeatherSeed(u64 seed) noexcept { m_weatherSeed = seed; }
 
     // The world's clock in hours since its first midnight, so a day has passed
     // every 24. It sets the sun, and the moon's phase by the count of days. A
@@ -142,6 +149,9 @@ private:
     SkyParams m_params;
     f32 m_lastTimeSetting = -1.0F;
     f64 m_clockHours = 10.0;
+    u64 m_weatherSeed = 0;
+    Atmosphere m_atmosphere;
+    config::Setting<WeatherChoice> m_weather;
     rhi::TextureHandle m_bodies;
     rhi::SamplerHandle m_bodySampler;
     bool m_bodiesLoaded = false;

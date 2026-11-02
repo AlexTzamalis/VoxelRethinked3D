@@ -19,6 +19,13 @@ namespace {
 // comes from the side and terrain gets shape.
 constexpr f32 kSunPathTilt = 0.5F; // Radians, about 29 degrees.
 
+constexpr std::array<config::EnumSettingDesc<WeatherChoice>::Option, 5> kWeatherOptions = {
+    {{WeatherChoice::Auto, "Auto", "Auto"},
+     {WeatherChoice::Clear, "Clear", "Clear"},
+     {WeatherChoice::Fair, "Fair", "Fair"},
+     {WeatherChoice::Cloudy, "Cloudy", "Cloudy"},
+     {WeatherChoice::Overcast, "Overcast", "Overcast"}}};
+
 const Vec3 kMoonTint(0.92F, 0.95F, 1.05F);
 const Vec3 kMoonLight(0.24F, 0.3F, 0.46F); // On terrain, under a full moon.
 // How bright each phase is, full first. A new moon still leaves starlight.
@@ -54,13 +61,22 @@ SkyParams computeSkyParams(const SkyState& state) noexcept {
     const f32 dusk =
         (1.0F - glm::smoothstep(0.0F, 0.35F, std::abs(elevation))) * glm::smoothstep(-0.2F, 0.0F, elevation);
 
+    // Grey days: color drains out of the sky and the sun loses its strength.
+    const f32 grey = glm::clamp(state.overcast, 0.0F, 1.0F);
+    const auto drained = [grey](const Vec3& color) {
+        const f32 level = glm::dot(color, Vec3(0.3F, 0.59F, 0.11F));
+        return glm::mix(color, Vec3(level) * 0.82F, grey);
+    };
+
     SkyParams params;
     params.sunDirection = Vec4(sun, std::cos(glm::radians(state.sunSizeDegrees)));
     params.zenithColor =
-        Vec4(glm::mix(glm::mix(kNightZenith, kDayZenith, day), kDuskZenith, dusk * 0.5F), 1.0F);
-    params.horizonColor = Vec4(glm::mix(glm::mix(kNightHorizon, kDayHorizon, day), kDuskHorizon, dusk), 1.0F);
+        Vec4(drained(glm::mix(glm::mix(kNightZenith, kDayZenith, day), kDuskZenith, dusk * 0.5F)), 1.0F);
+    params.horizonColor =
+        Vec4(drained(glm::mix(glm::mix(kNightHorizon, kDayHorizon, day), kDuskHorizon, dusk)), 1.0F);
     const f32 visible = glm::smoothstep(-0.05F, 0.02F, elevation);
-    params.sunColor = Vec4(glm::mix(kLowSun, kHighSun, glm::smoothstep(0.0F, 0.4F, elevation)) * visible,
+    params.sunColor = Vec4(glm::mix(kLowSun, kHighSun, glm::smoothstep(0.0F, 0.4F, elevation)) * visible *
+                               (1.0F - (grey * 0.85F)),
                            0.35F + 0.65F * dusk);
     params.fog = Vec4(state.fogStart, state.fogDensity, state.fogHeightFalloff, state.fogBaseHeight);
     // The night sky turns with the sun, once a day around the same axis.
@@ -91,7 +107,8 @@ SkyParams computeSkyParams(const SkyState& state) noexcept {
         (1.0F - glm::smoothstep(0.05F, 0.45F, elevation)) * glm::smoothstep(-0.12F, 0.02F, elevation);
     const Vec3 sunLight = glm::mix(Vec3(1.0F), Vec3(1.0F, 0.74F, 0.52F), low);
     const Vec3 moonLight = kMoonLight * kMoonPhaseLight.at(phase);
-    params.skyLight = Vec4(state.skyEnabled ? glm::mix(moonLight, sunLight, day) : Vec3(1.0F), 1.0F);
+    const Vec3 greyLight = drained(glm::mix(moonLight, sunLight, day)) * (1.0F - (grey * 0.3F));
+    params.skyLight = Vec4(state.skyEnabled ? greyLight : Vec3(1.0F), 1.0F);
     return params;
 }
 
@@ -114,6 +131,13 @@ SkyRenderer::SkyRenderer(const SkyDesc& desc)
                          240.0F, 1.0F);
     m_sunSize = number("Graphics.Sky.BodySize", "Sun and moon size",
                        "Half the width of the sun and moon in degrees.", 7.0F, 1.0F, 20.0F, 0.5F);
+    config::EnumSettingDesc<WeatherChoice> weather;
+    weather.id = "Graphics.Sky.Weather";
+    weather.displayName = "Weather";
+    weather.description = "Auto follows the world's own weather. The others hold one kind.";
+    weather.defaultValue = WeatherChoice::Auto;
+    weather.options = kWeatherOptions;
+    m_weather = settings.registerEnum(weather);
     m_fogEnabled = settings.registerBool(
         {{.id = "Graphics.Sky.FogEnabled", .displayName = "Fog", .description = "Distance and height fog."},
          true});
@@ -236,16 +260,19 @@ void SkyRenderer::update(f64 deltaSeconds) {
     if (dayLengthMinutes > 0.0F) {
         m_clockHours += deltaSeconds * 24.0 / (static_cast<f64>(dayLengthMinutes) * 60.0);
     }
+    m_atmosphere = computeAtmosphere(m_weatherSeed, m_clockHours, m_weather.get());
     m_state = SkyState{
         .hours = static_cast<f32>(std::fmod(m_clockHours, 24.0)),
         .sunSizeDegrees = m_sunSize.get(),
         .moonPhase = static_cast<u32>(std::fmod(std::floor(m_clockHours / 24.0), kMoonPhases)),
         .bodiesLoaded = m_bodiesLoaded,
         .galaxyLoaded = m_galaxyLoaded,
+        .clearness = m_atmosphere.clearness,
+        .overcast = m_atmosphere.overcast,
         .skyEnabled = m_enabled.get(),
         .fogEnabled = m_fogEnabled.get(),
         .fogStart = m_fogStart.get(),
-        .fogDensity = m_fogDensity.get(),
+        .fogDensity = m_fogDensity.get() * m_atmosphere.fogScale,
         .fogHeightFalloff = m_fogFalloff.get(),
         .fogBaseHeight = m_fogBase.get(),
     };

@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#130] 2026-11-02, Weather and time drive the air
+### Added
+- Each world has its own weather: clear, fair, cloudy and overcast spells that turn into each other over time.
+- Graphics.Sky.Weather holds one kind, or Auto follows the world.
+
+### Changed
+- Clouds, fog, sky color, light and the night sky all follow the weather and the hour: mist after dawn, thin air at midday, grey dim days, and clear nights with the galaxy in full.
+- Graphics.Clouds.CoverScale replaces Cover.
+
 ## [#129] 2026-11-02, Stars and the galaxy
 ### Added
 - Stars come out at night and the galaxy image shows across the sky, turning with the night.

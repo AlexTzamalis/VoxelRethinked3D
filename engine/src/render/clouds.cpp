@@ -110,8 +110,9 @@ CloudRenderer::CloudRenderer(const CloudDesc& desc)
                       270.0F, 64.0F, 2048.0F, 8.0F);
     m_thickness = number("Graphics.Clouds.Thickness", "Cloud thickness",
                          "How many blocks tall the tallest clouds are.", 56.0F, 8.0F, 256.0F, 4.0F);
-    m_cover = number("Graphics.Clouds.Cover", "Cloud cover", "How much of the sky has clouds, 0 to 1.", 0.42F,
-                     0.0F, 1.0F, 0.01F);
+    m_coverScale =
+        number("Graphics.Clouds.CoverScale", "Cloud amount",
+               "Times the clouds the weather brings. 1 is as the weather says.", 1.0F, 0.0F, 2.0F, 0.05F);
     m_softness = number("Graphics.Clouds.Softness", "Cloud softness",
                         "How far light gets into a cloud. More is wispier, less is more solid.", 0.5F, 0.05F,
                         1.0F, 0.05F);
@@ -186,12 +187,13 @@ void CloudRenderer::setSeed(u64 seed) {
     }
 }
 
-void CloudRenderer::update(f64 deltaSeconds) {
+void CloudRenderer::update(f64 deltaSeconds, f32 cover) {
+    m_cover = std::clamp(cover * m_coverScale.get(), 0.0F, 1.0F);
     const f64 moved = static_cast<f64>(m_speed.get()) * deltaSeconds;
     m_windX = std::fmod(m_windX + (moved * std::cos(kWindAngle)), kMapBlocks);
     m_windZ = std::fmod(m_windZ + (moved * std::sin(kWindAngle)), kMapBlocks);
     const CloudParams params{
-        .shape = Vec4(m_height.get(), m_thickness.get(), 1.0F - m_cover.get(),
+        .shape = Vec4(m_height.get(), m_thickness.get(), 1.0F - m_cover,
                       // Softness 0.5 lets light 40 blocks in; less is denser.
                       0.0125F / m_softness.get()),
         .motion = Vec4(static_cast<f32>(m_windX), static_cast<f32>(m_windZ), kFadeStart, kFadeEnd)};
@@ -201,7 +203,7 @@ void CloudRenderer::update(f64 deltaSeconds) {
 
 void CloudRenderer::record(rhi::CommandList& commands, rhi::TextureHandle sceneDepth,
                            const SkyRenderer& sky) const {
-    if (!m_enabled.get() || m_cover.get() <= 0.0F) {
+    if (!m_enabled.get() || m_cover <= 0.0F) {
         return;
     }
     commands.bindPipeline(m_pipeline);

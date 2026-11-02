@@ -55,7 +55,7 @@ vec3 withNight(vec3 color, vec3 direction) {
     vec3 light = vec3(starAt(turned)) * sky.night.x;
     if (sky.night.y > 0.0) {
         const vec2 uv = vec2(atan(turned.z, turned.x) / 6.28318530718 + 0.5, acos(clamp(turned.y, -1.0, 1.0)) / 3.14159265359);
-        light += textureLod(galaxy, uv, 0.0).rgb * sky.night.y;
+        light += textureLod(galaxy, uv, 0.0).rgb * sky.night.y * 2.4;
     }
     return color + light * air;
 }

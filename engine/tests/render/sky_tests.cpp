@@ -69,6 +69,15 @@ TEST_CASE("Clear dark nights show the galaxy, day never does") {
     CHECK(render::computeSkyParams(noImage).night.x > 0.5F); // Stars need no image.
 }
 
+TEST_CASE("An overcast day is grey and dim") {
+    const auto bright = render::computeSkyParams({.hours = 12.0F});
+    const auto grey = render::computeSkyParams({.hours = 12.0F, .overcast = 1.0F});
+    const auto saturation = [](const Vec4& color) { return color.b - color.r; };
+    CHECK(saturation(grey.zenithColor) < saturation(bright.zenithColor) * 0.2F);
+    CHECK(grey.skyLight.r < bright.skyLight.r);
+    CHECK(grey.sunColor.r < bright.sunColor.r * 0.3F);
+}
+
 TEST_CASE("The clock counts days, and a saved clock wins over the setting") {
     const auto device = rhi::createNullDevice();
     config::SettingsRegistry settings;
@@ -133,7 +142,7 @@ TEST_CASE("Sky settings apply live and the day cycle runs") {
     REQUIRE(settings.set("Graphics.Sky.FogDensity", 0.01F).hasValue());
     REQUIRE(settings.set("Graphics.Sky.Enabled", false).hasValue());
     sky->update(0.0);
-    CHECK(sky->params().fog.y == 0.01F);
+    CHECK(sky->params().fog.y == doctest::Approx(0.01F * sky->atmosphere().fogScale));
     CHECK(sky->params().flags.x == 0);
     stats.endFrame(1.0 / 60.0);
     CHECK(stats.value(stats.find("Render.Sky.TimeOfDay")) == 12.0);

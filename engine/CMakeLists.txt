@@ -228,6 +228,7 @@ vxe_add_module(render
         src/render/renderer.cpp
         src/render/clouds.cpp
         src/render/sky.cpp
+        src/render/weather.cpp
         src/render/texture_pack.cpp
         src/render/texture_pack_manager.cpp
     DEPENDS
