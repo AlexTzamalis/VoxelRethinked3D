@@ -18,9 +18,12 @@ layout(location = 0) out vec4 outColor;
 void main() {
     const bool snow = params.shape.y > 0.5;
     const vec4 texel = texture(streaks, vec3(vUv, snow ? 1.0 : 0.0));
-    const float alpha = texel.a * vFade * (snow ? 0.95 : 0.7);
+    // Rain is mostly the light passing through it: pale and faint, or a
+    // downpour seen from above turns into blue bars.
+    const float alpha = texel.a * vFade * (snow ? 0.95 : 0.42);
     if (alpha < 0.02) {
         discard;
     }
-    outColor = vec4(texel.rgb * params.light.rgb, alpha);
+    const vec3 color = snow ? texel.rgb : mix(texel.rgb, vec3(0.8, 0.85, 0.9), 0.55);
+    outColor = vec4(color * params.light.rgb, alpha);
 }

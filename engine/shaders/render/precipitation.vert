@@ -41,7 +41,8 @@ void main() {
     const ivec2 block = params.corner.xz + cell;
     // From the world position, so a column keeps its streaks as the camera moves.
     const uint hash = hashOf(block + frame.cameraChunk.xz * 16);
-    if (float(hash & 1023u) / 1023.0 >= params.shape.x) {
+    // Even a downpour leaves gaps between the streaks.
+    if (float(hash & 1023u) / 1023.0 >= params.shape.x * 0.7) {
         hide();
         return;
     }

@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#134] 2026-11-02, Softer rain, snow in snowy biomes
+### Changed
+- Rain is paler and thinner, with gaps between streaks, so a downpour seen from above is a grey haze instead of blue bars.
+
+### Fixed
+- Snowy taiga got rain: snow now falls below 2 degrees, which covers every snowy biome.
+
 ## [#133] 2026-11-02, Falling rain and snow
 ### Added
 - Rain joins the weather, about one spell in ten. It falls as streaks from the pack's rain image and turns to snow where it is cold; deserts and badlands stay dry.

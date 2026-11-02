@@ -36,7 +36,7 @@ namespace {
 
 // Where rain stays away and where it turns to snow (render::PrecipitationRenderer).
 constexpr vxe::f64 kDryRainfall = 0.25;    // Below this the land is desert and stays dry.
-constexpr vxe::f64 kSnowTemperature = 1.0; // Degrees.
+constexpr vxe::f64 kSnowTemperature = 2.0; // Degrees: snowy biomes lie below 1.5.
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): the level changes at runtime.
 constinit vxe::log::Category gameLog{"game", vxe::log::Level::Info};
