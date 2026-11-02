@@ -191,10 +191,18 @@ Result<void> Renderer::buildGraph() {
 
     auto clouds = graph.addPass({.name = "Clouds", .record = [this, depth](PassContext& context) {
                                      m_constants.bind(context.commands);
-                                     m_clouds->record(context.commands, context.texture(depth), *m_sky);
+                                     m_clouds->recordLayer(context.commands, context.texture(depth), *m_sky);
                                  }});
-    clouds.colorAttachment(color, rhi::LoadOp::Load);
+    const TextureRef cloudLayer = clouds.createTexture("CloudLayer", {.format = kSceneFormat, .scale = 0.5F});
+    clouds.colorAttachment(cloudLayer, rhi::LoadOp::Clear, {0.0F, 0.0F, 0.0F, 0.0F});
     clouds.sampleTexture(depth);
+
+    auto cloudBlend =
+        graph.addPass({.name = "CloudsBlend", .record = [this, cloudLayer](PassContext& context) {
+                           m_clouds->recordBlend(context.commands, context.texture(cloudLayer));
+                       }});
+    cloudBlend.colorAttachment(color, rhi::LoadOp::Load);
+    cloudBlend.sampleTexture(cloudLayer);
 
     auto translucent = graph.addPass({.name = "ChunksTranslucent", .record = [this](PassContext& context) {
                                           m_constants.bind(context.commands);

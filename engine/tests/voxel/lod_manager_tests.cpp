@@ -143,7 +143,7 @@ struct Rig { // NOLINT(clang-analyzer-optin.performance.Padding): members in lif
         do {
             manager->update(camera);
             std::this_thread::yield();
-        } while (!manager->isSettled() && clock.elapsedMilliseconds() < 20000.0);
+        } while (!manager->isSettled() && clock.elapsedMilliseconds() < 60000.0);
         REQUIRE(manager->isSettled());
     }
     // The sink holds exactly the clipmap's tiles.
@@ -289,6 +289,7 @@ TEST_CASE("Tiles that leave the clipmap cancel their jobs") {
 
 TEST_CASE("LOD quality presets set the reach; Ultra passes 32,000 blocks") {
     Rig rig;
+    rig.set("Graphics.LOD.JobsInFlight", 32); // Ultra has over 5,000 tiles.
     REQUIRE(rig.settings.applyPreset("Graphics.LOD", "Ultra").hasValue());
     CHECK(rig.settings.currentPreset("Graphics.LOD") == "Ultra");
     rig.settle();

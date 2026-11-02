@@ -15,7 +15,14 @@ namespace {
 struct CloudParams {
     Vec4 shape;  // Floor height, thickness, density where clouds start, light lost per block.
     Vec4 motion; // Wind x and z in blocks, where they start and end fading.
+    Vec4 style;  // x: blockiness, y: steps per ray, z: 1 with detail noise.
 };
+
+constexpr std::array<config::EnumSettingDesc<CloudQuality>::Option, 3> kQualities = {
+    {{CloudQuality::Low, "Low", "Low"},
+     {CloudQuality::Medium, "Medium", "Medium"},
+     {CloudQuality::High, "High", "High"}}};
+constexpr std::array<f32, 3> kStepsOfQuality = {24.0F, 40.0F, 64.0F};
 
 constexpr f32 kFadeStart = 3500.0F; // Blocks from the camera.
 constexpr f32 kFadeEnd = 6000.0F;
@@ -116,6 +123,15 @@ CloudRenderer::CloudRenderer(const CloudDesc& desc)
     m_softness = number("Graphics.Clouds.Softness", "Cloud softness",
                         "How far light gets into a cloud. More is wispier, less is more solid.", 0.5F, 0.05F,
                         1.0F, 0.05F);
+    m_blockiness = number("Graphics.Clouds.Blockiness", "Cloud blockiness",
+                          "0 is soft and round, 1 is built from blocks.", 0.2F, 0.0F, 1.0F, 0.05F);
+    config::EnumSettingDesc<CloudQuality> quality;
+    quality.id = "Graphics.Clouds.Quality";
+    quality.displayName = "Cloud quality";
+    quality.description = "More looks smoother and costs more.";
+    quality.defaultValue = CloudQuality::Medium;
+    quality.options = kQualities;
+    m_quality = settings.registerEnum(quality);
     m_speed = number("Graphics.Clouds.Speed", "Cloud speed",
                      "How fast the wind moves clouds, in blocks per second.", 3.0F, 0.0F, 64.0F, 0.5F);
 }
@@ -136,16 +152,62 @@ Result<std::unique_ptr<CloudRenderer>> CloudRenderer::create(const CloudDesc& de
     pipeline.raster.cullMode = rhi::CullMode::None;
     pipeline.depth.testEnabled = false;
     pipeline.depth.writeEnabled = false;
-    pipeline.blend[0] = rhi::BlendState::alphaBlend();
     pipeline.colorFormats[0] = desc.colorFormat;
     pipeline.colorCount = 1;
     auto created = device.createPipeline(pipeline);
-    device.destroy(vertex.value());
     device.destroy(fragment.value());
     if (!created) {
+        device.destroy(vertex.value());
         return created.error().withContext("Clouds");
     }
     clouds->m_pipeline = created.value();
+
+    const auto blendFragment = rhi::createShaderFromFile(device, "render/clouds_blit.frag", desc.shaders);
+    if (!blendFragment) {
+        device.destroy(vertex.value());
+        return blendFragment.error().withContext("Clouds");
+    }
+    pipeline.fragment = blendFragment.value();
+    pipeline.debugName = "Clouds blend";
+    pipeline.blend[0] = rhi::BlendState{.enabled = true,
+                                        .srcColor = rhi::BlendFactor::One,
+                                        .dstColor = rhi::BlendFactor::OneMinusSrcAlpha,
+                                        .srcAlpha = rhi::BlendFactor::One,
+                                        .dstAlpha = rhi::BlendFactor::OneMinusSrcAlpha};
+    auto blended = device.createPipeline(pipeline);
+    device.destroy(vertex.value());
+    device.destroy(blendFragment.value());
+    if (!blended) {
+        return blended.error().withContext("Clouds");
+    }
+    clouds->m_blendPipeline = blended.value();
+    auto mapSampler = device.createSampler({.minFilter = rhi::Filter::Linear,
+                                            .magFilter = rhi::Filter::Linear,
+                                            .mipmapMode = rhi::MipmapMode::Linear,
+                                            .addressU = rhi::AddressMode::Repeat,
+                                            .addressV = rhi::AddressMode::Repeat,
+                                            .debugName = "Cloud map sampler"});
+    if (!mapSampler) {
+        return mapSampler.error().withContext("Clouds");
+    }
+    clouds->m_mapSampler = mapSampler.value();
+    auto layerSampler = device.createSampler({.minFilter = rhi::Filter::Linear,
+                                              .magFilter = rhi::Filter::Linear,
+                                              .mipmapMode = rhi::MipmapMode::None,
+                                              .addressU = rhi::AddressMode::ClampToEdge,
+                                              .addressV = rhi::AddressMode::ClampToEdge,
+                                              .debugName = "Cloud layer sampler"});
+    if (!layerSampler) {
+        return layerSampler.error().withContext("Clouds");
+    }
+    clouds->m_layerSampler = layerSampler.value();
+    auto noise = device.createTexture({.format = rhi::Format::RGBA8Unorm,
+                                       .usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
+                                       .debugName = "Cloud noise"});
+    if (!noise) {
+        return noise.error().withContext("Clouds");
+    }
+    clouds->m_noise = noise.value();
     auto sampler = device.createSampler({.minFilter = rhi::Filter::Nearest,
                                          .magFilter = rhi::Filter::Nearest,
                                          .mipmapMode = rhi::MipmapMode::None,
@@ -174,8 +236,12 @@ Result<std::unique_ptr<CloudRenderer>> CloudRenderer::create(const CloudDesc& de
 
 CloudRenderer::~CloudRenderer() {
     m_device.destroy(m_pipeline);
+    m_device.destroy(m_blendPipeline);
     m_device.destroy(m_sampler);
+    m_device.destroy(m_mapSampler);
+    m_device.destroy(m_layerSampler);
     m_device.destroy(m_map);
+    m_device.destroy(m_noise);
     m_ring.destroy(m_device);
 }
 
@@ -187,6 +253,27 @@ void CloudRenderer::setSeed(u64 seed) {
     }
 }
 
+void CloudRenderer::setNoise(const PackImage* image) {
+    if (image == nullptr || image->width == 0 || image->height == 0) {
+        m_noiseLoaded = false;
+        return;
+    }
+    auto texture =
+        m_device.createTexture({.format = rhi::Format::RGBA8Unorm,
+                                .width = image->width,
+                                .height = image->height,
+                                .usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
+                                .debugName = "Cloud noise"});
+    if (!texture) {
+        m_noiseLoaded = false;
+        return;
+    }
+    m_device.destroy(m_noise);
+    m_noise = texture.value();
+    static_cast<void>(m_device.uploadTexture(m_noise, {.data = std::as_bytes(std::span(image->pixels))}));
+    m_noiseLoaded = true;
+}
+
 void CloudRenderer::update(f64 deltaSeconds, f32 cover) {
     m_cover = std::clamp(cover * m_coverScale.get(), 0.0F, 1.0F);
     const f64 moved = static_cast<f64>(m_speed.get()) * deltaSeconds;
@@ -196,13 +283,15 @@ void CloudRenderer::update(f64 deltaSeconds, f32 cover) {
         .shape = Vec4(m_height.get(), m_thickness.get(), 1.0F - m_cover,
                       // Softness 0.5 lets light 40 blocks in; less is denser.
                       0.0125F / m_softness.get()),
-        .motion = Vec4(static_cast<f32>(m_windX), static_cast<f32>(m_windZ), kFadeStart, kFadeEnd)};
+        .motion = Vec4(static_cast<f32>(m_windX), static_cast<f32>(m_windZ), kFadeStart, kFadeEnd),
+        .style = Vec4(m_blockiness.get(), kStepsOfQuality.at(static_cast<usize>(m_quality.get())),
+                      m_noiseLoaded ? 1.0F : 0.0F, 0.0F)};
     const std::span<std::byte> memory = m_ring.next(m_device);
     std::memcpy(memory.data(), &params, sizeof(params));
 }
 
-void CloudRenderer::record(rhi::CommandList& commands, rhi::TextureHandle sceneDepth,
-                           const SkyRenderer& sky) const {
+void CloudRenderer::recordLayer(rhi::CommandList& commands, rhi::TextureHandle sceneDepth,
+                                const SkyRenderer& sky) const {
     if (!m_enabled.get() || m_cover <= 0.0F) {
         return;
     }
@@ -210,7 +299,17 @@ void CloudRenderer::record(rhi::CommandList& commands, rhi::TextureHandle sceneD
     sky.bindParams(commands, 0);
     commands.bindUniformBuffer(1, 1, m_ring.current(), 0, sizeof(CloudParams));
     commands.bindTexture(2, 0, sceneDepth, m_sampler);
-    commands.bindTexture(2, 1, m_map, m_sampler);
+    commands.bindTexture(2, 1, m_map, m_mapSampler);
+    commands.bindTexture(2, 2, m_noise, m_mapSampler);
+    commands.draw(3);
+}
+
+void CloudRenderer::recordBlend(rhi::CommandList& commands, rhi::TextureHandle layer) const {
+    if (!m_enabled.get() || m_cover <= 0.0F) {
+        return;
+    }
+    commands.bindPipeline(m_blendPipeline);
+    commands.bindTexture(2, 0, layer, m_layerSampler);
     commands.draw(3);
 }
 

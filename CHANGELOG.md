@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#131] 2026-11-02, Soft volumetric clouds
+### Changed
+- Clouds are marched as real volumes at half resolution, worn by the pack's noise and lit towards the sun or moon, with bright tops, dark bellies and soft edges.
+
+### Added
+- Graphics.Clouds.Blockiness, from soft and round to built from blocks, and Quality.
+
 ## [#130] 2026-11-02, Weather and time drive the air
 ### Added
 - Each world has its own weather: clear, fair, cloudy and overcast spells that turn into each other over time.

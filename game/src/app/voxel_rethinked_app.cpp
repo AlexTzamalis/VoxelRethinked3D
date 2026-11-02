@@ -772,6 +772,7 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
             images.emplace_back(path);
         }
         images.emplace_back(vxe::render::kGalaxyImage);
+        images.emplace_back(vxe::render::kCloudNoiseImage);
         m_texturePacks->setImages(std::move(images));
         m_texturePacks->setFiles({std::string(kThemeFile)});
         const auto keys = m_blocks->textureKeys();
@@ -1082,6 +1083,7 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
                            [this](std::string_view path) { return m_texturePacks->image(path); });
     context.renderer->sky().setBodies(bodies);
     context.renderer->sky().setGalaxy(m_texturePacks->image(vxe::render::kGalaxyImage));
+    context.renderer->clouds().setNoise(m_texturePacks->image(vxe::render::kCloudNoiseImage));
     context.renderer->chunks().setTextures(textures->texture, textures->sampler);
     context.renderer->lod().setTextures(textures->texture, textures->sampler,
                                         static_cast<vxe::u32>(m_blocks->textureKeys().size()));
