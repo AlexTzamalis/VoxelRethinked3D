@@ -22,6 +22,8 @@ VXE_BINDING_STD140(1, VXE_SKY_SLOT) uniform SkyParams {
     vec4 moonDirection; // xyz: towards the moon, w: half its size (tangent).
     vec4 moonColor;     // rgb: tint, a: how much of it shows.
     vec4 skyLight;      // rgb: the color sky light gives terrain.
+    vec4 stars;         // xyz: the axis the night sky turns around, w: its angle.
+    vec4 night;         // x: how strong stars are, y: how strong the galaxy is.
 } sky;
 
 vec3 skyColor(vec3 direction) {

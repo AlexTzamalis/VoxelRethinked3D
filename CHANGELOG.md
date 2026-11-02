@@ -2,6 +2,11 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#129] 2026-11-02, Stars and the galaxy
+### Added
+- Stars come out at night and the galaxy image shows across the sky, turning with the night.
+- Clear air and a dark moon show more of them; clear nights show the galaxy in full.
+
 ## [#128] 2026-11-02, Day cycle with sun, moon and colored sky light
 ### Added
 - A 20 minute day on Minecraft's sun path. The clock saves with the world, and a new world starts in the morning.

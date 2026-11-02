@@ -30,8 +30,10 @@ struct SkyParams {
     Vec4 moonDirection{0.0F, -1.0F, 0.0F, 0.0F}; // xyz: towards the moon; w: half its size (tangent).
     Vec4 moonColor{0.0F};                        // rgb: tint; a: how much of it shows.
     Vec4 skyLight{1.0F};                         // rgb: the color sky light gives terrain.
+    Vec4 stars{0.0F}; // xyz: the axis the night sky turns around; w: its angle in radians.
+    Vec4 night{0.0F}; // x: how strong stars are, y: how strong the galaxy is.
 };
-static_assert(sizeof(SkyParams) == 9 * 16);
+static_assert(sizeof(SkyParams) == 11 * 16);
 
 // The sun and moon images of a pack, in the order of their layers. The moon's
 // phases follow, as they do in the sky, from full through new and back.
@@ -49,12 +51,17 @@ inline constexpr std::array<std::string_view, kMoonPhases + 1> kSkyBodyImages = 
     "environment/moon/waxing_gibbous.png",
 };
 
+// The night sky of a pack: a whole sphere, left to right around and top to bottom.
+inline constexpr std::string_view kGalaxyImage = "environment/galaxy/galaxy.png";
+
 // What the sky looks like at one moment, before it becomes shader data.
 struct SkyState {
     f32 hours = 10.0F;         // Time of day, 0 to 24. Noon at 12, up from about 5 to 19.
     f32 sunSizeDegrees = 7.0F; // Half the width of the sun and moon, in degrees.
     u32 moonPhase = 0;         // 0 full, 4 new, one step a day (kMoonPhases).
     bool bodiesLoaded = false; // The sun and moon images are there.
+    bool galaxyLoaded = false; // The galaxy image is there.
+    f32 clearness = 0.3F;      // 0 to 1: how clear the air is. A clear night shows the galaxy.
     bool skyEnabled = true;
     bool fogEnabled = true;
     f32 fogStart = 32.0F;
@@ -113,6 +120,8 @@ public:
     void setClockHours(f64 hours) noexcept;
     // The images of kSkyBodyImages, in that order. A missing one stays empty.
     void setBodies(std::span<const PackImage* const> images);
+    // The image of kGalaxyImage, or nothing for a night sky of stars alone.
+    void setGalaxy(const PackImage* image);
 
     [[nodiscard]] const SkyState& state() const noexcept { return m_state; }
     [[nodiscard]] const SkyParams& params() const noexcept { return m_params; }
@@ -136,6 +145,9 @@ private:
     rhi::TextureHandle m_bodies;
     rhi::SamplerHandle m_bodySampler;
     bool m_bodiesLoaded = false;
+    rhi::TextureHandle m_galaxy; // 1 x 1 until a pack gives one.
+    rhi::SamplerHandle m_galaxySampler;
+    bool m_galaxyLoaded = false;
 
     config::Setting<bool> m_enabled;
     config::Setting<f32> m_timeOfDay;

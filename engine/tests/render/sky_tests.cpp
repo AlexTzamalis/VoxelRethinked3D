@@ -49,6 +49,26 @@ TEST_CASE("The moon stands opposite the sun, and its phase sets the night's ligh
     CHECK(evening.skyLight.r > evening.skyLight.b + 0.1F);
 }
 
+TEST_CASE("Clear dark nights show the galaxy, day never does") {
+    const render::SkyState clear{.hours = 0.0F, .moonPhase = 4, .galaxyLoaded = true, .clearness = 1.0F};
+    render::SkyState hazy = clear;
+    hazy.clearness = 0.1F;
+    render::SkyState day = clear;
+    day.hours = 12.0F;
+    render::SkyState fullMoon = clear;
+    fullMoon.moonPhase = 0;
+    render::SkyState noImage = clear;
+    noImage.galaxyLoaded = false;
+    const auto brightest = render::computeSkyParams(clear);
+    CHECK(brightest.night.y > 0.7F);
+    CHECK(render::computeSkyParams(hazy).night.y < 0.2F);
+    CHECK(render::computeSkyParams(fullMoon).night.y < brightest.night.y);
+    CHECK(render::computeSkyParams(day).night.x == 0.0F);
+    CHECK(render::computeSkyParams(day).night.y == 0.0F);
+    CHECK(render::computeSkyParams(noImage).night.y == 0.0F);
+    CHECK(render::computeSkyParams(noImage).night.x > 0.5F); // Stars need no image.
+}
+
 TEST_CASE("The clock counts days, and a saved clock wins over the setting") {
     const auto device = rhi::createNullDevice();
     config::SettingsRegistry settings;

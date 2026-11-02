@@ -34,7 +34,7 @@ SkyParams computeSkyParams(const SkyState& state) noexcept {
     const Vec3 kDayHorizon = decodeSrgb(Vec3(0.66F, 0.80F, 0.95F));
     const Vec3 kDuskZenith = decodeSrgb(Vec3(0.24F, 0.27F, 0.50F));
     const Vec3 kDuskHorizon = decodeSrgb(Vec3(0.96F, 0.56F, 0.32F));
-    const Vec3 kNightZenith = decodeSrgb(Vec3(0.012F, 0.016F, 0.045F));
+    const Vec3 kNightZenith = decodeSrgb(Vec3(0.02F, 0.03F, 0.075F));
     const Vec3 kNightHorizon = decodeSrgb(Vec3(0.035F, 0.045F, 0.085F));
     const Vec3 kLowSun = decodeSrgb(Vec3(1.0F, 0.55F, 0.25F));
     const Vec3 kHighSun = decodeSrgb(Vec3(1.0F, 0.95F, 0.85F));
@@ -63,6 +63,19 @@ SkyParams computeSkyParams(const SkyState& state) noexcept {
     params.sunColor = Vec4(glm::mix(kLowSun, kHighSun, glm::smoothstep(0.0F, 0.4F, elevation)) * visible,
                            0.35F + 0.65F * dusk);
     params.fog = Vec4(state.fogStart, state.fogDensity, state.fogHeightFalloff, state.fogBaseHeight);
+    // The night sky turns with the sun, once a day around the same axis.
+    const Vec3 axis(0.0F, std::sin(kSunPathTilt), std::cos(kSunPathTilt));
+    params.stars = Vec4(axis, state.hours / 24.0F * glm::two_pi<f32>());
+    // Stars come out as the sky darkens. Clear air and a dark moon show more of
+    // them, and only clear nights show the galaxy in full.
+    const f32 dark = 1.0F - glm::smoothstep(-0.2F, 0.02F, elevation);
+    const f32 moonGlare = kMoonPhaseLight.at(state.moonPhase % kMoonPhases) * 0.45F;
+    const f32 clear = glm::clamp(state.clearness, 0.0F, 1.0F);
+    params.night =
+        Vec4(dark * (0.35F + (0.65F * clear)),
+             state.galaxyLoaded ? dark * (0.12F + (0.88F * clear * clear)) * (1.0F - moonGlare) : 0.0F, 0.0F,
+             0.0F);
+
     const u32 phase = state.moonPhase % kMoonPhases;
     params.flags = glm::ivec4(state.skyEnabled ? 1 : 0, state.fogEnabled ? 1 : 0, state.bodiesLoaded ? 1 : 0,
                               static_cast<i32>(phase) + 1);
@@ -181,6 +194,23 @@ Result<std::unique_ptr<SkyRenderer>> SkyRenderer::create(const SkyDesc& desc) {
         return bodies.error().withContext("Sky");
     }
     sky->m_bodies = bodies.value();
+    auto galaxySampler = device.createSampler({.minFilter = rhi::Filter::Linear,
+                                               .magFilter = rhi::Filter::Linear,
+                                               .mipmapMode = rhi::MipmapMode::None,
+                                               .addressU = rhi::AddressMode::Repeat,
+                                               .addressV = rhi::AddressMode::ClampToEdge,
+                                               .debugName = "Galaxy sampler"});
+    if (!galaxySampler) {
+        return galaxySampler.error().withContext("Sky");
+    }
+    sky->m_galaxySampler = galaxySampler.value();
+    auto galaxy = device.createTexture({.format = rhi::Format::RGBA8Srgb,
+                                        .usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
+                                        .debugName = "Galaxy"});
+    if (!galaxy) {
+        return galaxy.error().withContext("Sky");
+    }
+    sky->m_galaxy = galaxy.value();
     VXE_TRY(sky->m_ring.create(device, sizeof(SkyParams), rhi::BufferUsage::Uniform, "Sky parameters"));
     return sky;
 }
@@ -190,6 +220,8 @@ SkyRenderer::~SkyRenderer() {
     m_device.destroy(m_sampler);
     m_device.destroy(m_bodySampler);
     m_device.destroy(m_bodies);
+    m_device.destroy(m_galaxySampler);
+    m_device.destroy(m_galaxy);
     m_ring.destroy(m_device);
 }
 
@@ -209,6 +241,7 @@ void SkyRenderer::update(f64 deltaSeconds) {
         .sunSizeDegrees = m_sunSize.get(),
         .moonPhase = static_cast<u32>(std::fmod(std::floor(m_clockHours / 24.0), kMoonPhases)),
         .bodiesLoaded = m_bodiesLoaded,
+        .galaxyLoaded = m_galaxyLoaded,
         .skyEnabled = m_enabled.get(),
         .fogEnabled = m_fogEnabled.get(),
         .fogStart = m_fogStart.get(),
@@ -252,11 +285,33 @@ void SkyRenderer::setBodies(std::span<const PackImage* const> images) {
     m_bodiesLoaded = any;
 }
 
+void SkyRenderer::setGalaxy(const PackImage* image) {
+    if (image == nullptr || image->width == 0 || image->height == 0) {
+        m_galaxyLoaded = false;
+        return;
+    }
+    auto texture =
+        m_device.createTexture({.format = rhi::Format::RGBA8Srgb,
+                                .width = image->width,
+                                .height = image->height,
+                                .usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
+                                .debugName = "Galaxy"});
+    if (!texture) {
+        m_galaxyLoaded = false;
+        return;
+    }
+    m_device.destroy(m_galaxy);
+    m_galaxy = texture.value();
+    static_cast<void>(m_device.uploadTexture(m_galaxy, {.data = std::as_bytes(std::span(image->pixels))}));
+    m_galaxyLoaded = true;
+}
+
 void SkyRenderer::record(rhi::CommandList& commands, rhi::TextureHandle sceneDepth) const {
     commands.bindPipeline(m_pipeline);
     bindParams(commands, 0);
     commands.bindTexture(2, 0, sceneDepth, m_sampler);
     commands.bindTexture(2, 1, m_bodies, m_bodySampler);
+    commands.bindTexture(2, 2, m_galaxy, m_galaxySampler);
     commands.draw(3);
 }
 
