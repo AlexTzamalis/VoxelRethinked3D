@@ -9,7 +9,8 @@ enum class Weather : u8 {
     Clear,
     Fair,
     Cloudy,
-    Overcast
+    Overcast,
+    Rain
 };
 
 // Graphics.Sky.Weather: follow the world's own weather, or hold one kind.
@@ -18,7 +19,8 @@ enum class WeatherChoice : u8 {
     Clear,
     Fair,
     Cloudy,
-    Overcast
+    Overcast,
+    Rain
 };
 
 inline constexpr f64 kWeatherSpellHours = 6.0;  // Game hours one kind of weather lasts.
@@ -28,10 +30,11 @@ inline constexpr f64 kWeatherChangeHours = 2.0; // Game hours it takes to turn i
 // the time reads this one state: sky, fog, clouds, light and the stars, and
 // later biomes and shader packs.
 struct Atmosphere {
-    f32 cloudCover = 0.3F; // Share of the sky under clouds, 0 to 1.
-    f32 fogScale = 1.0F;   // Times the fog density setting.
-    f32 clearness = 0.3F;  // 0 to 1: how far the eye reaches at night. 1 shows the galaxy.
-    f32 overcast = 0.0F;   // 0 to 1: how grey and dim the day is.
+    f32 cloudCover = 0.3F;    // Share of the sky under clouds, 0 to 1.
+    f32 fogScale = 1.0F;      // Times the fog density setting.
+    f32 clearness = 0.3F;     // 0 to 1: how far the eye reaches at night. 1 shows the galaxy.
+    f32 overcast = 0.0F;      // 0 to 1: how grey and dim the day is.
+    f32 precipitation = 0.0F; // 0 to 1: how hard it rains, or snows where it is cold.
 };
 
 // The kind of weather of a spell, a pure function of the seed: a world keeps

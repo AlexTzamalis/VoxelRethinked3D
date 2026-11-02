@@ -14,6 +14,7 @@
 #include <vxe/audio/audio.hpp>
 #include <vxe/core/time.hpp>
 #include <vxe/render/camera.hpp>
+#include <vxe/render/precipitation.hpp>
 #include <vxe/render/texture_pack_manager.hpp>
 #include <vxe/ui/screen.hpp>
 #include <vxe/ui/ui_context.hpp>
@@ -51,6 +52,7 @@ private:
     [[nodiscard]] vxe::Result<void> loadCoreAssets(vxe::EngineContext& context);
     void handleGlobalActions(vxe::EngineContext& context);
     void updateWorld(vxe::EngineContext& context, const vxe::FrameTime& time);
+    void updatePrecipitation(vxe::EngineContext& context, vxe::f64 deltaSeconds);
     void updateSounds(vxe::EngineContext& context, const vxe::FrameTime& time);
     [[nodiscard]] SoundScene soundScene(const vxe::EngineContext& context) const;
     void setMouseCaptured(vxe::EngineContext& context, bool captured);
@@ -105,6 +107,9 @@ private:
     vxe::u64 m_waitUntil = 0; // The wait command's frame, 0 when none runs.
     vxe::f64 m_sinceAutosave = 0.0;
     vxe::f64 m_clockHours = kFirstMorning;
+    vxe::f64 m_sinceClimate = 1.0;
+    vxe::render::PrecipitationKind m_fallKind = vxe::render::PrecipitationKind::None;
+    std::vector<vxe::i32> m_columnTops; // Reused every frame.
     // How far the menu's panorama has turned, radians.
     vxe::f32 m_panoramaYaw = 0.0F;
     // Measures launch to the first frame of the menu, logged once.

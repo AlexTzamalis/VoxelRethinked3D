@@ -11,7 +11,7 @@ using render::Weather;
 using render::WeatherChoice;
 
 TEST_CASE("A world keeps its weather, and most of it is fair") {
-    std::array<u32, 4> counts{};
+    std::array<u32, 5> counts{};
     for (i64 spell = 0; spell < 4000; ++spell) {
         ++counts.at(static_cast<usize>(render::weatherOfSpell(42, spell)));
         CHECK(render::weatherOfSpell(42, spell) == render::weatherOfSpell(42, spell));
@@ -19,6 +19,7 @@ TEST_CASE("A world keeps its weather, and most of it is fair") {
     CHECK(counts[static_cast<usize>(Weather::Fair)] > counts[static_cast<usize>(Weather::Clear)]);
     CHECK(counts[static_cast<usize>(Weather::Clear)] > counts[static_cast<usize>(Weather::Overcast)]);
     CHECK(counts[static_cast<usize>(Weather::Overcast)] > 100);
+    CHECK(counts[static_cast<usize>(Weather::Rain)] > 200);
 }
 
 TEST_CASE("Chosen weather holds, and each kind has its own air") {
@@ -31,6 +32,9 @@ TEST_CASE("Chosen weather holds, and each kind has its own air") {
     CHECK(overcast.clearness == 0.0F);
     CHECK(overcast.overcast > 0.5F);
     CHECK(clear.fogScale < overcast.fogScale);
+    CHECK(overcast.precipitation == 0.0F);
+    CHECK(at(WeatherChoice::Rain).precipitation == 1.0F);
+    CHECK(clear.precipitation == 0.0F);
     CHECK(computeAtmosphere(1, 37.0, WeatherChoice::Clear).cloudCover ==
           computeAtmosphere(99, 500.0, WeatherChoice::Clear).cloudCover);
 }

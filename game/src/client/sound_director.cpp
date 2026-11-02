@@ -133,6 +133,10 @@ SoundDirector::SoundDirector(vxe::audio::AudioSystem& audio, std::filesystem::pa
     m_glass = filesIn(m_folder / "block", "glass-break");
     m_clicks = filesIn(m_folder / "ui", "mouse-click");
     m_whooshes = filesIn(m_folder / "ui", "whoosh");
+    m_thunder = filesIn(m_folder / "weather", "thunder");
+    if (const auto rain = filesIn(m_folder / "weather", "calming-rain"); !rain.empty()) {
+        m_rain = rain.front();
+    }
     m_lightTrack = pick(m_light);
     m_nightTrack = pick(m_night);
 }
@@ -158,8 +162,25 @@ void SoundDirector::update(const SoundScene& scene, f64 deltaSeconds) {
         return;
     }
     updateAmbience(scene);
+    updateWeather(scene, deltaSeconds);
     updateSteps(scene);
     updateMusic(deltaSeconds);
+}
+
+// The rain bed, softer under a roof or under water, and far off thunder in a
+// downpour, never two claps close together.
+void SoundDirector::updateWeather(const SoundScene& scene, f64 deltaSeconds) {
+    const f32 sheltered = std::clamp((scene.cover - 1.0F) / 6.0F, 0.0F, 0.75F);
+    const f32 loud = scene.rain * (1.0F - sheltered) * (scene.underWater ? 0.2F : 1.0F);
+    if (!m_rain.empty()) {
+        m_audio.setLoop("rain", m_rain, Bus::Ambient, loud * 0.8F, kBedFade);
+    }
+    m_untilThunder -= deltaSeconds;
+    if (scene.rain > 0.85F && m_untilThunder <= 0.0 && !m_thunder.empty()) {
+        m_audio.play(pick(m_thunder), Bus::Ambient, 0.35F + (randomUnit() * 0.35F),
+                     0.85F + (randomUnit() * 0.25F));
+        m_untilThunder = 35.0 + static_cast<f64>(randomUnit() * 90.0F);
+    }
 }
 
 void SoundDirector::updateAmbience(const SoundScene& scene) {

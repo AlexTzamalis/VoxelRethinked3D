@@ -43,6 +43,7 @@ struct SoundScene {
     vxe::f32 altitude = 0.0F;  // Blocks above the sea.
     vxe::f32 cover = 0.0F;     // Blocks of ground above the player, for caves.
     vxe::f32 daylight = 1.0F;  // 0 at night, 1 by day.
+    vxe::f32 rain = 0.0F;      // 0 to 1: how hard it rains around the player.
 };
 
 // Picks what plays from where the player is (SoundDirector::update is told the
@@ -53,6 +54,7 @@ struct SoundScene {
 //   Open land   ambient/light-ambient-*, quiet, more of it up high
 //   Water       water/water-stream, as loud as the water is near
 //   Caves       water/dripping-water-in-cave under enough ground
+//   Rain        weather/calming-rain while it rains, with thunder now and then in a downpour
 //   Footsteps   footsteps/*, by the block underfoot, faster when sprinting
 //   Blocks      block/dig-*, short impacts by material, for breaking and placing
 //   Music       ambient/ambient-*, a track now and then with quiet between
@@ -88,6 +90,7 @@ private:
     [[nodiscard]] vxe::f32 randomUnit() noexcept;
     void updateMusic(vxe::f64 deltaSeconds);
     void updateAmbience(const SoundScene& scene);
+    void updateWeather(const SoundScene& scene, vxe::f64 deltaSeconds);
     void updateSteps(const SoundScene& scene);
 
     vxe::audio::AudioSystem& m_audio;
@@ -101,6 +104,9 @@ private:
     std::vector<std::filesystem::path> m_glass;
     std::vector<std::filesystem::path> m_clicks;
     std::vector<std::filesystem::path> m_whooshes;
+    std::vector<std::filesystem::path> m_thunder;
+    std::filesystem::path m_rain;
+    vxe::f64 m_untilThunder = 40.0;
 
     std::filesystem::path m_nightTrack;
     std::filesystem::path m_lightTrack;

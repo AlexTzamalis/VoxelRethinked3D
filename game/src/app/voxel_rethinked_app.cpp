@@ -34,6 +34,10 @@
 namespace vr {
 namespace {
 
+// Where rain stays away and where it turns to snow (render::PrecipitationRenderer).
+constexpr vxe::f64 kDryRainfall = 0.25;    // Below this the land is desert and stays dry.
+constexpr vxe::f64 kSnowTemperature = 1.0; // Degrees.
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables): the level changes at runtime.
 constinit vxe::log::Category gameLog{"game", vxe::log::Level::Info};
 
@@ -773,6 +777,9 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
         }
         images.emplace_back(vxe::render::kGalaxyImage);
         images.emplace_back(vxe::render::kCloudNoiseImage);
+        for (const std::string_view path : vxe::render::kPrecipitationImages) {
+            images.emplace_back(path);
+        }
         m_texturePacks->setImages(std::move(images));
         m_texturePacks->setFiles({std::string(kThemeFile)});
         const auto keys = m_blocks->textureKeys();
@@ -855,11 +862,67 @@ void VoxelRethinkedApp::handleGlobalActions(vxe::EngineContext& context) {
     }
 }
 
+// What falls around the player and where it stops. The weather says how hard;
+// the climate where the player stands says rain, snow or nothing (a desert
+// stays dry under the heaviest sky). The climate costs a little, so it is read
+// twice a second; the column tops are cheap and follow every frame.
+void VoxelRethinkedApp::updatePrecipitation(vxe::EngineContext& context, vxe::f64 deltaSeconds) {
+    if (context.renderer == nullptr || !m_demo) {
+        return;
+    }
+    vxe::render::PrecipitationRenderer& precipitation = context.renderer->precipitation();
+    const vxe::f32 amount = context.renderer->sky().atmosphere().precipitation;
+    const vxe::i64 x = static_cast<vxe::i64>(std::floor(m_camera.position.x));
+    const vxe::i64 z = static_cast<vxe::i64>(std::floor(m_camera.position.z));
+    m_sinceClimate += deltaSeconds;
+    if (m_sinceClimate >= 0.5 || amount <= 0.0F) {
+        m_sinceClimate = 0.0;
+        m_fallKind = vxe::render::PrecipitationKind::None;
+        if (amount > 0.0F) {
+            const vxe::f64 above = m_camera.position.y - static_cast<vxe::f64>(Terrain::kSeaLevel);
+            const ClimateSample climate =
+                m_demo->terrain().climate().sample(static_cast<vxe::f64>(x), static_cast<vxe::f64>(z), above);
+            if (climate.rainfall >= kDryRainfall) {
+                m_fallKind = climate.temperature < kSnowTemperature ? vxe::render::PrecipitationKind::Snow
+                                                                    : vxe::render::PrecipitationKind::Rain;
+            }
+        }
+    }
+    precipitation.setWeather(m_fallKind, amount);
+    if (m_fallKind == vxe::render::PrecipitationKind::None) {
+        return;
+    }
+    constexpr vxe::i32 kReach = vxe::render::kPrecipitationReach;
+    constexpr vxe::i32 kSide = vxe::render::kPrecipitationSide;
+    m_columnTops.resize(static_cast<vxe::usize>(kSide) * kSide);
+    const vxe::voxel::VoxelWorld& world = m_demo->world();
+    for (vxe::i32 dz = 0; dz < kSide; ++dz) {
+        for (vxe::i32 dx = 0; dx < kSide; ++dx) {
+            const vxe::i64 bx = x - kReach + dx;
+            const vxe::i64 bz = z - kReach + dz;
+            const vxe::voxel::ColumnSummary* column =
+                world.findColumn({.x = static_cast<vxe::i32>(bx >> vxe::kChunkShift),
+                                  .z = static_cast<vxe::i32>(bz >> vxe::kChunkShift)});
+            vxe::i32 top = vxe::render::PrecipitationRenderer::kOpenColumn;
+            if (column != nullptr) {
+                const vxe::i32 highest =
+                    column->highestBlock(static_cast<vxe::u32>(bx & 15), static_cast<vxe::u32>(bz & 15));
+                if (highest != vxe::voxel::ColumnSummary::kNoBlock) {
+                    top = highest;
+                }
+            }
+            m_columnTops[static_cast<vxe::usize>((dz * kSide) + dx)] = top;
+        }
+    }
+    precipitation.setColumns(x - kReach, z - kReach, m_columnTops);
+}
+
 void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::FrameTime& time) {
     for (const vxe::platform::PlatformEvent& event : m_inputUps) {
         context.platform.injectEvent(event);
     }
     m_inputUps.clear();
+    updatePrecipitation(context, time.deltaSeconds);
     m_inGameFrames += m_states.current() == GameState::InGame ? 1U : 0U;
     if (m_states.current() == GameState::InGame) {
         if (m_input->isPressed(m_actions->pause)) {
@@ -1084,6 +1147,10 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
     context.renderer->sky().setBodies(bodies);
     context.renderer->sky().setGalaxy(m_texturePacks->image(vxe::render::kGalaxyImage));
     context.renderer->clouds().setNoise(m_texturePacks->image(vxe::render::kCloudNoiseImage));
+    std::array<const vxe::render::PackImage*, vxe::render::kPrecipitationImages.size()> streaks{};
+    std::ranges::transform(vxe::render::kPrecipitationImages, streaks.begin(),
+                           [this](std::string_view path) { return m_texturePacks->image(path); });
+    context.renderer->precipitation().setImages(streaks);
     context.renderer->chunks().setTextures(textures->texture, textures->sampler);
     context.renderer->lod().setTextures(textures->texture, textures->sampler,
                                         static_cast<vxe::u32>(m_blocks->textureKeys().size()));
@@ -1215,6 +1282,9 @@ SoundScene VoxelRethinkedApp::soundScene(const vxe::EngineContext& context) cons
     scene.inWorld = true;
     if (context.renderer != nullptr) {
         scene.daylight = context.renderer->chunks().daylight();
+        scene.rain = m_fallKind == vxe::render::PrecipitationKind::Rain
+                         ? context.renderer->sky().atmosphere().precipitation
+                         : 0.0F;
     }
     const vxe::voxel::VoxelWorld& world = m_demo->world();
     const Terrain& terrain = m_demo->terrain();

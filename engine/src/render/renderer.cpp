@@ -92,6 +92,15 @@ Result<std::unique_ptr<Renderer>> Renderer::create(const RendererDesc& desc) {
         return fail(sky.error());
     }
     renderer->m_sky = std::move(sky.value());
+    auto precipitation = PrecipitationRenderer::create({.device = &device,
+                                                        .settings = desc.settings,
+                                                        .shaders = desc.shaders,
+                                                        .colorFormat = kSceneFormat,
+                                                        .depthFormat = kDepthFormat});
+    if (!precipitation) {
+        return fail(precipitation.error());
+    }
+    renderer->m_precipitation = std::move(precipitation.value());
     auto clouds = CloudRenderer::create({.device = &device,
                                          .settings = desc.settings,
                                          .stats = desc.stats,
@@ -136,6 +145,7 @@ Renderer::~Renderer() {
     m_debugDraw.reset();
     m_post.reset();
     m_clouds.reset();
+    m_precipitation.reset();
     m_sky.reset();
     m_lod.reset();
     m_chunks.reset();
@@ -212,6 +222,14 @@ Result<void> Renderer::buildGraph() {
     translucent.colorAttachment(color, rhi::LoadOp::Load);
     translucent.depthAttachment(depth, rhi::LoadOp::Load);
 
+    // Rain and snow last, in front of water, glass and the clouds.
+    auto precipitation = graph.addPass({.name = "Precipitation", .record = [this](PassContext& context) {
+                                            m_constants.bind(context.commands);
+                                            m_precipitation->record(context.commands);
+                                        }});
+    precipitation.colorAttachment(color, rhi::LoadOp::Load);
+    precipitation.depthAttachment(depth, rhi::LoadOp::Load);
+
     // The depth pyramid for next frame's occlusion culling. Translucent
     // chunks write no depth, so it holds what the opaque and cutout ones hid.
     auto hiZ = graph.addPass(
@@ -277,6 +295,7 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
     const Vec3 skyLight(m_sky->params().skyLight);
     m_chunks->setDaylight(daylight);
     m_chunks->setSkyLight(skyLight);
+    m_precipitation->update(camera, time.elapsedSeconds, skyLight);
     m_lod->setLight(skyLight, m_chunks->brightness(), m_chunks->faceShading());
     m_post->update(width, height);
     m_constants.update(m_device, makeFrameConstants(camera, {.width = width,

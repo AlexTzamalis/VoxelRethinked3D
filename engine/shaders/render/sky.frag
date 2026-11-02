@@ -88,7 +88,9 @@ vec3 withBodies(vec3 color, vec3 direction) {
     const vec4 sun = bodyImage(direction, sky.sunDirection.xyz, halfSize, 0);
     color += sun.rgb * sun.a * sky.sunColor.rgb * 3.0;
     const vec4 moon = bodyImage(direction, sky.moonDirection.xyz, halfSize, sky.flags.w);
-    color = mix(color, moon.rgb * sky.moonColor.rgb * 1.2, moon.a * sky.moonColor.a);
+    // Added like light, not painted over: pack moons are drawn on black, so the
+    // dark side of the moon would cover a bright dawn sky as a black square.
+    color += moon.rgb * moon.a * sky.moonColor.rgb * sky.moonColor.a * 1.2;
     return color;
 }
 

@@ -14,6 +14,7 @@
 #include <vxe/render/frame_graph.hpp>
 #include <vxe/render/lod_renderer.hpp>
 #include <vxe/render/post_process.hpp>
+#include <vxe/render/precipitation.hpp>
 #include <vxe/render/sky.hpp>
 #include <vxe/rhi/command_list.hpp>
 #include <vxe/rhi/device.hpp>
@@ -93,6 +94,7 @@ public:
     [[nodiscard]] DebugDraw& debugDraw() noexcept { return *m_debugDraw; }
     [[nodiscard]] SkyRenderer& sky() noexcept { return *m_sky; }
     [[nodiscard]] CloudRenderer& clouds() noexcept { return *m_clouds; }
+    [[nodiscard]] PrecipitationRenderer& precipitation() noexcept { return *m_precipitation; }
     [[nodiscard]] rhi::Device& device() noexcept { return m_device; }
     // The GPU time of a recent frame (a few frames old, measured without stalls).
     [[nodiscard]] std::optional<f64> gpuMilliseconds() const noexcept {
@@ -112,6 +114,7 @@ private:
     std::unique_ptr<LodRenderer> m_lod;
     std::unique_ptr<SkyRenderer> m_sky;
     std::unique_ptr<CloudRenderer> m_clouds;
+    std::unique_ptr<PrecipitationRenderer> m_precipitation;
     std::unique_ptr<PostProcess> m_post;
     std::unique_ptr<DebugDraw> m_debugDraw;
     rhi::GpuFrameTimer m_timer;

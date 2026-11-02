@@ -9,16 +9,21 @@
 namespace vxe::render {
 namespace {
 
-constexpr std::array<Atmosphere, 4> kKinds = {{
+constexpr std::array<Atmosphere, 5> kKinds = {{
     {.cloudCover = 0.06F, .fogScale = 0.4F, .clearness = 1.0F, .overcast = 0.0F},   // Clear.
     {.cloudCover = 0.34F, .fogScale = 0.8F, .clearness = 0.4F, .overcast = 0.0F},   // Fair.
     {.cloudCover = 0.64F, .fogScale = 1.25F, .clearness = 0.1F, .overcast = 0.25F}, // Cloudy.
     {.cloudCover = 0.95F, .fogScale = 2.2F, .clearness = 0.0F, .overcast = 0.8F},   // Overcast.
+    {.cloudCover = 0.98F,
+     .fogScale = 2.6F,
+     .clearness = 0.0F,
+     .overcast = 0.88F,
+     .precipitation = 1.0F}, // Rain.
 }};
 
 // Out of 100, in the order of Weather: mostly fair, clear nights now and then,
-// grey days rarely.
-constexpr std::array<u32, 4> kShares = {22, 45, 24, 9};
+// rain about one spell in ten, plain grey days rarely.
+constexpr std::array<u32, 5> kShares = {22, 42, 20, 6, 10};
 constexpr u64 kWeatherSalt = 0x57EA7EE2ULL;
 
 Atmosphere mixed(const Atmosphere& a, const Atmosphere& b, f32 t) noexcept {
@@ -26,7 +31,8 @@ Atmosphere mixed(const Atmosphere& a, const Atmosphere& b, f32 t) noexcept {
     return {.cloudCover = lerp(a.cloudCover, b.cloudCover),
             .fogScale = lerp(a.fogScale, b.fogScale),
             .clearness = lerp(a.clearness, b.clearness),
-            .overcast = lerp(a.overcast, b.overcast)};
+            .overcast = lerp(a.overcast, b.overcast),
+            .precipitation = lerp(a.precipitation, b.precipitation)};
 }
 
 // How the hour changes fog: a bell of mist around sunrise, thin air at midday,

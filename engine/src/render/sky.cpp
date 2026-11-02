@@ -20,12 +20,13 @@ namespace {
 constexpr f32 kSunPathTilt = 0.5F; // Radians, about 29 degrees.
 constexpr f32 kNormalDayMinutes = 20.0F;
 
-constexpr std::array<config::EnumSettingDesc<WeatherChoice>::Option, 5> kWeatherOptions = {
+constexpr std::array<config::EnumSettingDesc<WeatherChoice>::Option, 6> kWeatherOptions = {
     {{WeatherChoice::Auto, "Auto", "Auto"},
      {WeatherChoice::Clear, "Clear", "Clear"},
      {WeatherChoice::Fair, "Fair", "Fair"},
      {WeatherChoice::Cloudy, "Cloudy", "Cloudy"},
-     {WeatherChoice::Overcast, "Overcast", "Overcast"}}};
+     {WeatherChoice::Overcast, "Overcast", "Overcast"},
+     {WeatherChoice::Rain, "Rain", "Rain"}}};
 
 const Vec3 kMoonTint(0.92F, 0.95F, 1.05F);
 const Vec3 kMoonLight(0.24F, 0.3F, 0.46F); // On terrain, under a full moon.

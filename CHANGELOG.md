@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#133] 2026-11-02, Falling rain and snow
+### Added
+- Rain joins the weather, about one spell in ten. It falls as streaks from the pack's rain image and turns to snow where it is cold; deserts and badlands stay dry.
+- Rain and snow stop at the first block above, so none falls under a roof, a tree or in a cave.
+- The pack's rain sound plays while it rains, softer under cover, with thunder now and then in a downpour.
+- Graphics.Sky.Precipitation turns it off.
+
+### Fixed
+- The moon was a dark square in the dawn and dusk sky: its image is drawn on black, and it was painted over the sky instead of added to it.
+
 ## [#132] 2026-11-02, FPS counter, a frame rate limit that works
 ### Added
 - An FPS counter in the top left corner, with Show FPS in the Video settings.
