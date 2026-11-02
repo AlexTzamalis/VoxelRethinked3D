@@ -38,6 +38,7 @@ struct IndirectDraw {
 
 struct LodParams {
     Vec4 params;
+    Vec4 skyLight;
 };
 
 } // namespace
@@ -374,9 +375,11 @@ void LodRenderer::beginFrame(const Camera& camera) {
     const bool textured = m_textures.isValid() && m_textureSampler.isValid();
     const f32 flags = (m_colorLevels.get() ? 1.0F : 0.0F) + (m_faceShading > 0.5F ? 2.0F : 0.0F) +
                       (textured ? 4.0F + static_cast<f32>(m_textureLayers * 8U) : 0.0F);
-    const LodParams params{.params = Vec4(m_daylight, m_brightness, coverage, flags)};
-    if (params.params != m_lastParams) {
+    const LodParams params{.params = Vec4(m_skyLight.x, m_brightness, coverage, flags),
+                           .skyLight = Vec4(m_skyLight, 1.0F)};
+    if (params.params != m_lastParams || params.skyLight != m_lastSkyLight) {
         m_lastParams = params.params;
+        m_lastSkyLight = params.skyLight;
         static_cast<void>(m_device.updateBuffer(m_params, 0, std::as_bytes(std::span(&params, 1))));
     }
 }

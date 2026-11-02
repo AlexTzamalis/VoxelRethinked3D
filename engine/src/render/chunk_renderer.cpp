@@ -43,6 +43,7 @@ static_assert(sizeof(ChunkInfo) == 16);
 struct ChunkParams {
     // x: AO strength, y: daylight, z: darkest brightness, w: face shading (1 on, 0 off).
     Vec4 params{1.0F, 1.0F, 0.0F, 1.0F};
+    Vec4 skyLight{1.0F};                       // rgb: the color of sky light right now.
     std::array<Vec4, kBlockTintKinds> tints{}; // Linear colors per tint kind.
 };
 
@@ -566,10 +567,13 @@ void ChunkRenderer::beginFrame(const Camera& camera) {
     } else {
         m_frozenCamera.reset();
     }
-    const ChunkParams params{
-        .params = Vec4(m_aoStrength.get(), m_daylight, m_brightness.get(), faceShading()), .tints = m_tints};
-    if (params.params != m_lastParams) {
+    const ChunkParams params{.params =
+                                 Vec4(m_aoStrength.get(), m_daylight, m_brightness.get(), faceShading()),
+                             .skyLight = Vec4(m_skyLight, 1.0F),
+                             .tints = m_tints};
+    if (params.params != m_lastParams || params.skyLight != m_lastSkyLight) {
         m_lastParams = params.params;
+        m_lastSkyLight = params.skyLight;
         static_cast<void>(m_device.updateBuffer(m_params, 0, std::as_bytes(std::span(&params, 1))));
     }
     readCullingCounts();

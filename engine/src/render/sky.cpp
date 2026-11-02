@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <vector>
 
 namespace vxe::render {
 namespace {
@@ -17,6 +18,12 @@ namespace {
 // The sun's path is tilted this far from straight overhead, so noon light
 // comes from the side and terrain gets shape.
 constexpr f32 kSunPathTilt = 0.5F; // Radians, about 29 degrees.
+
+const Vec3 kMoonTint(0.92F, 0.95F, 1.05F);
+const Vec3 kMoonLight(0.24F, 0.3F, 0.46F); // On terrain, under a full moon.
+// How bright each phase is, full first. A new moon still leaves starlight.
+constexpr std::array<f32, kMoonPhases> kMoonPhaseLight = {1.0F,  0.86F, 0.68F, 0.5F,
+                                                          0.36F, 0.5F,  0.68F, 0.86F};
 
 } // namespace
 
@@ -32,10 +39,14 @@ SkyParams computeSkyParams(const SkyState& state) noexcept {
     const Vec3 kLowSun = decodeSrgb(Vec3(1.0F, 0.55F, 0.25F));
     const Vec3 kHighSun = decodeSrgb(Vec3(1.0F, 0.95F, 0.85F));
 
-    // 6:00 rises in the east (+X), 12:00 is the highest point, 18:00 sets in the west.
-    const f32 angle = (state.hours - 6.0F) / 24.0F * glm::two_pi<f32>();
-    const Vec3 sun = glm::normalize(Vec3(std::cos(angle), std::sin(angle) * std::cos(kSunPathTilt),
-                                         -std::sin(angle) * std::sin(kSunPathTilt)));
+    // Minecraft's path: 0 is noon, and the eased part keeps the sun high for
+    // longer than low. It clears the horizon about 5:00 and sets about 19:00,
+    // rising in the east (+X).
+    const f32 fromNoon = glm::fract((state.hours / 24.0F) - 0.5F);
+    const f32 eased = 0.5F - (std::cos(fromNoon * glm::pi<f32>()) * 0.5F);
+    const f32 angle = ((fromNoon * 2.0F) + eased) / 3.0F * glm::two_pi<f32>();
+    const Vec3 sun = glm::normalize(Vec3(-std::sin(angle), std::cos(angle) * std::cos(kSunPathTilt),
+                                         -std::cos(angle) * std::sin(kSunPathTilt)));
     const f32 elevation = sun.y;
     const f32 day = glm::smoothstep(-0.1F, 0.25F, elevation);
     // Dusk colors peak while the sun is near the horizon, and fade out once
@@ -52,7 +63,22 @@ SkyParams computeSkyParams(const SkyState& state) noexcept {
     params.sunColor = Vec4(glm::mix(kLowSun, kHighSun, glm::smoothstep(0.0F, 0.4F, elevation)) * visible,
                            0.35F + 0.65F * dusk);
     params.fog = Vec4(state.fogStart, state.fogDensity, state.fogHeightFalloff, state.fogBaseHeight);
-    params.flags = glm::ivec4(state.skyEnabled ? 1 : 0, state.fogEnabled ? 1 : 0, 0, 0);
+    const u32 phase = state.moonPhase % kMoonPhases;
+    params.flags = glm::ivec4(state.skyEnabled ? 1 : 0, state.fogEnabled ? 1 : 0, state.bodiesLoaded ? 1 : 0,
+                              static_cast<i32>(phase) + 1);
+
+    // The moon stands opposite the sun and shows less the brighter the sky.
+    params.sunDirection.w = std::cos(glm::radians(state.sunSizeDegrees));
+    params.moonDirection = Vec4(-sun, std::tan(glm::radians(state.sunSizeDegrees)));
+    params.moonColor = Vec4(kMoonTint, glm::smoothstep(-0.05F, 0.05F, -elevation) * (1.0F - (day * 0.9F)));
+
+    // What terrain is lit by: white sun, warm near the horizon, and at night a
+    // blue moon whose strength follows its phase.
+    const f32 low =
+        (1.0F - glm::smoothstep(0.05F, 0.45F, elevation)) * glm::smoothstep(-0.12F, 0.02F, elevation);
+    const Vec3 sunLight = glm::mix(Vec3(1.0F), Vec3(1.0F, 0.74F, 0.52F), low);
+    const Vec3 moonLight = kMoonLight * kMoonPhaseLight.at(phase);
+    params.skyLight = Vec4(state.skyEnabled ? glm::mix(moonLight, sunLight, day) : Vec3(1.0F), 1.0F);
     return params;
 }
 
@@ -70,10 +96,11 @@ SkyRenderer::SkyRenderer(const SkyDesc& desc)
          true});
     m_timeOfDay = number("Graphics.Sky.TimeOfDay", "Time of day",
                          "Hours, 0 to 24. Sunrise at 6, sunset at 18.", 10.0F, 0.0F, 24.0F, 0.25F);
-    m_dayLength = number("Graphics.Sky.DayLengthMinutes", "Day length",
-                         "Real minutes for a full day. 0 stops the sun.", 0.0F, 0.0F, 240.0F, 1.0F);
-    m_sunSize = number("Graphics.Sky.SunSize", "Sun size", "Angular radius of the sun in degrees.", 1.2F,
-                       0.2F, 6.0F, 0.1F);
+    m_dayLength = number("Graphics.Sky.DayMinutes", "Day length",
+                         "Real minutes for a full day, 20 as in Minecraft. 0 stops the sun.", 20.0F, 0.0F,
+                         240.0F, 1.0F);
+    m_sunSize = number("Graphics.Sky.BodySize", "Sun and moon size",
+                       "Half the width of the sun and moon in degrees.", 7.0F, 1.0F, 20.0F, 0.5F);
     m_fogEnabled = settings.registerBool(
         {{.id = "Graphics.Sky.FogEnabled", .displayName = "Fog", .description = "Distance and height fog."},
          true});
@@ -133,6 +160,27 @@ Result<std::unique_ptr<SkyRenderer>> SkyRenderer::create(const SkyDesc& desc) {
         return sampler.error().withContext("Sky");
     }
     sky->m_sampler = sampler.value();
+    auto bodySampler = device.createSampler({.minFilter = rhi::Filter::Nearest,
+                                             .magFilter = rhi::Filter::Nearest,
+                                             .mipmapMode = rhi::MipmapMode::None,
+                                             .addressU = rhi::AddressMode::ClampToEdge,
+                                             .addressV = rhi::AddressMode::ClampToEdge,
+                                             .debugName = "Sky body sampler"});
+    if (!bodySampler) {
+        return bodySampler.error().withContext("Sky");
+    }
+    sky->m_bodySampler = bodySampler.value();
+    auto bodies = device.createTexture({.type = rhi::TextureType::Texture2DArray,
+                                        .format = rhi::Format::RGBA8Srgb,
+                                        .width = kSkyBodySize,
+                                        .height = kSkyBodySize,
+                                        .layers = kSkyBodyImages.size(),
+                                        .usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
+                                        .debugName = "Sun and moon"});
+    if (!bodies) {
+        return bodies.error().withContext("Sky");
+    }
+    sky->m_bodies = bodies.value();
     VXE_TRY(sky->m_ring.create(device, sizeof(SkyParams), rhi::BufferUsage::Uniform, "Sky parameters"));
     return sky;
 }
@@ -140,24 +188,27 @@ Result<std::unique_ptr<SkyRenderer>> SkyRenderer::create(const SkyDesc& desc) {
 SkyRenderer::~SkyRenderer() {
     m_device.destroy(m_pipeline);
     m_device.destroy(m_sampler);
+    m_device.destroy(m_bodySampler);
+    m_device.destroy(m_bodies);
     m_ring.destroy(m_device);
 }
 
 void SkyRenderer::update(f64 deltaSeconds) {
-    // A hand made change of TimeOfDay restarts the cycle from that time.
+    // A hand made change of TimeOfDay moves the clock to that hour of this day.
     const f32 timeSetting = m_timeOfDay.get();
     if (timeSetting != m_lastTimeSetting) {
         m_lastTimeSetting = timeSetting;
-        m_cycleHours = 0.0;
+        m_clockHours = (std::floor(m_clockHours / 24.0) * 24.0) + static_cast<f64>(timeSetting);
     }
     const f32 dayLengthMinutes = m_dayLength.get();
     if (dayLengthMinutes > 0.0F) {
-        m_cycleHours =
-            std::fmod(m_cycleHours + deltaSeconds * 24.0 / (static_cast<f64>(dayLengthMinutes) * 60.0), 24.0);
+        m_clockHours += deltaSeconds * 24.0 / (static_cast<f64>(dayLengthMinutes) * 60.0);
     }
     m_state = SkyState{
-        .hours = static_cast<f32>(std::fmod(static_cast<f64>(timeSetting) + m_cycleHours, 24.0)),
+        .hours = static_cast<f32>(std::fmod(m_clockHours, 24.0)),
         .sunSizeDegrees = m_sunSize.get(),
+        .moonPhase = static_cast<u32>(std::fmod(std::floor(m_clockHours / 24.0), kMoonPhases)),
+        .bodiesLoaded = m_bodiesLoaded,
         .skyEnabled = m_enabled.get(),
         .fogEnabled = m_fogEnabled.get(),
         .fogStart = m_fogStart.get(),
@@ -174,10 +225,38 @@ void SkyRenderer::update(f64 deltaSeconds) {
     }
 }
 
+void SkyRenderer::setClockHours(f64 hours) noexcept {
+    m_clockHours = std::max(hours, 0.0);
+    m_lastTimeSetting = m_timeOfDay.get(); // A saved clock is not a hand made change.
+}
+
+void SkyRenderer::setBodies(std::span<const PackImage* const> images) {
+    std::vector<u32> scaled(usize{kSkyBodySize} * kSkyBodySize);
+    bool any = false;
+    for (u32 layer = 0; layer < images.size() && layer < kSkyBodyImages.size(); ++layer) {
+        const PackImage* image = images[layer];
+        if (image == nullptr || image->width == 0 || image->height == 0) {
+            continue;
+        }
+        for (u32 y = 0; y < kSkyBodySize; ++y) {
+            for (u32 x = 0; x < kSkyBodySize; ++x) {
+                const u32 fromX = (x * image->width) / kSkyBodySize;
+                const u32 fromY = (y * image->height) / kSkyBodySize;
+                scaled[(usize{y} * kSkyBodySize) + x] = image->pixels[(usize{fromY} * image->width) + fromX];
+            }
+        }
+        static_cast<void>(m_device.uploadTexture(
+            m_bodies, {.layer = layer, .data = std::as_bytes(std::span<const u32>(scaled))}));
+        any = true;
+    }
+    m_bodiesLoaded = any;
+}
+
 void SkyRenderer::record(rhi::CommandList& commands, rhi::TextureHandle sceneDepth) const {
     commands.bindPipeline(m_pipeline);
     bindParams(commands, 0);
     commands.bindTexture(2, 0, sceneDepth, m_sampler);
+    commands.bindTexture(2, 1, m_bodies, m_bodySampler);
     commands.draw(3);
 }
 

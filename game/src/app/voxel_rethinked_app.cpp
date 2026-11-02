@@ -619,6 +619,7 @@ PlayerData VoxelRethinkedApp::playerData() const {
     player.pitch = m_player->pitch();
     player.flying = m_player->state().flying;
     player.hotbarSlot = static_cast<vxe::u8>(m_hotbar.selected);
+    player.clockHours = m_clockHours;
     for (vxe::usize index = 0; index < m_hotbar.slots.size(); ++index) {
         if (m_hotbar.slots.at(index) != vxe::voxel::kAirState) {
             player.hotbar.at(index) = std::string(m_blocks->stateName(m_hotbar.slots.at(index)));
@@ -767,6 +768,9 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
         for (const std::string& key : m_blocks->textureKeys()) {
             images.push_back(vxe::render::textureFile(key) + ".png");
         }
+        for (const std::string_view path : vxe::render::kSkyBodyImages) {
+            images.emplace_back(path);
+        }
         m_texturePacks->setImages(std::move(images));
         m_texturePacks->setFiles({std::string(kThemeFile)});
         const auto keys = m_blocks->textureKeys();
@@ -899,6 +903,7 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
     }
     vxe::render::Renderer& renderer = *context.renderer;
     renderer.beginFrame(m_camera, time);
+    m_clockHours = renderer.sky().clockHours();
     if (m_demo) {
         m_sinceAutosave += time.deltaSeconds;
         if (const vxe::i32 minutes = m_settings->autosaveMinutes.get();
@@ -972,6 +977,8 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
     m_demo = std::move(demo).value();
     if (context.renderer != nullptr) {
         context.renderer->clouds().setSeed(m_world ? m_world->seed : DemoWorldDesc{}.seed);
+        context.renderer->sky().setClockHours(m_world && m_world->player ? m_world->player->clockHours
+                                                                         : kFirstMorning);
     }
     if (const vxe::render::BlockTextures* textures = m_texturePacks ? m_texturePacks->textures() : nullptr) {
         m_demo->setTextureColors(textures->averageColors);
@@ -1068,6 +1075,10 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
         return;
     }
     const vxe::render::BlockTextures* textures = m_texturePacks->textures();
+    std::array<const vxe::render::PackImage*, vxe::render::kSkyBodyImages.size()> bodies{};
+    std::ranges::transform(vxe::render::kSkyBodyImages, bodies.begin(),
+                           [this](std::string_view path) { return m_texturePacks->image(path); });
+    context.renderer->sky().setBodies(bodies);
     context.renderer->chunks().setTextures(textures->texture, textures->sampler);
     context.renderer->lod().setTextures(textures->texture, textures->sampler,
                                         static_cast<vxe::u32>(m_blocks->textureKeys().size()));

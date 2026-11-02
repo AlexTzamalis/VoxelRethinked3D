@@ -165,6 +165,8 @@ public:
     // renderer sets it from the time of day every frame; quads keep their
     // sky light level, and this scales its brightness.
     void setDaylight(f32 daylight) noexcept;
+    // The color of sky light on terrain (SkyParams::skyLight).
+    void setSkyLight(const Vec3& color) noexcept { m_skyLight = color; }
     [[nodiscard]] f32 daylight() const noexcept { return m_daylight; }
     // The animation table of the block textures (BlockTextureData::animations,
     // one entry per texture key layer; 0 for still textures). Animated layers
@@ -322,6 +324,7 @@ private:
     rhi::BufferHandle m_looks;      // One u32 per texture layer (setTextureLooks).
     std::array<Vec4, kBlockTintKinds> m_tints{};
     Vec4 m_lastParams{-1.0F};
+    Vec4 m_lastSkyLight{-1.0F};
     usize m_drawCapacity = 0; // Indirect commands the draw buffers hold.
     std::array<rhi::PipelineHandle, kChunkPassCount> m_pipelines{};
     std::array<rhi::PipelineHandle, kChunkPassCount> m_wireframePipelines{};
@@ -400,6 +403,7 @@ private:
     config::Setting<f32> m_brightness;
     config::Setting<bool> m_noShading;
     f32 m_daylight = 1.0F;
+    Vec3 m_skyLight{1.0F};
     config::Setting<bool> m_wireframe;
     config::Setting<bool> m_frustumCulling;
     config::Setting<f32> m_frustumPadding;

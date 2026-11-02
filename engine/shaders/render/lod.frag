@@ -6,6 +6,7 @@
 
 VXE_BINDING_STD140(1, 0) uniform LodParams {
     vec4 params; // x: daylight, y: darkest brightness, z: coverage (0 off, 1 discard, 2 show), w: flags (lod.vert).
+    vec4 skyLight; // rgb: the color of sky light right now.
 } lodParams;
 
 // One texel per chunk column; columns wrap around the map.

@@ -18,7 +18,10 @@ VXE_BINDING_STD140(1, VXE_SKY_SLOT) uniform SkyParams {
     vec4 horizonColor;
     vec4 sunColor;     // rgb: sun disk and glow color, a: glow strength.
     vec4 fog;          // start (blocks), density (per block), height falloff (per block), base height (world y).
-    ivec4 flags;       // x: sky on, y: fog on.
+    ivec4 flags;       // x: sky on, y: fog on, z: sun and moon images loaded, w: the moon's image.
+    vec4 moonDirection; // xyz: towards the moon, w: half its size (tangent).
+    vec4 moonColor;     // rgb: tint, a: how much of it shows.
+    vec4 skyLight;      // rgb: the color sky light gives terrain.
 } sky;
 
 vec3 skyColor(vec3 direction) {
@@ -33,9 +36,6 @@ vec3 skyColor(vec3 direction) {
     const float towardsSun = dot(direction, sky.sunDirection.xyz);
     // Glow: wide and soft, strongest near the horizon (longer path through air).
     color += sky.sunColor.rgb * sky.sunColor.a * pow(max(towardsSun, 0.0), 8.0) * (1.0 - 0.6 * height);
-    // Disk with a slightly soft edge.
-    const float edge = sky.sunDirection.w;
-    color += sky.sunColor.rgb * smoothstep(edge, edge + (1.0 - edge) * 0.25, towardsSun);
     return color;
 }
 

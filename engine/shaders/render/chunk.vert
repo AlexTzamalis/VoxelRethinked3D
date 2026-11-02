@@ -9,6 +9,7 @@
 
 VXE_BINDING_STD140(1, 0) uniform ChunkParams {
     vec4 params; // x: AO strength (0 none, 1 full), y: daylight (0 to 1), z: darkest brightness, w: face shading.
+    vec4 skyLight; // rgb: the color of sky light right now.
     vec4 tints[16]; // Linear color per tint kind; kind 0 is white.
 } chunkParams;
 
@@ -142,9 +143,9 @@ void main() {
     const uint ao = (quad.y >> (14u + 2u * corner)) & 3u;
     const float occlusion = mix(1.0, kAoCurve[ao], chunkParams.params.x);
     // The brighter of sky light (scaled by the time of day) and block light.
-    const float sky = lightCurve(float((quad.y >> 22u) & 15u)) * chunkParams.params.y;
+    const vec3 sky = lightCurve(float((quad.y >> 22u) & 15u)) * chunkParams.skyLight.rgb;
     const vec3 block = lightCurve(float((quad.y >> 26u) & 15u)) * kBlockLightTint;
-    const vec3 light = mix(vec3(chunkParams.params.z), vec3(1.0), max(vec3(sky), block));
+    const vec3 light = mix(vec3(chunkParams.params.z), vec3(1.0), max(sky, block));
     const float faceShade = crossed ? kPlantShade : kFaceShade[face];
     vShade = mix(1.0, faceShade, chunkParams.params.w) * occlusion * light;
 }

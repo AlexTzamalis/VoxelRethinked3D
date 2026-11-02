@@ -31,15 +31,52 @@ std::unique_ptr<render::SkyRenderer> makeSky(rhi::Device& device, config::Settin
 
 } // namespace
 
+TEST_CASE("The moon stands opposite the sun, and its phase sets the night's light") {
+    const auto full = render::computeSkyParams({.hours = 0.0F, .moonPhase = 0});
+    const auto fresh = render::computeSkyParams({.hours = 0.0F, .moonPhase = 4});
+    const auto noon = render::computeSkyParams({.hours = 12.0F});
+    CHECK(full.moonDirection.y == doctest::Approx(-full.sunDirection.y));
+    CHECK(full.flags.w == 1);
+    CHECK(fresh.flags.w == 5);
+    CHECK(full.moonColor.a > 0.9F);
+    CHECK(noon.moonColor.a < 0.05F);
+    CHECK(fresh.skyLight.b < full.skyLight.b);
+    CHECK(full.skyLight.b > full.skyLight.r); // Blue moonlight.
+    CHECK(noon.skyLight.r == doctest::Approx(1.0F));
+    CHECK(noon.skyLight.b == doctest::Approx(1.0F).epsilon(0.02));
+    // Warm light low in the sky.
+    const auto evening = render::computeSkyParams({.hours = 18.0F});
+    CHECK(evening.skyLight.r > evening.skyLight.b + 0.1F);
+}
+
+TEST_CASE("The clock counts days, and a saved clock wins over the setting") {
+    const auto device = rhi::createNullDevice();
+    config::SettingsRegistry settings;
+    auto sky = makeSky(*device, settings, nullptr);
+    sky->update(0.0);
+    sky->setClockHours(24.0 * 3.0 + 7.0);
+    sky->update(0.0);
+    CHECK(sky->state().hours == doctest::Approx(7.0F));
+    CHECK(sky->state().moonPhase == 3);
+    REQUIRE(settings.set("Graphics.Sky.TimeOfDay", 13.0F).hasValue());
+    sky->update(0.0);
+    CHECK(sky->state().hours == doctest::Approx(13.0F));
+    CHECK(sky->state().moonPhase == 3); // The same day.
+}
+
 TEST_CASE("The sun follows the time of day and tints the sky") {
     const auto noon = render::computeSkyParams({.hours = 12.0F});
     const auto midnight = render::computeSkyParams({.hours = 0.0F});
+    const auto beforeDawn = render::computeSkyParams({.hours = 4.5F});
     const auto sunrise = render::computeSkyParams({.hours = 6.0F});
     const auto evening = render::computeSkyParams({.hours = 18.25F});
     CHECK(noon.sunDirection.y > 0.85F);
     CHECK(midnight.sunDirection.y < -0.85F);
-    CHECK(sunrise.sunDirection.y == doctest::Approx(0.0F).epsilon(1e-5));
-    CHECK(sunrise.sunDirection.x == doctest::Approx(1.0F)); // Rises in the east (+X).
+    // As in Minecraft the sun is already up at 6:00, on its way since about 5:00.
+    CHECK(beforeDawn.sunDirection.y < 0.0F);
+    CHECK(sunrise.sunDirection.y > 0.05F);
+    CHECK(sunrise.sunDirection.y < 0.3F);
+    CHECK(sunrise.sunDirection.x > 0.9F); // Rises in the east (+X).
     // Blue day, dark night, orange horizon at sunset.
     CHECK(noon.zenithColor.b > noon.zenithColor.r);
     CHECK(midnight.zenithColor.b < 0.05F);
@@ -59,12 +96,13 @@ TEST_CASE("Sky settings apply live and the day cycle runs") {
     sky->update(0.0);
     CHECK(sky->state().hours == 10.0F);
 
+    REQUIRE(settings.set("Graphics.Sky.DayMinutes", 0.0F).hasValue());
     REQUIRE(settings.set("Graphics.Sky.TimeOfDay", 20.0F).hasValue());
     sky->update(0.016);
     CHECK(sky->state().hours == 20.0F);
 
     // One real minute per day: 30 seconds is half a day, wrapping past midnight.
-    REQUIRE(settings.set("Graphics.Sky.DayLengthMinutes", 1.0F).hasValue());
+    REQUIRE(settings.set("Graphics.Sky.DayMinutes", 1.0F).hasValue());
     sky->update(30.0);
     CHECK(sky->state().hours == doctest::Approx(8.0F));
     // Setting the time by hand restarts the cycle from there.

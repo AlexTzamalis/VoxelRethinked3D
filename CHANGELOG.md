@@ -2,6 +2,15 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#128] 2026-11-02, Day cycle with sun, moon and colored sky light
+### Added
+- A 20 minute day on Minecraft's sun path. The clock saves with the world, and a new world starts in the morning.
+- The sun and all 8 moon phases from the pack's images, with the moon opposite the sun and changing phase every day.
+- Sky light has a color: warm at dawn and dusk, blue at night, stronger under a full moon, on chunks and far terrain alike.
+
+### Changed
+- Graphics.Sky.DayMinutes and BodySize replace DayLengthMinutes and SunSize, with new defaults.
+
 ## [#127] 2026-11-02, G9.5 Blocky volumetric clouds
 ### Added
 - Clouds with soft volume, drifting on the wind, lit by the time of day, with mountains standing through them.

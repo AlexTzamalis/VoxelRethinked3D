@@ -31,7 +31,7 @@ using vxe::u64;
 
 constexpr std::string_view kInfoFile = "world.toml";
 constexpr std::string_view kPlayerFile = "player.dat";
-constexpr vxe::u8 kPlayerVersion = 1;
+constexpr vxe::u8 kPlayerVersion = 2; // 2 added the clock.
 constexpr vxe::usize kMaxFolderLength = 32;
 
 std::string asText(std::span<const std::byte> bytes) {
@@ -53,7 +53,8 @@ std::optional<PlayerData> loadPlayerData(const fs::path& file) {
         return std::nullopt;
     }
     vxe::io::BinaryReader reader(bytes.value());
-    if (reader.readU8() != kPlayerVersion) {
+    const vxe::u8 version = reader.readU8();
+    if (version == 0 || version > kPlayerVersion) {
         return std::nullopt;
     }
     PlayerData player;
@@ -66,6 +67,9 @@ std::optional<PlayerData> loadPlayerData(const fs::path& file) {
     player.hotbarSlot = reader.readU8();
     for (std::string& block : player.hotbar) {
         block = reader.readString();
+    }
+    if (version >= 2) {
+        player.clockHours = reader.readF64();
     }
     if (!reader.ok() || player.hotbarSlot >= player.hotbar.size()) {
         return std::nullopt;
@@ -174,6 +178,7 @@ Result<void> savePlayerData(const fs::path& saves, const std::string& folder, co
     for (const std::string& block : player.hotbar) {
         writer.writeString(block);
     }
+    writer.writeF64(player.clockHours);
     return vxe::io::writeFile(saves / folder / kPlayerFile, writer.bytes());
 }
 

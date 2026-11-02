@@ -266,8 +266,10 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
     m_sky->update(time.deltaSeconds);
     m_clouds->update(time.deltaSeconds);
     const f32 daylight = daylightOf(m_sky->params());
+    const Vec3 skyLight(m_sky->params().skyLight);
     m_chunks->setDaylight(daylight);
-    m_lod->setLight(daylight, m_chunks->brightness(), m_chunks->faceShading());
+    m_chunks->setSkyLight(skyLight);
+    m_lod->setLight(skyLight, m_chunks->brightness(), m_chunks->faceShading());
     m_post->update(width, height);
     m_constants.update(m_device, makeFrameConstants(camera, {.width = width,
                                                              .height = height,

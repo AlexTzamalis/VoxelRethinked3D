@@ -104,6 +104,7 @@ private:
     vxe::u64 m_inGameFrames = 0;
     vxe::u64 m_waitUntil = 0; // The wait command's frame, 0 when none runs.
     vxe::f64 m_sinceAutosave = 0.0;
+    vxe::f64 m_clockHours = kFirstMorning;
     // How far the menu's panorama has turned, radians.
     vxe::f32 m_panoramaYaw = 0.0F;
     // Measures launch to the first frame of the menu, logged once.

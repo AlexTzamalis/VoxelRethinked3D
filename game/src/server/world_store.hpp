@@ -13,6 +13,9 @@
 
 namespace vr {
 
+// A new world starts in the morning, an hour after the sun came up.
+inline constexpr vxe::f64 kFirstMorning = 7.0;
+
 // What player.dat holds (Section 21).
 struct PlayerData {
     vxe::DVec3 position{};
@@ -21,6 +24,7 @@ struct PlayerData {
     bool flying = false;
     vxe::u8 hotbarSlot = 0;
     std::array<std::string, 9> hotbar{}; // Block names, empty for free slots.
+    vxe::f64 clockHours = kFirstMorning; // The world's clock (render::SkyRenderer).
 };
 
 // What world.toml says about a world (Section 21), plus its size on disk and
