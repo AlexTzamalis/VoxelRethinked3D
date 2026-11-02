@@ -8,6 +8,7 @@
 #include <vxe/input/input.hpp>
 #include <vxe/render/camera.hpp>
 #include <vxe/render/chunk_renderer.hpp>
+#include <vxe/render/clouds.hpp>
 #include <vxe/render/debug_draw.hpp>
 #include <vxe/render/frame_constants.hpp>
 #include <vxe/render/frame_graph.hpp>
@@ -91,6 +92,7 @@ public:
     [[nodiscard]] LodRenderer& lod() noexcept { return *m_lod; }
     [[nodiscard]] DebugDraw& debugDraw() noexcept { return *m_debugDraw; }
     [[nodiscard]] SkyRenderer& sky() noexcept { return *m_sky; }
+    [[nodiscard]] CloudRenderer& clouds() noexcept { return *m_clouds; }
     [[nodiscard]] rhi::Device& device() noexcept { return m_device; }
     // The GPU time of a recent frame (a few frames old, measured without stalls).
     [[nodiscard]] std::optional<f64> gpuMilliseconds() const noexcept {
@@ -109,6 +111,7 @@ private:
     std::unique_ptr<ChunkRenderer> m_chunks;
     std::unique_ptr<LodRenderer> m_lod;
     std::unique_ptr<SkyRenderer> m_sky;
+    std::unique_ptr<CloudRenderer> m_clouds;
     std::unique_ptr<PostProcess> m_post;
     std::unique_ptr<DebugDraw> m_debugDraw;
     rhi::GpuFrameTimer m_timer;

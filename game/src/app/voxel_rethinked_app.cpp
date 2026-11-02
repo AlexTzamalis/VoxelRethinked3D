@@ -970,6 +970,9 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
         return;
     }
     m_demo = std::move(demo).value();
+    if (context.renderer != nullptr) {
+        context.renderer->clouds().setSeed(m_world ? m_world->seed : DemoWorldDesc{}.seed);
+    }
     if (const vxe::render::BlockTextures* textures = m_texturePacks ? m_texturePacks->textures() : nullptr) {
         m_demo->setTextureColors(textures->averageColors);
     }

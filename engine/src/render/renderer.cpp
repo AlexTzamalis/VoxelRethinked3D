@@ -92,6 +92,15 @@ Result<std::unique_ptr<Renderer>> Renderer::create(const RendererDesc& desc) {
         return fail(sky.error());
     }
     renderer->m_sky = std::move(sky.value());
+    auto clouds = CloudRenderer::create({.device = &device,
+                                         .settings = desc.settings,
+                                         .stats = desc.stats,
+                                         .shaders = desc.shaders,
+                                         .colorFormat = kSceneFormat});
+    if (!clouds) {
+        return fail(clouds.error());
+    }
+    renderer->m_clouds = std::move(clouds.value());
     auto post = PostProcess::create({.device = &device, .settings = desc.settings, .shaders = desc.shaders});
     if (!post) {
         return fail(post.error());
@@ -126,6 +135,7 @@ Renderer::~Renderer() {
     m_graph.reset();
     m_debugDraw.reset();
     m_post.reset();
+    m_clouds.reset();
     m_sky.reset();
     m_lod.reset();
     m_chunks.reset();
@@ -178,6 +188,13 @@ Result<void> Renderer::buildGraph() {
                               }});
     sky.colorAttachment(color, rhi::LoadOp::Load);
     sky.sampleTexture(depth);
+
+    auto clouds = graph.addPass({.name = "Clouds", .record = [this, depth](PassContext& context) {
+                                     m_constants.bind(context.commands);
+                                     m_clouds->record(context.commands, context.texture(depth), *m_sky);
+                                 }});
+    clouds.colorAttachment(color, rhi::LoadOp::Load);
+    clouds.sampleTexture(depth);
 
     auto translucent = graph.addPass({.name = "ChunksTranslucent", .record = [this](PassContext& context) {
                                           m_constants.bind(context.commands);
@@ -247,6 +264,7 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
     const u32 height = std::max(m_device.backBufferHeight(), 1U);
     m_graph->setOutputSize(width, height);
     m_sky->update(time.deltaSeconds);
+    m_clouds->update(time.deltaSeconds);
     const f32 daylight = daylightOf(m_sky->params());
     m_chunks->setDaylight(daylight);
     m_lod->setLight(daylight, m_chunks->brightness(), m_chunks->faceShading());

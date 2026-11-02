@@ -2,6 +2,12 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#127] 2026-11-02, G9.5 Blocky volumetric clouds
+### Added
+- Clouds with soft volume, drifting on the wind, lit by the time of day, with mountains standing through them.
+- Graphics.Clouds settings: on or off, height, thickness, cover, softness and speed.
+- Each world keeps its own clouds, from its seed.
+
 ## [#126] 2026-11-02, Every block in the creative menu, smaller menus
 ### Added
 - 76 blocks from the new textures: concrete and powder, stained glass, quartz, ores, cherry wood, farmland, melon, pumpkin, cactus, sunflower, crops with their growth stages, corals, coral fans, coral blocks, glowstone, shroomlight, sea lantern and torch.
