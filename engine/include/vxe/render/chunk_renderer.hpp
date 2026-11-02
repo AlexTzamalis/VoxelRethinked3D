@@ -167,6 +167,8 @@ public:
     void setDaylight(f32 daylight) noexcept;
     // The color of sky light on terrain (SkyParams::skyLight).
     void setSkyLight(const Vec3& color) noexcept { m_skyLight = color; }
+    // How wet open ground looks, 0 dry to 1 soaked (PrecipitationRenderer::wetness).
+    void setWetness(f32 wetness) noexcept { m_wetness = wetness; }
     [[nodiscard]] f32 daylight() const noexcept { return m_daylight; }
     // The animation table of the block textures (BlockTextureData::animations,
     // one entry per texture key layer; 0 for still textures). Animated layers
@@ -404,6 +406,7 @@ private:
     config::Setting<bool> m_noShading;
     f32 m_daylight = 1.0F;
     Vec3 m_skyLight{1.0F};
+    f32 m_wetness = 0.0F;
     config::Setting<bool> m_wireframe;
     config::Setting<bool> m_frustumCulling;
     config::Setting<f32> m_frustumPadding;

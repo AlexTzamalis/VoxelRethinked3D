@@ -60,3 +60,35 @@ TEST_CASE("Rain only falls with the weather, an image and the setting on") {
     rain.record(commands);
     CHECK_FALSE(commands.empty());
 }
+
+TEST_CASE("Ground gets wet in rain and dries slowly after, never under snow") {
+    const auto device = rhi::createNullDevice();
+    config::SettingsRegistry settings;
+    auto created = PrecipitationRenderer::create({.device = device.get(),
+                                                  .settings = &settings,
+                                                  .shaders = rhi::folderShaderReader(VXE_ENGINE_SHADER_DIR)});
+    REQUIRE(created.hasValue());
+    PrecipitationRenderer& rain = *created.value();
+    render::Camera camera;
+    rain.setWeather(PrecipitationKind::Rain, 1.0F);
+    f64 seconds = 0.0;
+    for (int i = 0; i < 600; ++i) {
+        rain.update(camera, seconds, Vec3(1.0F));
+        seconds += 0.1;
+    }
+    const f32 soaked = rain.wetness();
+    CHECK(soaked > 0.8F);
+    rain.setWeather(PrecipitationKind::None, 0.0F);
+    for (int i = 0; i < 600; ++i) {
+        rain.update(camera, seconds, Vec3(1.0F));
+        seconds += 0.1;
+    }
+    CHECK(rain.wetness() < soaked);
+    CHECK(rain.wetness() > 0.1F); // A minute later it is still damp.
+    rain.setWeather(PrecipitationKind::Snow, 1.0F);
+    for (int i = 0; i < 6000; ++i) {
+        rain.update(camera, seconds, Vec3(1.0F));
+        seconds += 0.1;
+    }
+    CHECK(rain.wetness() < 0.1F); // Ten minutes on, snow has let it dry.
+}

@@ -296,7 +296,8 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
     m_chunks->setDaylight(daylight);
     m_chunks->setSkyLight(skyLight);
     m_precipitation->update(camera, time.elapsedSeconds, skyLight);
-    m_lod->setLight(skyLight, m_chunks->brightness(), m_chunks->faceShading());
+    m_chunks->setWetness(m_precipitation->wetness());
+    m_lod->setLight(skyLight, m_chunks->brightness(), m_chunks->faceShading(), m_precipitation->wetness());
     m_post->update(width, height);
     m_constants.update(m_device, makeFrameConstants(camera, {.width = width,
                                                              .height = height,

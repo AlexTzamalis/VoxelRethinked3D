@@ -2,6 +2,11 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#135] 2026-11-02, Splashes and wet ground
+### Added
+- Rain splashes where it lands, around the player.
+- Ground open to the sky gets wet in rain: darker, with a sheen of the sky on tops seen low across them. It dries over a few minutes after the rain. Far terrain darkens with it.
+
 ## [#134] 2026-11-02, Softer rain, snow in snowy biomes
 ### Changed
 - Rain is paler and thinner, with gaps between streaks, so a downpour seen from above is a grey haze instead of blue bars.

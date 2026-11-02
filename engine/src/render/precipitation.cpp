@@ -17,6 +17,8 @@ struct PrecipitationParams {
 constexpr usize kColumns = static_cast<usize>(kPrecipitationSide) * kPrecipitationSide;
 constexpr u32 kVerticesPerColumn = 6;
 constexpr f64 kWrapSeconds = 3600.0; // Keeps the scrolling exact in floats.
+constexpr f64 kWettingSeconds = 30.0;
+constexpr f64 kDryingSeconds = 240.0;
 
 } // namespace
 
@@ -144,6 +146,12 @@ bool PrecipitationRenderer::isFalling() const noexcept {
 }
 
 void PrecipitationRenderer::update(const Camera& camera, f64 seconds, const Vec3& skyLight) {
+    const f64 step = m_lastSeconds < 0.0 ? 0.0 : std::clamp(seconds - m_lastSeconds, 0.0, 1.0);
+    m_lastSeconds = seconds;
+    const bool raining = m_enabled.get() && m_kind == PrecipitationKind::Rain;
+    const f32 soaked = raining ? m_amount : 0.0F;
+    const f64 seconds_to = soaked > m_wetness ? kWettingSeconds : kDryingSeconds;
+    m_wetness += static_cast<f32>(std::min(step / seconds_to, 1.0)) * (soaked - m_wetness);
     if (!isFalling()) {
         return;
     }
@@ -175,7 +183,8 @@ void PrecipitationRenderer::record(rhi::CommandList& commands) const {
     commands.bindUniformBuffer(1, 0, m_ring.current(), 0, sizeof(PrecipitationParams));
     commands.bindTexture(2, 0, m_topsTexture, m_sampler);
     commands.bindTexture(2, 1, m_streaks, m_sampler);
-    commands.draw(static_cast<u32>(kColumns) * kVerticesPerColumn);
+    // A streak and a splash per column; the shader drops what does not show.
+    commands.draw(static_cast<u32>(kColumns) * kVerticesPerColumn * 2U);
 }
 
 } // namespace vxe::render

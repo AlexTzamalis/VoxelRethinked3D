@@ -13,9 +13,20 @@ VXE_BINDING(2, 1) uniform sampler2DArray streaks;
 
 layout(location = 0) in vec2 vUv;
 layout(location = 1) in float vFade;
+layout(location = 2) flat in float vSplash;
 layout(location = 0) out vec4 outColor;
 
 void main() {
+    if (vSplash > 0.5) {
+        // A soft dot that fades as it spreads.
+        const float edge = length(vUv);
+        const float alpha = (1.0 - smoothstep(0.35, 1.0, edge)) * vFade * 0.75;
+        if (alpha < 0.02) {
+            discard;
+        }
+        outColor = vec4(vec3(0.85, 0.9, 1.0) * params.light.rgb, alpha);
+        return;
+    }
     const bool snow = params.shape.y > 0.5;
     const vec4 texel = texture(streaks, vec3(vUv, snow ? 1.0 : 0.0));
     // Rain is mostly the light passing through it: pale and faint, or a

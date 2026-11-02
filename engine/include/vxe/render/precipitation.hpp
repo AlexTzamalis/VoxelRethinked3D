@@ -84,6 +84,9 @@ public:
     void record(rhi::CommandList& commands) const;
 
     [[nodiscard]] bool isFalling() const noexcept;
+    // How wet open ground is, 0 dry to 1 soaked. It rises over half a minute of
+    // rain and dries over a few minutes after, so a shower leaves wet ground.
+    [[nodiscard]] f32 wetness() const noexcept { return m_wetness; }
 
 private:
     explicit PrecipitationRenderer(const PrecipitationDesc& desc);
@@ -97,6 +100,8 @@ private:
     CpuWriteRing m_ring;
     PrecipitationKind m_kind = PrecipitationKind::None;
     f32 m_amount = 0.0F;
+    f32 m_wetness = 0.0F;
+    f64 m_lastSeconds = -1.0;
     i64 m_cornerX = 0;
     i64 m_cornerZ = 0;
     std::vector<i32> m_tops;

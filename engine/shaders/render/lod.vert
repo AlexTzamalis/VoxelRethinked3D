@@ -24,7 +24,7 @@ VXE_BINDING_STD430(2, 2) readonly buffer Materials {
 
 VXE_BINDING_STD140(1, 0) uniform LodParams {
     vec4 params; // x: daylight, y: darkest brightness, z: coverage (0 off, 1 discard, 2 show), w: flags (bit 0 color by level, bit 1 face shading).
-    vec4 skyLight; // rgb: the color of sky light right now.
+    vec4 skyLight; // rgb: the color of sky light right now, a: how wet the open ground is.
 } lodParams;
 
 layout(location = 0) out vec3 vColor;
@@ -113,4 +113,6 @@ void main() {
     const vec3 sky = lightCurve(float((w1 >> 24u) & 15u)) * lodParams.skyLight.rgb;
     const float shade = (flags & 2u) != 0u ? kFaceShade[face] : 1.0;
     vColor = albedo * shade * mix(vec3(lodParams.params.y), vec3(1.0), sky);
+    const float open = smoothstep(12.5, 15.0, float((w1 >> 24u) & 15u));
+    vColor *= 1.0 - lodParams.skyLight.a * open * (face == 2u ? 0.38 : 0.21);
 }

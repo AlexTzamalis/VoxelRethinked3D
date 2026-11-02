@@ -18,6 +18,8 @@ layout(location = 2) in vec3 vRelative;
 layout(location = 3) flat in vec3 vTint;
 layout(location = 4) flat in vec3 vOverlayTint;
 layout(location = 5) flat in uint vOverlayLayer;
+layout(location = 6) in float vWet;
+layout(location = 7) flat in vec3 vSheen;
 layout(location = 0) out vec4 outColor;
 
 void main() {
@@ -42,6 +44,11 @@ void main() {
     }
     outColor = vec4(color, albedo.a);
 #else
-    outColor = vec4(albedo.rgb * vShade, 1.0);
+    // Wet ground is darker, since water fills the gaps that scattered light, and
+    // a wet top shines with the sky when seen low across it.
+    vec3 color = albedo.rgb * vShade * (1.0 - vWet * 0.38);
+    const float grazing = 1.0 - abs(vRelative.y) / max(length(vRelative), 1e-4);
+    color += vSheen * pow(grazing, 4.0);
+    outColor = vec4(color, 1.0);
 #endif
 }

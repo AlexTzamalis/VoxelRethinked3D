@@ -17,6 +17,7 @@ VXE_BINDING(2, 0) uniform sampler2D tops;
 
 layout(location = 0) out vec2 vUv;
 layout(location = 1) out float vFade;
+layout(location = 2) flat out float vSplash; // 1 for a splash, 0 for a streak.
 
 const int kSide = 33;       // render::kPrecipitationSide.
 const float kReach = 16.0;  // render::kPrecipitationReach.
@@ -33,10 +34,39 @@ void hide() {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // Outside the view: the triangle is dropped.
     vUv = vec2(0.0);
     vFade = 0.0;
+    vSplash = 0.0;
+}
+
+// A splash where rain hits the top of a column: a small round burst facing the
+// camera, short lived and on its own rhythm, so the ground looks busy with drops.
+void splash(int column, uint hash, ivec2 block, float top) {
+    const float seconds = params.shape.z;
+    const float rate = 1.1 + float((hash >> 20u) & 15u) / 15.0;
+    const float phase = fract(seconds * rate + float((hash >> 4u) & 255u) / 255.0);
+    if (phase > 0.22 || params.shape.y > 0.5 || top < -1.0e5) {
+        hide();
+        return;
+    }
+    const vec2 offset = vec2(float((hash >> 24u) & 15u), float((hash >> 28u) & 15u)) / 15.0 * 0.8 + 0.1;
+    const vec3 place = vec3(vec2(block) + offset - frame.cameraFraction.xz, top + 1.02 - frame.cameraFraction.y).xzy;
+    const vec3 center = vec3(place.x, place.z, place.y);
+    if (length(center) > kReach * 0.65) {
+        hide();
+        return;
+    }
+    const float size = mix(0.1, 0.36, phase / 0.22);
+    const vec3 right = vec3(frame.view[0][0], frame.view[1][0], frame.view[2][0]);
+    const vec3 up = vec3(frame.view[0][1], frame.view[1][1], frame.view[2][1]);
+    const vec2 corner = kCorners[gl_VertexID % 6] * 2.0 - 1.0;
+    gl_Position = frame.viewProjection * vec4(center + (right * corner.x + up * (corner.y + 1.0)) * size, 1.0);
+    vUv = corner;
+    vFade = 1.0 - phase / 0.22;
+    vSplash = 1.0;
 }
 
 void main() {
-    const int column = gl_VertexID / 6;
+    const bool splashing = gl_VertexID >= kSide * kSide * 6;
+    const int column = (gl_VertexID / 6) % (kSide * kSide);
     const ivec2 cell = ivec2(column % kSide, column / kSide);
     const ivec2 block = params.corner.xz + cell;
     // From the world position, so a column keeps its streaks as the camera moves.
@@ -44,6 +74,10 @@ void main() {
     // Even a downpour leaves gaps between the streaks.
     if (float(hash & 1023u) / 1023.0 >= params.shape.x * 0.7) {
         hide();
+        return;
+    }
+    if (splashing) {
+        splash(column, hash, block, texelFetch(tops, cell, 0).r);
         return;
     }
     const vec2 middle = vec2(block) + 0.5 - frame.cameraFraction.xz;
@@ -73,4 +107,5 @@ void main() {
     const float fall = snow ? 0.12 : 1.4; // Image heights per second.
     vUv = vec2((corner.x + streak) * 0.25 + drift, worldHeight / 16.0 + seconds * fall + offset);
     vFade = 1.0 - smoothstep(kReach * 0.5, kReach, distance);
+    vSplash = 0.0;
 }

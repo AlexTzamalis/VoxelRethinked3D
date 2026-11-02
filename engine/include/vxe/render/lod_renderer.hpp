@@ -136,8 +136,9 @@ public:
     // The color of sky light (as ChunkRenderer::setSkyLight), the darkest
     // brightness (Graphics.Lighting.Brightness) and the face shading
     // (ChunkRenderer::faceShading), so far and near terrain are lit alike.
-    void setLight(const Vec3& skyLight, f32 brightness, f32 faceShading) noexcept {
+    void setLight(const Vec3& skyLight, f32 brightness, f32 faceShading, f32 wetness = 0.0F) noexcept {
         m_skyLight = skyLight;
+        m_wetness = wetness;
         m_brightness = brightness;
         m_faceShading = faceShading;
     }
@@ -231,6 +232,7 @@ private:
     bool m_coverageDirty = true;
     u64 m_coverageVersion = 1; // Changes with every coverage change; 0 means never checked.
     Vec3 m_skyLight{1.0F};
+    f32 m_wetness = 0.0F;
     f32 m_brightness = 0.08F;
     f32 m_faceShading = 1.0F;
     Camera m_camera;

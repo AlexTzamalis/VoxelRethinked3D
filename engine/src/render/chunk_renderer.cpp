@@ -569,7 +569,7 @@ void ChunkRenderer::beginFrame(const Camera& camera) {
     }
     const ChunkParams params{.params =
                                  Vec4(m_aoStrength.get(), m_daylight, m_brightness.get(), faceShading()),
-                             .skyLight = Vec4(m_skyLight, 1.0F),
+                             .skyLight = Vec4(m_skyLight, m_wetness),
                              .tints = m_tints};
     if (params.params != m_lastParams || params.skyLight != m_lastSkyLight) {
         m_lastParams = params.params;

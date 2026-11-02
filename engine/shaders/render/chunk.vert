@@ -9,7 +9,7 @@
 
 VXE_BINDING_STD140(1, 0) uniform ChunkParams {
     vec4 params; // x: AO strength (0 none, 1 full), y: daylight (0 to 1), z: darkest brightness, w: face shading.
-    vec4 skyLight; // rgb: the color of sky light right now.
+    vec4 skyLight; // rgb: the color of sky light right now, a: how wet the open ground is (0 to 1).
     vec4 tints[16]; // Linear color per tint kind; kind 0 is white.
 } chunkParams;
 
@@ -44,6 +44,8 @@ layout(location = 2) out vec3 vRelative; // Camera relative position (translucen
 layout(location = 3) flat out vec3 vTint;        // Multiplies the block texture.
 layout(location = 4) flat out vec3 vOverlayTint; // Multiplies the overlay texture.
 layout(location = 5) flat out uint vOverlayLayer; // The overlay's layer plus 1, 0 for none.
+layout(location = 6) out float vWet;              // 0 dry to 1 soaked.
+layout(location = 7) flat out vec3 vSheen;        // The sky a wet top reflects, 0 elsewhere.
 
 // Per face (+X, -X, +Y, -Y, +Z, -Z) the U and V axes (voxel::faceAxes) and
 // the brightness of the classic directional shading (lighting stage A,
@@ -148,4 +150,9 @@ void main() {
     const vec3 light = mix(vec3(chunkParams.params.z), vec3(1.0), max(sky, block));
     const float faceShade = crossed ? kPlantShade : kFaceShade[face];
     vShade = mix(1.0, faceShade, chunkParams.params.w) * occlusion * light;
+    // Rain only reaches what sees the sky, and soaks tops more than walls.
+    const float open = smoothstep(12.5, 15.0, float((quad.y >> 22u) & 15u));
+    const bool top = !crossed && face == 2u;
+    vWet = crossed ? 0.0 : chunkParams.skyLight.a * open * (top ? 1.0 : 0.55);
+    vSheen = top ? chunkParams.skyLight.rgb * vWet * 0.22 : vec3(0.0);
 }

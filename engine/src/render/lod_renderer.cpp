@@ -376,7 +376,7 @@ void LodRenderer::beginFrame(const Camera& camera) {
     const f32 flags = (m_colorLevels.get() ? 1.0F : 0.0F) + (m_faceShading > 0.5F ? 2.0F : 0.0F) +
                       (textured ? 4.0F + static_cast<f32>(m_textureLayers * 8U) : 0.0F);
     const LodParams params{.params = Vec4(m_skyLight.x, m_brightness, coverage, flags),
-                           .skyLight = Vec4(m_skyLight, 1.0F)};
+                           .skyLight = Vec4(m_skyLight, m_wetness)};
     if (params.params != m_lastParams || params.skyLight != m_lastSkyLight) {
         m_lastParams = params.params;
         m_lastSkyLight = params.skyLight;
