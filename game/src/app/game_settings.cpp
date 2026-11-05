@@ -21,6 +21,29 @@ namespace scancode = vxe::input::scancode;
 // 30, 9 is 38.
 constexpr vxe::u16 kDigit1 = 30;
 
+using WindowModeOption = vxe::config::EnumSettingDesc<vxe::platform::WindowMode>::Option;
+constexpr std::array<WindowModeOption, 3> kWindowModes{{
+    {.value = vxe::platform::WindowMode::Windowed, .name = "Windowed", .displayName = "Windowed"},
+    {.value = vxe::platform::WindowMode::Borderless,
+     .name = "Borderless",
+     .displayName = "Borderless fullscreen"},
+    {.value = vxe::platform::WindowMode::Fullscreen,
+     .name = "Fullscreen",
+     .displayName = "Exclusive fullscreen"},
+}};
+constexpr std::array<vxe::i32, 6> kWindowSizes = {0, 720, 900, 1080, 1440, 2160};
+
+vxe::config::Setting<vxe::platform::WindowMode> registerWindowMode(vxe::config::SettingsRegistry& settings) {
+    vxe::config::EnumSettingDesc<vxe::platform::WindowMode> mode;
+    mode.id = "Video.WindowMode";
+    mode.displayName = "Window mode";
+    mode.description = "Borderless covers the screen and switches away fast; exclusive fullscreen can lower "
+                       "latency on some drivers. F11 switches between windowed and borderless.";
+    mode.defaultValue = vxe::platform::WindowMode::Borderless;
+    mode.options = kWindowModes;
+    return settings.registerEnum(mode);
+}
+
 } // namespace
 
 GameSettings::GameSettings(vxe::config::SettingsRegistry& settings)
@@ -88,6 +111,17 @@ GameSettings::GameSettings(vxe::config::SettingsRegistry& settings)
                                       .displayName = "Show HUD",
                                       .description = "The crosshair and hotbar (F1)."},
                                      true}))
+    , windowMode(registerWindowMode(settings))
+    , windowSize(settings.registerInt({{.id = "Video.WindowSize",
+                                        .displayName = "Window size",
+                                        .description = "The window's size in windowed mode. Free keeps the "
+                                                       "size you drag it to."},
+                                       0,
+                                       0,
+                                       2160,
+                                       1,
+                                       kWindowSizes,
+                                       "Free"}))
     , showFps(settings.registerBool({{.id = "Video.ShowFps",
                                       .displayName = "Show FPS",
                                       .description = "Frames per second in the top left corner."},

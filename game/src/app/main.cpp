@@ -7,6 +7,8 @@
 //   --headless        Run without a window.
 //   --exec COMMAND    Run a console command at startup, for example
 //                     --exec "set Video.FpsLimit 144". May repeat.
+//   --window WxH      Open the window at this size, like --window 1440x1440
+//                     (panorama bakes want a large square).
 #include "voxel_rethinked_app.hpp"
 
 #include <vxe/app/application.hpp>
@@ -30,6 +32,19 @@ vxe::EngineConfig configFromArguments(std::span<char*> arguments) {
             config.window = false;
         } else if (argument == "--exec" && i + 1 < arguments.size()) {
             config.startupCommands.emplace_back(arguments[++i]);
+        } else if (argument == "--window" && i + 1 < arguments.size()) {
+            const std::string_view value = arguments[++i];
+            const std::size_t cross = value.find('x');
+            int width = 0;
+            int height = 0;
+            if (cross != std::string_view::npos &&
+                std::from_chars(value.data(), value.data() + cross, width).ec == std::errc{} &&
+                std::from_chars(value.data() + cross + 1, value.data() + value.size(), height).ec ==
+                    std::errc{} &&
+                width >= 320 && height >= 240) {
+                config.windowDesc.width = width;
+                config.windowDesc.height = height;
+            }
         } else if (argument == "--frames" && i + 1 < arguments.size()) {
             const std::string_view value = arguments[++i];
             vxe::u64 frames = 0;

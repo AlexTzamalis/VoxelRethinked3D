@@ -115,6 +115,10 @@ private:
     // Measures launch to the first frame of the menu, logged once.
     vxe::Stopwatch m_sinceInit;
     bool m_menuShown = false;
+    int m_panoramaPick = -1; // Which menu panorama this launch shows; -1 until chosen.
+    std::vector<vxe::config::Subscription> m_windowSubscriptions;
+    bool m_windowApplied = false; // The window settings were applied on the first frame.
+    void applyWindowSettings(vxe::EngineContext& context);
     std::unique_ptr<GameSettings> m_settings;
     std::unique_ptr<GameActions> m_actions;
     vxe::render::Camera m_camera;

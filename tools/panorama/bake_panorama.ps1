@@ -4,13 +4,23 @@
 # (longitude across, latitude down; the menu's shader reads it the same way).
 #
 #   powershell -ExecutionPolicy Bypass -File tools/panorama/bake_panorama.ps1 `
-#       -Exe build/release/bin/voxel_rethinked.exe -Out textures/default/ui/panorama.jpg
+#       -Exe out/VoxelRethinked/voxel_rethinked.exe -Out textures/default/ui/panorama.jpg `
+#       -X 2366 -Y 82 -Z 2168 -Width 4096
 #
+# The menu picks one of ui/panorama.jpg and ui/panorama_2.jpg to _4.jpg at
+# random each launch. Each view waits for the world to load, then moves the
+# camera and waits for the land around it. Time stands still, so clouds match
+# across the six views. Sun rays are off: they brighten only the view that faces
+# the sun, which would show as a seam. The window is a large square (-Window), as each view
+# only uses a square of the window height.
+#
+# Run it from a packaged copy (build.cmd release package, out/VoxelRethinked), never
+# from the folder someone plays from: settings the bake changes can stick there.
 # Run it again whenever the world should look different (real world generation,
 # other times of day). The game is stopped rather than closed, so its settings
 # file stays as it was. A window pops up six times; leave the keyboard alone.
-param([string]$Exe, [string]$Out, [double]$X = 40, [double]$Y = 110, [double]$Z = 90, [int]$WaitMs = 9000,
-      [int]$Width = 2048, [string]$TimeOfDay = "10")
+param([string]$Exe, [string]$Out, [double]$X = 40, [double]$Y = 110, [double]$Z = 90, [int]$WaitMs = 45000,
+      [int]$Width = 4096, [string]$TimeOfDay = "10", [string]$Weather = "Fair", [int]$Window = 1440)
 
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
@@ -131,17 +141,31 @@ $directory = Split-Path $executable
 $images = New-Object 'System.Drawing.Bitmap[]' 6
 for ($i = 0; $i -lt 6; ++$i) {
     # Frozen: real mouse and keys cannot move the camera during the wait.
-    $commands = "set Debug.Overlay.Visible false", "set Debug.FreeCamera.Frozen true",
-                "set Gameplay.FieldOfView 90", "set Graphics.Sky.TimeOfDay $TimeOfDay",
-                "preset Graphics.LOD High", "camera $X $Y $Z $($yaws[$i]) $($pitches[$i])", "play"
-    $arguments = @()
+    $commands = "set Video.WindowMode Windowed", "set Video.WindowSize 0",
+                "set Debug.Overlay.Visible false", "set Debug.FreeCamera.Frozen true",
+                "set Gameplay.FieldOfView 90", "set Interface.ShowHud false", "set Video.ShowFps false",
+                "set Gameplay.ViewBobbing false", "set Graphics.Sky.GodRays false", "set Graphics.Sky.DayMinutes 0", "set Graphics.Sky.Weather $Weather",
+                "preset Graphics.LOD High", "play", "wait 3000", "set Graphics.Sky.TimeOfDay $TimeOfDay",
+                "camera $X $Y $Z $($yaws[$i]) $($pitches[$i])"
+    $arguments = @("--window", "$($Window)x$($Window)")
     foreach ($command in $commands) { $arguments += @("--exec", "`"$command`"") }
-    $process = Start-Process -FilePath $executable -ArgumentList $arguments -WorkingDirectory $directory -PassThru
-    Start-Sleep -Milliseconds $WaitMs
-    $process.Refresh()
-    $images[$i] = [Panorama]::Capture($process.MainWindowHandle)
-    Stop-Process -Id $process.Id -Force
-    $process.WaitForExit()
+    # A view is tried again if the game has no window to capture (it is still
+    # starting, or it stopped), rather than failing the whole bake.
+    for ($attempt = 1; $attempt -le 3 -and $null -eq $images[$i]; ++$attempt) {
+        $process = Start-Process -FilePath $executable -ArgumentList $arguments -WorkingDirectory $directory -PassThru
+        Start-Sleep -Milliseconds $WaitMs
+        for ($wait = 0; $wait -lt 40 -and $null -eq $images[$i] -and -not $process.HasExited; ++$wait) {
+            $process.Refresh()
+            if ($process.MainWindowHandle -ne [IntPtr]::Zero) {
+                try { $images[$i] = [Panorama]::Capture($process.MainWindowHandle) } catch { $images[$i] = $null }
+            }
+            if ($null -eq $images[$i]) { Start-Sleep -Milliseconds 500 }
+        }
+        if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+        $process.WaitForExit()
+        if ($null -eq $images[$i]) { Write-Output "view $($i + 1): no window to capture, attempt $attempt" }
+    }
+    if ($null -eq $images[$i]) { throw "view $($i + 1) could not be captured" }
     Write-Output "view $($i + 1) of 6 captured ($($images[$i].Width) x $($images[$i].Height))"
 }
 $result = [Panorama]::Stitch($images, [double[]]$yaws, [double[]]$pitches, $Width)

@@ -2,6 +2,7 @@
 
 #include <vxe/config/settings.hpp>
 #include <vxe/input/input.hpp>
+#include <vxe/platform/window.hpp>
 
 #include <array>
 
@@ -31,6 +32,9 @@ struct GameSettings {
     // Interface
     vxe::config::Setting<vxe::f32> hudOpacity;
     vxe::config::Setting<bool> showHud; // F1 flips it.
+    vxe::config::Setting<vxe::platform::WindowMode> windowMode;
+    // The window's height in windowed mode, 16:9 wide; 0 leaves the size free.
+    vxe::config::Setting<vxe::i32> windowSize;
     vxe::config::Setting<bool> showFps;
     // Debug
     vxe::config::Setting<bool> fontSample;   // The UI font at scales 1 to 4.

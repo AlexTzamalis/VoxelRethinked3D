@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#145] 2026-11-05, Menu panoramas and window settings
+### Added
+- Three 4096 by 2048 menu panoramas from the current world (autumn river forest, a summit view, snowy plains under a snowy range); the menu shows one at random each launch and decodes only that one.
+- Video.WindowMode (Windowed, Borderless fullscreen by default, Exclusive fullscreen) and Video.WindowSize (Free, 720p to 2160p in 16:9) for windowed mode. F11 switches between windowed and borderless and is remembered.
+- --window WxH on the command line.
+### Changed
+- tools/panorama/bake_panorama.ps1: 4K output, a large square window, HUD, sun rays and time switched off so views match, retries when a window is not ready, and it runs from the packaged copy, never the folder someone plays from.
+### Fixed
+- Optional pack images (ui/loading_background.png) no longer log a warning at every start when no pack has them.
+
 ## [#144] 2026-11-05, Sun rays
 ### Added
 - Sun rays (Graphics.Sky.GodRays and GodRayStrength): when looking towards the sun, shafts of light stream through gaps in leaves, past mountain edges and between clouds, at the horizon too. Each pixel marches towards the sun on the screen at half resolution and adds up the open sky it passes; the result is added over the scene in the sun's color. They fade as the sun leaves the screen, sets or falls behind the camera.

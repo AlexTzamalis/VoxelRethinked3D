@@ -71,7 +71,8 @@ public:
     void setKeys(std::vector<std::string> keys);
     // Images outside the block array to load with the textures, by path
     // inside the packs (for example "ui/font.png"). Set them before setKeys,
-    // which starts the first load.
+    // which starts the first load. A path starting with '?' is optional: no
+    // warning when no pack has it ("?ui/panorama_2.jpg"); look it up without the '?'.
     void setImages(std::vector<std::string> paths);
     // A loaded image, or nothing (not requested, not loaded yet, or no pack
     // has a usable one). Changes when update() returns true.

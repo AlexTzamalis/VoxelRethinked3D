@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <format>
+#include <random>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -49,7 +50,10 @@ constexpr vxe::f32 kPanoramaTurnSpeed = 0.02F;
 
 // The UI font, panorama and theme inside the texture packs (Section 15.1).
 constexpr std::string_view kFontImage = "ui/font.png";
-constexpr std::string_view kPanoramaImage = "ui/panorama.jpg";
+// Menu backgrounds: one is picked at random each launch. The default pack has
+// all three, so whatever packs are on, each resolves.
+constexpr std::array<std::string_view, 3> kPanoramaImages = {"ui/panorama.jpg", "ui/panorama_2.jpg",
+                                                             "ui/panorama_3.jpg"};
 // The HUD's pack images, in the atlas under their short names.
 constexpr std::array<std::string_view, 3> kHudImages = {"crosshair", "hotbar_slot", "hotbar_selected"};
 constexpr std::string_view kThemeFile = "ui/theme.toml";
@@ -117,6 +121,15 @@ vxe::Result<void> VoxelRethinkedApp::onInit(vxe::EngineContext& context) {
     }
     m_input = &context.input;
     m_settings = std::make_unique<GameSettings>(context.settings);
+    // The window follows the video settings from the first frame on (switching
+    // it during startup, before the first frame, hangs the GL context) and
+    // whenever they change.
+    m_windowSubscriptions.push_back(m_settings->windowMode.onChanged(
+        [this, &context](const vxe::platform::WindowMode&, const vxe::platform::WindowMode&) {
+            applyWindowSettings(context);
+        }));
+    m_windowSubscriptions.push_back(m_settings->windowSize.onChanged(
+        [this, &context](const vxe::i32&, const vxe::i32&) { applyWindowSettings(context); }));
     m_actions = std::make_unique<GameActions>(context.input);
     m_uiActions = std::make_unique<vxe::ui::UiActions>(context.input, m_actions->menu);
     m_input->pushContext(m_actions->global);
@@ -761,14 +774,20 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
         m_texturePacks = std::move(packs).value();
         // The UI font comes from the packs too, so packs can replace it.
         // The UI font and images come from the packs too, so packs restyle them.
-        std::vector<std::string> images{std::string(kFontImage), std::string(kPanoramaImage)};
+        std::vector<std::string> images{std::string(kFontImage)};
+        // Only this launch's panorama: each is a 4K image, and decoding all of
+        // them would keep the menu waiting.
+        if (m_panoramaPick < 0) {
+            m_panoramaPick = static_cast<int>(std::random_device{}() % kPanoramaImages.size());
+        }
+        images.emplace_back(kPanoramaImages.at(static_cast<vxe::usize>(m_panoramaPick)));
         for (const std::string_view name : vxe::ui::kThemeImages) {
             images.push_back(std::format("ui/{}.png", name));
         }
         for (const std::string_view name : kHudImages) {
             images.push_back(std::format("ui/{}.png", name));
         }
-        images.emplace_back("ui/loading_background.png");
+        images.emplace_back("?ui/loading_background.png");
         // Block textures too, as PNG files: the icons are baked from them.
         for (const std::string& key : m_blocks->textureKeys()) {
             images.push_back(vxe::render::textureFile(key) + ".png");
@@ -846,17 +865,31 @@ void VoxelRethinkedApp::setMouseCaptured(vxe::EngineContext& context, bool captu
     static_cast<void>(context.window->setRelativeMouseMode(captured));
 }
 
-void VoxelRethinkedApp::handleGlobalActions(vxe::EngineContext& context) {
-    if (context.window != nullptr && m_input->isPressed(m_actions->fullscreen)) {
-        const vxe::platform::WindowMode mode = context.window->mode() == vxe::platform::WindowMode::Windowed
-                                                   ? vxe::platform::WindowMode::Borderless
-                                                   : vxe::platform::WindowMode::Windowed;
+void VoxelRethinkedApp::applyWindowSettings(vxe::EngineContext& context) {
+    if (context.window == nullptr || !m_settings) {
+        return;
+    }
+    const vxe::platform::WindowMode mode = m_settings->windowMode.get();
+    if (context.window->mode() != mode) {
         if (auto changed = context.window->setMode(mode); !changed) {
             VXE_LOG_WARN(gameLog, "Could not change the window mode: {}", changed.error().describe());
-        } else {
-            VXE_LOG_INFO(gameLog, "Window mode: {}",
-                         mode == vxe::platform::WindowMode::Windowed ? "windowed" : "borderless fullscreen");
+            return;
         }
+    }
+    const vxe::i32 height = m_settings->windowSize.get();
+    if (mode == vxe::platform::WindowMode::Windowed && height > 0) {
+        context.window->setSize((height * 16) / 9, height);
+    }
+}
+
+void VoxelRethinkedApp::handleGlobalActions(vxe::EngineContext& context) {
+    if (context.window != nullptr && m_input->isPressed(m_actions->fullscreen)) {
+        // Through the setting, so the choice is remembered.
+        const vxe::platform::WindowMode mode =
+            m_settings->windowMode.get() == vxe::platform::WindowMode::Windowed
+                ? vxe::platform::WindowMode::Borderless
+                : vxe::platform::WindowMode::Windowed;
+        static_cast<void>(m_settings->windowMode.set(mode));
     }
     if (m_input->isPressed(m_actions->screenshot)) {
         VXE_LOG_INFO(gameLog, "Screenshots are not implemented yet");
@@ -1197,10 +1230,13 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
             VXE_LOG_WARN(gameLog, "UI font from pack '{}': {}", font->source, set.error().describe());
         }
     }
-    if (const vxe::render::PackImage* panorama = m_texturePacks->image(kPanoramaImage);
-        panorama != nullptr && m_ui) {
-        if (auto set = m_ui->setPanorama(panorama->pixels, panorama->width, panorama->height); !set) {
-            VXE_LOG_WARN(gameLog, "Panorama from pack '{}': {}", panorama->source, set.error().describe());
+    if (m_ui) {
+        const vxe::usize pick = m_panoramaPick < 0 ? 0 : static_cast<vxe::usize>(m_panoramaPick);
+        if (const vxe::render::PackImage* panorama = m_texturePacks->image(kPanoramaImages.at(pick))) {
+            if (auto set = m_ui->setPanorama(panorama->pixels, panorama->width, panorama->height); !set) {
+                VXE_LOG_WARN(gameLog, "Panorama from pack '{}': {}", panorama->source,
+                             set.error().describe());
+            }
         }
     }
     if (const std::vector<std::byte>* theme = m_texturePacks->file(kThemeFile);
@@ -1268,6 +1304,10 @@ void VoxelRethinkedApp::drawUi(vxe::EngineContext& context, const vxe::FrameTime
 }
 
 void VoxelRethinkedApp::onFrame(vxe::EngineContext& context, const vxe::FrameTime& time) {
+    if (!m_windowApplied) {
+        m_windowApplied = true;
+        applyWindowSettings(context);
+    }
     handleGlobalActions(context);
     advanceStartup(context);
     updateTextures(context);

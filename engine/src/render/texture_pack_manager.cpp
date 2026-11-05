@@ -252,10 +252,12 @@ void TexturePackManager::startLoad() {
         [job] {
             const Stopwatch stopwatch;
             job->result = buildBlockTextures(job->stack, job->keys, job->options);
-            for (const std::string& path : job->imagePaths) {
+            for (const std::string& requested : job->imagePaths) {
+                const bool optional = requested.starts_with('?');
+                const std::string path = optional ? requested.substr(1) : requested;
                 if (auto image = readPackImage(job->stack, path, job->problems)) {
                     job->images.push_back(std::move(*image));
-                } else {
+                } else if (!optional) {
                     job->problems.push_back(std::format("No pack has a usable {}", path));
                 }
             }
