@@ -28,6 +28,11 @@ namespace vxe::voxel {
 //        with 27..30 as its turn.
 // word1: bits 0..13 texture layer, 14..21 AO (2 bits per corner, 3 is fully
 //        lit), 22..25 sky light, 26..29 block light, 30..31 reserved.
+// word2: light per corner, 8 bits each from corner 0: sky light in the low 4
+//        bits, block light in the high 4. With smooth lighting each corner is
+//        the average of the open cells around it in front of the face, so
+//        light blends across faces; without, all four are word1's light.
+//        This third word makes a quad 12 bytes instead of Section 10.4's 8.
 //
 // Width runs along the face's U axis and height along its V axis:
 //   +X, -X: U = Z, V = Y      +Y, -Y: U = X, V = Z      +Z, -Z: U = X, V = Y
@@ -40,6 +45,7 @@ namespace vxe::voxel {
 struct PackedQuad {
     u32 word0 = 0;
     u32 word1 = 0;
+    u32 word2 = 0;
 
     [[nodiscard]] u32 x() const noexcept { return word0 & 31U; }
     [[nodiscard]] u32 y() const noexcept { return (word0 >> 5U) & 31U; }
@@ -53,10 +59,14 @@ struct PackedQuad {
     [[nodiscard]] u32 ao(u32 corner) const noexcept { return (word1 >> (14U + (2U * corner))) & 3U; }
     [[nodiscard]] u32 skyLight() const noexcept { return (word1 >> 22U) & 15U; }
     [[nodiscard]] u32 blockLight() const noexcept { return (word1 >> 26U) & 15U; }
+    [[nodiscard]] u32 cornerSkyLight(u32 corner) const noexcept { return (word2 >> (8U * corner)) & 15U; }
+    [[nodiscard]] u32 cornerBlockLight(u32 corner) const noexcept {
+        return (word2 >> ((8U * corner) + 4U)) & 15U;
+    }
 
     friend constexpr bool operator==(const PackedQuad&, const PackedQuad&) = default;
 };
-static_assert(sizeof(PackedQuad) == 8);
+static_assert(sizeof(PackedQuad) == 12);
 
 // The normal, U and V axes of a face as axis numbers (0 X, 1 Y, 2 Z), and
 // whether the face points along its axis' positive direction.
@@ -152,6 +162,7 @@ struct MeshOptions {
     bool mergeAcrossLight = false; // Merge faces even when their light differs (faster, coarser).
     bool fancyLeaves = true;       // Cutout blocks stay see through; off meshes them as opaque.
     bool advancedLeaves = false;   // Leaves grow bushy planes past their block.
+    bool smoothLighting = true;    // Light blends across faces (PackedQuad::word2).
     u64 variationSeed = 0;         // The world's seed: picks plant textures per position.
 
     friend constexpr bool operator==(const MeshOptions&, const MeshOptions&) = default;
@@ -171,6 +182,7 @@ private:
     config::Setting<bool> m_mergeAcrossLight;
     config::Setting<bool> m_fancyLeaves;
     config::Setting<bool> m_advancedLeaves;
+    config::Setting<bool> m_smoothLighting;
 };
 
 // Binary greedy mesher (Section 10): turns a chunk snapshot into packed
@@ -231,8 +243,13 @@ private:
     void buildSameStateMasks(const ChunkSnapshot& snapshot);
     void findFaces();
     void addFaces(usize layer, BlockFace face, usize y, usize z, u32 bits);
-    [[nodiscard]] u64 faceKey(const ChunkSnapshot& snapshot, const BlockRegistryView& blocks, BlockFace face,
-                              u32 slice, u32 u, u32 v) const noexcept;
+    // What a face looks like: word1 and the state (key), and its corner light.
+    struct FaceKey {
+        u64 key;
+        u32 corners;
+    };
+    [[nodiscard]] FaceKey faceKey(const ChunkSnapshot& snapshot, const BlockRegistryView& blocks,
+                                  BlockFace face, u32 slice, u32 u, u32 v, bool smooth) const noexcept;
     void mergeFaces(const ChunkSnapshot& snapshot, const BlockRegistryView& blocks,
                     const MeshOptions& options, ChunkMesh& out);
     // What growing a rectangle needs besides the face position.
@@ -241,11 +258,14 @@ private:
         const BlockRegistryView& blocks;
         u64 compareMask; // Key bits that must match for faces to merge.
         bool greedy;
+        bool smooth;       // Corner light by the cells around each corner.
+        bool lightMatters; // Faces merge only with the same corner light.
     };
     struct Rectangle {
         u32 width;
         u32 height;
         u32 word1; // The first face's quad word1 (texture, AO, light).
+        u32 word2; // Its corner light.
     };
     using FaceRows = std::array<u16, 16>;
     // Grows a rectangle from the face at (u, v) of a slice and clears its

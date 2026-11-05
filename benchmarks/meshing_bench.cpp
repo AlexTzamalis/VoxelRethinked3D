@@ -92,7 +92,8 @@ void runMeshingBenchmarks() {
         "\nTerrain sample meshing: {} chunks ({} with quads), average {:.4f} ms per chunk (budget 0.06), "
         "{:.1f} quads per non empty chunk, {:.0f} bytes of quads per non empty chunk\n\n",
         snapshots.size(), meshedChunks, bestAverage, static_cast<f64>(quads) / static_cast<f64>(meshedChunks),
-        8.0 * static_cast<f64>(quads) / static_cast<f64>(meshedChunks));
+        static_cast<f64>(sizeof(voxel::PackedQuad)) * static_cast<f64>(quads) /
+            static_cast<f64>(meshedChunks));
     std::fputs(summary.c_str(), stdout);
 
     ankerl::nanobench::Bench bench;

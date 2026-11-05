@@ -32,7 +32,7 @@ namespace vxe::render {
 inline constexpr usize kChunkPassCount = 4;
 inline constexpr usize kChunkFaceGroups = kChunkPassCount * 6;
 // Bytes of one packed quad (voxel::PackedQuad, Section 10.4).
-inline constexpr usize kChunkQuadBytes = 8;
+inline constexpr usize kChunkQuadBytes = 12;
 
 enum class ChunkPass : u8 {
     Opaque,

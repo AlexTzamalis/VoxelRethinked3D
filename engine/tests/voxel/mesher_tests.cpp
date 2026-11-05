@@ -506,7 +506,8 @@ TEST_CASE("Faces take the light of the cell in front, and merge only where it is
                 x < 8 ? voxel::kOpenSkyLight : voxel::packLight(4, 9);
         }
     }
-    const ChunkMesh mesh = meshOf(snapshot);
+    // Flat light: one level per face (smooth lighting is its own test).
+    const ChunkMesh mesh = meshOf(snapshot, {.smoothLighting = false});
     const auto top = mesh.group(MeshLayer::Opaque, BlockFace::PosY);
     REQUIRE(top.size() == 2); // One quad per light, not one for the whole floor.
     for (const PackedQuad& quad : top) {
@@ -644,4 +645,36 @@ TEST_CASE("Slabs carry their height, hide nothing and hide sides against taller 
     // Full blocks keep the height bits clear.
     CHECK(height(*findQuad(mesh, MeshLayer::Opaque, BlockFace::PosY, {5, 4, 5})) == 0);
     CHECK(mesh.boundsMax[1] == 6);
+}
+
+TEST_CASE("Smooth lighting averages the open cells around each corner") {
+    TestSnapshot snapshot;
+    for (i32 z = 0; z < 16; ++z) {
+        for (i32 x = 0; x < 16; ++x) {
+            snapshot.set(x, 0, z, kStone);
+            // Sky 15 above the floor, except a darker strip at x 8 (sky 3).
+            snapshot.snapshot.light[ChunkSnapshot::index(x, 1, z)] =
+                x == 8 ? voxel::packLight(3, 0) : voxel::kOpenSkyLight;
+        }
+    }
+    const ChunkMesh mesh = meshOf(snapshot);
+    // The face at x 7 shares its +X corners with the dark strip: (15 + 3 + 15 + 3) / 4 = 9.
+    const PackedQuad* beside = findQuad(mesh, MeshLayer::Opaque, BlockFace::PosY, {7, 0, 5});
+    REQUIRE(beside != nullptr);
+    std::array<u32, 4> sky{};
+    for (u32 corner = 0; corner < 4; ++corner) {
+        sky.at(corner) = beside->cornerSkyLight(corner);
+    }
+    CHECK(std::ranges::count(sky, 15U) == 2);
+    CHECK(std::ranges::count(sky, 9U) == 2);
+    // Far from the strip every corner is full daylight, and those faces still merge.
+    const PackedQuad* open = findQuad(mesh, MeshLayer::Opaque, BlockFace::PosY, {2, 0, 5});
+    REQUIRE(open != nullptr);
+    CHECK(open->word2 == 0x0F0F0F0FU);
+    CHECK(open->width() > 1);
+    // Flat light repeats the cell in front at every corner.
+    const ChunkMesh flat = meshOf(snapshot, {.smoothLighting = false});
+    const PackedQuad* flatBeside = findQuad(flat, MeshLayer::Opaque, BlockFace::PosY, {7, 0, 5});
+    REQUIRE(flatBeside != nullptr);
+    CHECK(flatBeside->word2 == 0x0F0F0F0FU);
 }

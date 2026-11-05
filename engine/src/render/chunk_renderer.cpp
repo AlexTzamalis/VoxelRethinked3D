@@ -592,7 +592,7 @@ void ChunkRenderer::writeMetadata(u32 slot, ChunkPos position, ChunkBounds bound
 
 ChunkRenderer::UploadResult ChunkRenderer::upload(const ChunkGeometry& geometry) {
     VXE_ASSERT(!m_stagingMemory.empty(), "Call beginFrame before uploading");
-    VXE_ASSERT(geometry.quads.size() % kChunkQuadBytes == 0, "Quads are 8 bytes each");
+    VXE_ASSERT(geometry.quads.size() % kChunkQuadBytes == 0, "Quads are 12 bytes each");
     const usize bytes = geometry.quads.size();
     if (bytes == 0) {
         // Nothing to draw, but the chunk may still block the view.

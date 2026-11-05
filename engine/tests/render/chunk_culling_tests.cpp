@@ -245,7 +245,7 @@ std::unique_ptr<ChunkRenderer> makeRenderer(rhi::Device& device, config::Setting
 
 // One opaque quad in each listed face group, so every group is a candidate.
 struct Groups {
-    std::vector<u64> quads;
+    std::vector<std::array<u32, 3>> quads; // voxel::PackedQuad: three words.
     std::array<u32, render::kChunkFaceGroups + 1> groupBegin{};
 
     explicit Groups(std::initializer_list<usize> groups) {
@@ -256,7 +256,7 @@ struct Groups {
         for (usize g = 0; g < render::kChunkFaceGroups; ++g) {
             groupBegin.at(g + 1) = groupBegin.at(g) + counts.at(g);
         }
-        quads.assign(groupBegin.back(), 0);
+        quads.assign(groupBegin.back(), {});
     }
     [[nodiscard]] render::ChunkGeometry at(ChunkPos position, u16 connectivity = kChunkAllConnected) const {
         return {.position = position,

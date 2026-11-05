@@ -31,7 +31,13 @@ struct Bounds {
 };
 
 // Packs a merged rectangle of faces into a quad and grows the bounds.
-void appendQuad(BlockFace face, u32 slice, u32 u, u32 v, u32 width, u32 height, u32 word1,
+// The corner light word of a face lit alike at all four corners.
+constexpr u32 flatCorners(u8 light) noexcept {
+    const u32 corner = u32{skyLightOf(light)} | (u32{blockLightOf(light)} << 4U);
+    return corner * 0x01010101U;
+}
+
+void appendQuad(BlockFace face, u32 slice, u32 u, u32 v, u32 width, u32 height, u32 word1, u32 word2,
                 std::vector<PackedQuad>& quads, Bounds& bounds) {
     const FaceAxes axes = faceAxes(face);
     const u32 ao0 = (word1 >> 14U) & 3U;
@@ -55,7 +61,7 @@ void appendQuad(BlockFace face, u32 slice, u32 u, u32 v, u32 width, u32 height, 
     }
     const u32 word0 = origin[0] | (origin[1] << 5U) | (origin[2] << 10U) | ((width - 1U) << 15U) |
                       ((height - 1U) << 19U) | (static_cast<u32>(face) << 23U) | (flip << 26U);
-    quads.push_back({.word0 = word0, .word1 = word1});
+    quads.push_back({.word0 = word0, .word1 = word1, .word2 = word2});
 }
 
 // The chunk faces (one bit per BlockFace) that a filled run of open blocks
@@ -111,13 +117,20 @@ MesherSettings::MesherSettings(config::SettingsRegistry& settings)
             .displayName = "Advanced leaves",
             .description = "Leaves grow bushy shapes past their blocks, for fuller trees.",
             .applyMode = config::ApplyMode::RequiresRemesh},
-           false})) {}
+           false}))
+    , m_smoothLighting(settings.registerBool(
+          {{.id = "Graphics.Lighting.SmoothLighting",
+            .displayName = "Smooth lighting",
+            .description = "Light blends softly across blocks instead of one level per face.",
+            .applyMode = config::ApplyMode::RequiresRemesh},
+           true})) {}
 
 MeshOptions MesherSettings::options() const {
     return {.greedyMerge = m_greedyMerge.get(),
             .mergeAcrossLight = m_mergeAcrossLight.get(),
             .fancyLeaves = m_fancyLeaves.get(),
-            .advancedLeaves = m_advancedLeaves.get()};
+            .advancedLeaves = m_advancedLeaves.get(),
+            .smoothLighting = m_smoothLighting.get()};
 }
 
 Mesher::Mesher(stats::StatRegistry* stats)
@@ -347,8 +360,8 @@ void Mesher::findFaces() {
     }
 }
 
-u64 Mesher::faceKey(const ChunkSnapshot& snapshot, const BlockRegistryView& blocks, BlockFace face, u32 slice,
-                    u32 u, u32 v) const noexcept {
+Mesher::FaceKey Mesher::faceKey(const ChunkSnapshot& snapshot, const BlockRegistryView& blocks,
+                                BlockFace face, u32 slice, u32 u, u32 v, bool smooth) const noexcept {
     // Positions in the opaque masks are (row, bit) = (y * 18 + z, x). Moving
     // along X changes the bit, along Y the row by 18, along Z the row by 1,
     // so each face's U and V axes are a fixed row and bit step, and the 8
@@ -394,17 +407,55 @@ u64 Mesher::faceKey(const ChunkSnapshot& snapshot, const BlockRegistryView& bloc
     const u8 light = snapshot.light[front];
     const u32 word1 =
         layer | (ao << 14U) | (u32{skyLightOf(light)} << 22U) | (u32{blockLightOf(light)} << 26U);
-    return u64{word1} | (u64{state} << 32U);
+    u32 corners = flatCorners(light);
+    if (smooth) {
+        // Smooth lighting as Minecraft does it: each corner averages the cell
+        // in front and its open neighbors around that corner. A corner closed
+        // on both sides cannot see its diagonal cell, so that one stays out.
+        const auto lightAt = [&](i32 du, i32 dv) {
+            const i32 row = frontRow + (du * rowU) + (dv * rowV);
+            const i32 bit = frontBit + (du * bitU) + (dv * bitV);
+            return snapshot.light[(static_cast<usize>(row) * kRow) + static_cast<usize>(bit)];
+        };
+        const auto corner = [&](i32 du, i32 dv, u32 sideU, u32 sideV, u32 diagonal) {
+            u32 sky = skyLightOf(light);
+            u32 lamp = blockLightOf(light);
+            u32 count = 1;
+            const auto add = [&](u8 value) {
+                sky += skyLightOf(value);
+                lamp += blockLightOf(value);
+                ++count;
+            };
+            if (sideU == 0) {
+                add(lightAt(du, 0));
+            }
+            if (sideV == 0) {
+                add(lightAt(0, dv));
+            }
+            if (diagonal == 0 && (sideU == 0 || sideV == 0)) {
+                add(lightAt(du, dv));
+            }
+            // Rounded to the nearest level.
+            return ((sky * 2U) + count) / (count * 2U) | ((((lamp * 2U) + count) / (count * 2U)) << 4U);
+        };
+        corners = corner(-1, -1, left, down, opaqueAt(-1, -1)) |
+                  (corner(1, -1, right, down, opaqueAt(1, -1)) << 8U) |
+                  (corner(1, 1, right, up, opaqueAt(1, 1)) << 16U) |
+                  (corner(-1, 1, left, up, opaqueAt(-1, 1)) << 24U);
+    }
+    return {.key = u64{word1} | (u64{state} << 32U), .corners = corners};
 }
 
 Mesher::Rectangle Mesher::growRectangle(const MergeInput& in, BlockFace face, u32 slice, FaceRows& rows,
                                         u32 u, u32 v) const noexcept {
-    const u64 key = faceKey(in.snapshot, in.blocks, face, slice, u, v);
-    const u64 match = key & in.compareMask;
+    const FaceKey first = faceKey(in.snapshot, in.blocks, face, slice, u, v, in.smooth);
+    const u64 match = first.key & in.compareMask;
     const auto matches = [&](u32 du, u32 dv) {
-        return (faceKey(in.snapshot, in.blocks, face, slice, du, dv) & in.compareMask) == match;
+        const FaceKey other = faceKey(in.snapshot, in.blocks, face, slice, du, dv, in.smooth);
+        return (other.key & in.compareMask) == match && (!in.lightMatters || other.corners == first.corners);
     };
-    Rectangle rectangle{.width = 1, .height = 1, .word1 = static_cast<u32>(key)};
+    Rectangle rectangle{
+        .width = 1, .height = 1, .word1 = static_cast<u32>(first.key), .word2 = first.corners};
     if (in.greedy) {
         // Grow right while the next face exists and matches.
         while (u + rectangle.width < 16 && ((rows[v] >> (u + rectangle.width)) & 1U) != 0 &&
@@ -439,7 +490,9 @@ void Mesher::mergeFaces(const ChunkSnapshot& snapshot, const BlockRegistryView& 
     const MergeInput in{.snapshot = snapshot,
                         .blocks = blocks,
                         .compareMask = options.mergeAcrossLight ? ~kLightBits : ~u64{0},
-                        .greedy = options.greedyMerge};
+                        .greedy = options.greedyMerge,
+                        .smooth = options.smoothLighting,
+                        .lightMatters = !options.mergeAcrossLight};
     Bounds bounds;
     const usize plantGroup = faceGroupIndex(MeshLayer::Plants, BlockFace::PosX);
     if (m_hasShapes) {
@@ -483,7 +536,7 @@ void Mesher::mergeFaces(const ChunkSnapshot& snapshot, const BlockRegistryView& 
                     // The first face left in this row starts a rectangle.
                     const auto u = static_cast<u32>(std::countr_zero(static_cast<u32>(rows[v])));
                     const Rectangle r = growRectangle(in, face, slice, rows, u, v);
-                    appendQuad(face, slice, u, v, r.width, r.height, r.word1, out.quads, bounds);
+                    appendQuad(face, slice, u, v, r.width, r.height, r.word1, r.word2, out.quads, bounds);
                 }
             }
         }
@@ -596,8 +649,10 @@ void Mesher::addPlants(const ChunkSnapshot& snapshot, const BlockRegistryView& b
                 const u32 word1 = layer | (0xFFU << 14U) | (u32{skyLightOf(light)} << 22U) |
                                   (u32{blockLightOf(light)} << 26U);
                 const u32 position = x | (y << 5U) | (z << 10U) | extra;
-                out.quads.push_back({.word0 = position | (6U << 23U), .word1 = word1});
-                out.quads.push_back({.word0 = position | (7U << 23U), .word1 = word1});
+                out.quads.push_back(
+                    {.word0 = position | (6U << 23U), .word1 = word1, .word2 = flatCorners(light)});
+                out.quads.push_back(
+                    {.word0 = position | (7U << 23U), .word1 = word1, .word2 = flatCorners(light)});
             }
         }
     }
@@ -646,7 +701,8 @@ void Mesher::addShapes(const ChunkSnapshot& snapshot, const BlockRegistryView& b
                     origin[axes.normal] += axes.positive ? 1U : 0U;
                     const u32 word0 = origin[0] | (origin[1] << 5U) | (origin[2] << 10U) |
                                       (static_cast<u32>(face) << 23U) | (height << 27U);
-                    m_shapeQuads.at(f).push_back({.word0 = word0, .word1 = word1});
+                    m_shapeQuads.at(f).push_back(
+                        {.word0 = word0, .word1 = word1, .word2 = flatCorners(light)});
                 }
             }
         }

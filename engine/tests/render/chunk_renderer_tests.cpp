@@ -60,7 +60,7 @@ std::unique_ptr<ChunkRenderer> makeRenderer(rhi::Device& device, config::Setting
 
 // A mesh of `quads` dummy quads per listed group (pass * 6 + face).
 struct FakeMesh {
-    std::vector<u64> quads;
+    std::vector<std::array<u32, 3>> quads; // voxel::PackedQuad: three words.
     std::array<u32, render::kChunkFaceGroups + 1> groupBegin{};
 
     FakeMesh(std::initializer_list<std::pair<usize, u32>> groups) {
@@ -75,7 +75,7 @@ struct FakeMesh {
         for (usize g = 0; g < render::kChunkFaceGroups; ++g) {
             groupBegin.at(g + 1) = groupBegin.at(g) + counts.at(g);
         }
-        quads.assign(groupBegin.back(), 0x0102030405060708ULL);
+        quads.assign(groupBegin.back(), {0x05060708U, 0x01020304U, 0x0F0F0F0FU});
     }
     [[nodiscard]] render::ChunkGeometry at(ChunkPos position) const {
         return {.position = position, .quads = std::as_bytes(std::span(quads)), .groupBegin = groupBegin};
@@ -155,16 +155,18 @@ TEST_CASE("Uploads build one indirect draw per non empty face group") {
     stats.endFrame(0.016);
     CHECK(stats.value(stats.find("Render.Chunks.Resident")) == 1.0);
     CHECK(stats.value(stats.find("Render.Chunks.Quads")) == 24.0);
-    CHECK(stats.value(stats.find("Render.Chunks.UploadBytes")) == 24.0 * 8.0);
-    CHECK(stats.value(stats.find("Render.Chunks.BytesPerChunk")) == 24.0 * 8.0 + 16.0);
+    CHECK(stats.value(stats.find("Render.Chunks.UploadBytes")) ==
+          24.0 * static_cast<f64>(render::kChunkQuadBytes));
+    CHECK(stats.value(stats.find("Render.Chunks.BytesPerChunk")) ==
+          (24.0 * static_cast<f64>(render::kChunkQuadBytes)) + 16.0);
 }
 
 TEST_CASE("The upload budget spreads a burst over frames") {
     const auto device = rhi::createNullDevice();
     config::SettingsRegistry settings;
     auto renderer = makeRenderer(*device, settings);
-    REQUIRE(settings.set("World.Streaming.MaxUploadKBPerFrame", config::SettingValue{64}).hasValue());
-    const FakeMesh mesh({{0, 1024}}); // 8 KB each.
+    REQUIRE(settings.set("World.Streaming.MaxUploadKBPerFrame", config::SettingValue{96}).hasValue());
+    const FakeMesh mesh({{0, 1024}}); // 12 KB each.
     i32 next = 0;
     std::vector<usize> perFrame;
     while (next < 20) {
@@ -175,7 +177,7 @@ TEST_CASE("The upload budget spreads a burst over frames") {
             ++next;
             ++uploaded;
         }
-        CHECK(renderer->uploadedBytesThisFrame() <= 64 * 1024);
+        CHECK(renderer->uploadedBytesThisFrame() <= 96 * 1024);
         perFrame.push_back(uploaded);
         frame(*device, *renderer);
     }
@@ -191,19 +193,20 @@ TEST_CASE("Replaced and removed chunks free their memory once the GPU is done") 
     const FakeMesh large({{0, 300}});
     renderer->beginFrame({});
     REQUIRE(renderer->upload(small.at({})) == UploadResult::Uploaded);
-    CHECK(renderer->arenaUsedBytes() == 800);
+    CHECK(renderer->arenaUsedBytes() == 100 * render::kChunkQuadBytes);
     frame(*device, *renderer);
 
     renderer->beginFrame({});
     REQUIRE(renderer->upload(large.at({})) == UploadResult::Uploaded); // Replaces the chunk.
     CHECK(renderer->residentChunks() == 1);
     CHECK(renderer->residentQuads() == 300);
-    CHECK(renderer->arenaUsedBytes() == 3200); // The old range waits for frames in flight.
+    CHECK(renderer->arenaUsedBytes() ==
+          400 * render::kChunkQuadBytes); // The old range waits for frames in flight.
     frame(*device, *renderer);
     for (int i = 0; i < 3; ++i) {
         frame(*device, *renderer);
     }
-    CHECK(renderer->arenaUsedBytes() == 2400);
+    CHECK(renderer->arenaUsedBytes() == 300 * render::kChunkQuadBytes);
 
     // An empty mesh stops drawing the chunk.
     renderer->beginFrame({});
@@ -221,7 +224,7 @@ TEST_CASE("A full arena refuses uploads instead of failing") {
     const auto device = rhi::createNullDevice();
     config::SettingsRegistry settings;
     stats::StatRegistry stats;
-    auto renderer = makeRenderer(*device, settings, &stats, usize{8} * 100);
+    auto renderer = makeRenderer(*device, settings, &stats, render::kChunkQuadBytes * 100);
     renderer->beginFrame({});
     CHECK(renderer->upload(FakeMesh({{0, 80}}).at({})) == UploadResult::Uploaded);
     CHECK(renderer->upload(FakeMesh({{0, 80}}).at({.x = 1, .y = 0, .z = 0})) == UploadResult::OutOfMemory);

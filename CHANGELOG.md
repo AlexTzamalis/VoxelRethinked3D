@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#142] 2026-11-05, Smooth lighting
+### Added
+- Smooth lighting (Graphics.Lighting.SmoothLighting, on by default): each corner of a face takes the average light of the open cells around it, as in Minecraft, so light fades softly over slopes, into corners and under trees instead of one level per face.
+### Changed
+- Chunk quads are 12 bytes instead of 8: a third word holds the light of each corner. Faces merge only where their corner light matches.
+### Performance
+- Terrain sample: meshing 0.026 to 0.042 ms per chunk (budget 0.06); 1,801 to 2,702 bytes of quads per non empty chunk (target 3 KB).
+
 ## [#141] 2026-11-05, Block hitboxes
 ### Added
 - Every block has its own box for aiming and the outline: plants a small one, so the block behind a flower can be aimed at past it, snow layers their height, and block files can set aim_box (for torches and models later). Collision is unchanged: only solid blocks.

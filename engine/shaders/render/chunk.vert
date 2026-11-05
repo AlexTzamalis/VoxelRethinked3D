@@ -13,8 +13,10 @@ VXE_BINDING_STD140(1, 0) uniform ChunkParams {
     vec4 tints[16]; // Linear color per tint kind; kind 0 is white.
 } chunkParams;
 
+// Three words per quad (voxel::PackedQuad): as uints, since an array of uvec3
+// would be padded to 16 bytes each.
 VXE_BINDING_STD430(2, 0) readonly buffer Quads {
-    uvec2 quads[];
+    uint quadWords[];
 };
 
 // Per texture layer: 0 for a still texture, else the frame count (bits 0..7),
@@ -70,7 +72,8 @@ float lightCurve(float level) {
 }
 
 void main() {
-    const uvec2 quad = quads[uint(gl_VertexID) >> 2u];
+    const uint base = (uint(gl_VertexID) >> 2u) * 3u;
+    const uvec3 quad = uvec3(quadWords[base], quadWords[base + 1u], quadWords[base + 2u]);
     const uint face = (quad.x >> 23u) & 7u;
     uint corner = uint(gl_VertexID) & 3u;
     // Corners c0 to c3 run counterclockwise seen from the side U x V points
@@ -154,8 +157,10 @@ void main() {
     const uint ao = (quad.y >> (14u + 2u * corner)) & 3u;
     const float occlusion = mix(1.0, kAoCurve[ao], chunkParams.params.x);
     // The brighter of sky light (scaled by the time of day) and block light.
-    const vec3 sky = lightCurve(float((quad.y >> 22u) & 15u)) * chunkParams.skyLight.rgb;
-    const vec3 block = lightCurve(float((quad.y >> 26u) & 15u)) * kBlockLightTint;
+    // Light at this corner (word2): smooth lighting blends it across the face.
+    const uint cornerLight = (quad.z >> (8u * corner)) & 255u;
+    const vec3 sky = lightCurve(float(cornerLight & 15u)) * chunkParams.skyLight.rgb;
+    const vec3 block = lightCurve(float(cornerLight >> 4u)) * kBlockLightTint;
     const vec3 light = mix(vec3(chunkParams.params.z), vec3(1.0), max(sky, block));
     const float faceShade = crossed ? kPlantShade : kFaceShade[face];
     vShade = mix(1.0, faceShade, chunkParams.params.w) * occlusion * light;
