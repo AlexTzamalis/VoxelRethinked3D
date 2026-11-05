@@ -1071,6 +1071,7 @@ void Terrain::generate(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkV
         placeTrees(chunk, out);
         placePlants(chunk, out);
     }
+    coverSnow(chunk, out);
 }
 
 void Terrain::placeFeatures(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkVolume> out) const {
@@ -1413,6 +1414,100 @@ void Terrain::placePlants(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChu
                 read(x, y + 1, z) == vxe::voxel::kAirState) {
                 write(x, y + 1, z, plant->upper);
             }
+        }
+    }
+}
+
+vxe::voxel::BlockStateId Terrain::snowLayerAt(i64 x, i64 z, vxe::u8 depth) const noexcept {
+    // Drifts: deeper and thinner stretches across the ground.
+    const f64 drift =
+        (vxe::noise::gradient2(m_seed + 83, static_cast<f64>(x) / 11.0, static_cast<f64>(z) / 11.0).value +
+         1.0) *
+        0.5;
+    const auto layers = std::clamp<i64>(1 + static_cast<i64>(drift * static_cast<f64>(depth)), 1, depth);
+    return m_blocks.snowLayers.at(static_cast<usize>(layers - 1));
+}
+
+vxe::voxel::BlockStateId Terrain::iceAt(i64 x, i64 z, Biome biome) const noexcept {
+    // Lakes and rivers freeze over; the sea in sheets with open leads between
+    // them and now and then a slab of packed ice.
+    if (biome != Biome::FrozenOcean) {
+        return m_blocks.ice;
+    }
+    const auto wx = static_cast<f64>(x);
+    const auto wz = static_cast<f64>(z);
+    if (!inPatch(m_seed + 89, wx, wz, 0.78)) {
+        return m_blocks.water;
+    }
+    return inPatch(m_seed + 97, wx, wz, 0.1) ? m_blocks.packedIce : m_blocks.ice;
+}
+
+void Terrain::coverSnow(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkVolume> out) const {
+    // Snow falls on the highest block of each column, so it is found from the
+    // top of the chunk down. A column whose highest block is the top of the
+    // chunk gets its snow from the chunk above (where the ground is known), so
+    // every chunk decides alone. Under an overhang, in a cave or on bare steep
+    // rock no snow lies.
+    const Column& at = column(chunk.x, chunk.z);
+    const vxe::BlockPos origin = vxe::chunkOrigin(chunk);
+    const auto cell = [](i64 x, i64 y, i64 z) {
+        return vxe::LocalPos{.x = static_cast<u8>(x), .y = static_cast<u8>(y), .z = static_cast<u8>(z)}
+            .index();
+    };
+    for (i64 z = 0; z < vxe::kChunkSize; ++z) {
+        for (i64 x = 0; x < vxe::kChunkSize; ++x) {
+            const auto index = static_cast<usize>((z * vxe::kChunkSize) + x);
+            const Biome biome = at.biome[index];
+            const vxe::u8 depth = m_blocks.biomes[static_cast<usize>(biome)].snowDepth;
+            if (depth == 0 || at.lean[index] > 0.0F) {
+                continue;
+            }
+            const i64 wx = origin.x + x;
+            const i64 wz = origin.z + z;
+            const bool bareRock = at.top[index] == m_blocks.stone;
+            i64 y = vxe::kChunkSize - 1;
+            while (y >= 0 && out[cell(x, y, z)] == vxe::voxel::kAirState) {
+                --y;
+            }
+            if (y < 0) {
+                // Open all the way down: snow on the ground just below the chunk.
+                if (at.heights[index] == origin.y - 1 && at.heights[index] >= at.water[index] && !bareRock) {
+                    out[cell(x, 0, z)] = snowLayerAt(wx, wz, depth);
+                }
+                continue;
+            }
+            const i64 worldY = origin.y + y;
+            const BlockStateId state = out[cell(x, y, z)];
+            if (worldY < at.heights[index] && state != m_blocks.water) {
+                continue; // A cave.
+            }
+            if (state == m_blocks.water) {
+                if (worldY == at.water[index]) {
+                    out[cell(x, y, z)] = iceAt(wx, wz, biome);
+                }
+                continue;
+            }
+            const SnowRest rest =
+                state < m_blocks.snowRest.size() ? m_blocks.snowRest[state] : SnowRest::None;
+            if (rest == SnowRest::Buries) {
+                // Grass and flowers vanish under it, both halves of a tall one.
+                i64 base = y;
+                while (base > 0 && m_blocks.snowRest[out[cell(x, base - 1, z)]] == SnowRest::Buries) {
+                    --base;
+                }
+                for (i64 above = base + 1; above <= y; ++above) {
+                    out[cell(x, above, z)] = vxe::voxel::kAirState;
+                }
+                out[cell(x, base, z)] = snowLayerAt(wx, wz, depth);
+                continue;
+            }
+            if (rest != SnowRest::Holds || y == vxe::kChunkSize - 1 ||
+                (bareRock && worldY == at.heights[index])) {
+                continue;
+            }
+            // Leaves hold a thin layer; the ground gathers drifts.
+            out[cell(x, y + 1, z)] =
+                worldY > at.heights[index] ? m_blocks.snowLayers[0] : snowLayerAt(wx, wz, depth);
         }
     }
 }

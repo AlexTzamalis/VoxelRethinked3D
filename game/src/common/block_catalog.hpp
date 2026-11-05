@@ -79,10 +79,26 @@ public:
     [[nodiscard]] bool isLiquid(vxe::voxel::BlockStateId state) const {
         return (m_stateFlags.at(state) & 2U) != 0;
     }
-    // Placing a block replaces it (plants).
+    // Placing a block replaces it (plants). A slab only while it is one snow
+    // layer thin (2 sixteenths), as a deeper one is worth keeping.
     [[nodiscard]] bool isReplaceable(vxe::voxel::BlockStateId state) const {
-        return (m_stateFlags.at(state) & 4U) != 0;
+        const vxe::u8 height = m_renderInfos.at(state).height;
+        return (m_stateFlags.at(state) & 4U) != 0 && (height == 0 || height <= 2);
     }
+    // How tall the block stands in its cell, 0 to 1: 1 for whole blocks, less
+    // for slabs (snow layers). Shapes the outline and, for solid blocks, collision.
+    [[nodiscard]] vxe::f64 shapeHeight(vxe::voxel::BlockStateId state) const {
+        const vxe::u8 height = m_renderInfos.at(state).height;
+        return height == 0 ? 1.0 : static_cast<vxe::f64>(height) / 16.0;
+    }
+    // The height the player collides with, 0 for blocks that are not solid.
+    [[nodiscard]] vxe::f64 collisionHeight(vxe::voxel::BlockStateId state) const {
+        return isSolid(state) ? shapeHeight(state) : 0.0;
+    }
+    // A slab one step taller of the same block (the next snow layer), or air.
+    [[nodiscard]] vxe::voxel::BlockStateId nextLayer(vxe::voxel::BlockStateId state) const;
+    // Whether two states belong to one block, like two snow layers.
+    [[nodiscard]] bool sameBlock(vxe::voxel::BlockStateId a, vxe::voxel::BlockStateId b) const;
     // It goes away when the block below it does (plants).
     [[nodiscard]] bool needsSupport(vxe::voxel::BlockStateId state) const {
         return (m_stateFlags.at(state) & 8U) != 0;

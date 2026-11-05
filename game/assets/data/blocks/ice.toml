@@ -1,0 +1,10 @@
+# Clear ice on cold water. Format: see stone.toml.
+name = "ice"
+display_name = "Ice"
+category = "Nature"
+layer = "translucent"
+light_opacity = 2
+culls_same_type = true
+
+[textures]
+all = "ice"

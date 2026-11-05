@@ -18,6 +18,7 @@ constexpr u32 kInterior = 0x1FFFEU;        // Bits 1 to 16 of a row: the chunk's
 constexpr u32 kKindMask = 3U;              // Kind in the low bits of a state's class byte...
 constexpr u8 kPlantBit = 8U;               // ...plus "adds crossed planes" (plants, bushy leaves).
 constexpr u8 kCullsSameBit = 4U;           // ...plus "hides faces against its own state".
+constexpr u8 kShapeBit = 16U;              // ...plus "a slab with quads of its own".
 constexpr u64 kLightBits = 0xFFULL << 22U; // Sky and block light in word1.
 
 constexpr std::array<BlockFace, kBlockFaceCount> kFaces = {BlockFace::PosX, BlockFace::NegX, BlockFace::PosY,
@@ -121,6 +122,7 @@ MeshOptions MesherSettings::options() const {
 
 Mesher::Mesher(stats::StatRegistry* stats)
     : m_classes(kMaxBlockStates, u8{0})
+    , m_heights(kMaxBlockStates, u8{0})
     , m_stats(stats) {
     m_floodStack.reserve(1024);
     if (m_stats != nullptr) {
@@ -149,6 +151,7 @@ void Mesher::prepare(const BlockRegistryView& blocks, const MeshOptions& options
     // check; states the view does not know stay invisible like air. Only
     // the bytes the last view set need clearing.
     std::fill_n(m_classes.begin(), static_cast<std::ptrdiff_t>(m_preparedSize), u8{0});
+    std::fill_n(m_heights.begin(), static_cast<std::ptrdiff_t>(m_preparedSize), u8{0});
     m_preparedSize = std::min(blocks.size(), m_classes.size());
     for (usize state = 0; state < m_preparedSize; ++state) {
         const BlockRenderInfo& info = blocks.info(static_cast<BlockStateId>(state));
@@ -173,6 +176,11 @@ void Mesher::prepare(const BlockRegistryView& blocks, const MeshOptions& options
         }
         if (kind == Kind::Cutout || kind == Kind::Translucent) {
             value = static_cast<u8>(value | (info.cullsSameType ? kCullsSameBit : 0U));
+        }
+        if (info.height != 0 && info.isVisible() && info.layer != RenderLayer::Plant) {
+            // A slab is in no mask: it hides nothing, and its faces come from addShapes.
+            value = kShapeBit;
+            m_heights[state] = std::min<u8>(info.height, 15);
         }
         m_classes[state] = value;
     }
@@ -227,6 +235,7 @@ void Mesher::buildMasks(const ChunkSnapshot& snapshot) {
         m_hasSeeThrough = m_hasSeeThrough || ((cutout | translucent) != 0);
     }
     m_hasPlants = (seen & kPlantBit) != 0;
+    m_hasShapes = (seen & kShapeBit) != 0;
 }
 
 void Mesher::buildSameStateMasks(const ChunkSnapshot& snapshot) {
@@ -433,6 +442,9 @@ void Mesher::mergeFaces(const ChunkSnapshot& snapshot, const BlockRegistryView& 
                         .greedy = options.greedyMerge};
     Bounds bounds;
     const usize plantGroup = faceGroupIndex(MeshLayer::Plants, BlockFace::PosX);
+    if (m_hasShapes) {
+        addShapes(snapshot, blocks);
+    }
     for (usize group = 0; group < kFaceGroupCount; ++group) {
         out.groupBegin[group] = static_cast<u32>(out.quads.size());
         if (group == plantGroup && m_hasPlants) {
@@ -447,6 +459,21 @@ void Mesher::mergeFaces(const ChunkSnapshot& snapshot, const BlockRegistryView& 
         u32 slices = m_groupSlices[group];
         m_groupSlices[group] = 0;
         const BlockFace face = kFaces[group % kBlockFaceCount];
+        if (group / kBlockFaceCount == static_cast<usize>(MeshLayer::Opaque) && m_hasShapes) {
+            std::vector<PackedQuad>& shapes = m_shapeQuads[group % kBlockFaceCount];
+            for (const PackedQuad& quad : shapes) {
+                // Whole cells for the bounds: a slab never reaches past its own.
+                std::array<u32, 3> cell = {quad.x(), quad.y(), quad.z()};
+                const FaceAxes axes = faceAxes(face);
+                cell[axes.normal] -= axes.positive ? 1U : 0U;
+                for (usize axis = 0; axis < 3; ++axis) {
+                    bounds.min[axis] = std::min(bounds.min[axis], cell[axis]);
+                    bounds.max[axis] = std::max(bounds.max[axis], cell[axis] + 1U);
+                }
+            }
+            out.quads.insert(out.quads.end(), shapes.begin(), shapes.end());
+            shapes.clear();
+        }
         while (slices != 0) {
             const auto slice = static_cast<u32>(std::countr_zero(slices));
             slices &= slices - 1;
@@ -571,6 +598,56 @@ void Mesher::addPlants(const ChunkSnapshot& snapshot, const BlockRegistryView& b
                 const u32 position = x | (y << 5U) | (z << 10U) | extra;
                 out.quads.push_back({.word0 = position | (6U << 23U), .word1 = word1});
                 out.quads.push_back({.word0 = position | (7U << 23U), .word1 = word1});
+            }
+        }
+    }
+}
+
+void Mesher::addShapes(const ChunkSnapshot& snapshot, const BlockRegistryView& blocks) {
+    // Slabs are few (snow on the ground), so each one is looked at on its own:
+    // up to six single block quads, with its height in word0 bits 27 to 30. A
+    // side is hidden by an opaque neighbor or a slab at least as tall; the top
+    // never touches the block above, so it always shows.
+    constexpr std::array<std::ptrdiff_t, kBlockFaceCount> kStep = {1,
+                                                                   -1,
+                                                                   static_cast<std::ptrdiff_t>(kSlice),
+                                                                   -static_cast<std::ptrdiff_t>(kSlice),
+                                                                   static_cast<std::ptrdiff_t>(kRow),
+                                                                   -static_cast<std::ptrdiff_t>(kRow)};
+    for (u32 y = 0; y < 16; ++y) {
+        for (u32 z = 0; z < 16; ++z) {
+            const usize line = (usize{y + 1} * kSlice) + (usize{z + 1} * kRow);
+            for (u32 x = 0; x < 16; ++x) {
+                const usize index = line + x + 1;
+                const BlockStateId state = snapshot.states[index];
+                if ((m_classes[state] & kShapeBit) == 0) {
+                    continue;
+                }
+                const BlockRenderInfo& info = blocks.info(state);
+                const u32 height = m_heights[state];
+                for (usize f = 0; f < kBlockFaceCount; ++f) {
+                    const BlockFace face = kFaces[f];
+                    const auto neighbor =
+                        static_cast<usize>(static_cast<std::ptrdiff_t>(index) + kStep.at(f));
+                    const BlockStateId next = snapshot.states[neighbor];
+                    const bool opaque = (m_classes[next] & kKindMask) == static_cast<u32>(Kind::Opaque);
+                    const bool side = face != BlockFace::PosY && face != BlockFace::NegY;
+                    const bool hidden =
+                        face != BlockFace::PosY &&
+                        (opaque || (side && (m_classes[next] & kShapeBit) != 0 && m_heights[next] >= height));
+                    if (hidden) {
+                        continue;
+                    }
+                    const u8 light = snapshot.light[face == BlockFace::PosY ? index : neighbor];
+                    const u32 word1 = u32{info.textureLayer(face)} | (0xFFU << 14U) |
+                                      (u32{skyLightOf(light)} << 22U) | (u32{blockLightOf(light)} << 26U);
+                    std::array<u32, 3> origin = {x, y, z};
+                    const FaceAxes axes = faceAxes(face);
+                    origin[axes.normal] += axes.positive ? 1U : 0U;
+                    const u32 word0 = origin[0] | (origin[1] << 5U) | (origin[2] << 10U) |
+                                      (static_cast<u32>(face) << 23U) | (height << 27U);
+                    m_shapeQuads.at(f).push_back({.word0 = word0, .word1 = word1});
+                }
             }
         }
     }

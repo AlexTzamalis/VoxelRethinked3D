@@ -2,6 +2,16 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#136] 2026-11-05, Snow layers and ice
+### Added
+- Snow block in 8 layers of 2 pixels each, up to a whole block. Placing snow on top of a layer adds one; a single layer is replaced like grass.
+- Ice and packed ice blocks from the new textures.
+- Snowy biomes lie under snow: drifts of 1 to 4 layers on the ground, a thin layer on leaves, grass and flowers buried. Bare steep rock stays clear.
+- The top water block in snowy biomes freezes: lakes and rivers fully, frozen oceans in sheets with open water and some packed ice. Snowy peaks show patches of packed ice.
+- Far terrain shows the snow and ice too.
+- Blocks can be slabs (height in block files, per variant too), with their own quads in the mesher, collision at their height and a matching outline.
+- Walking steps up 0.6 of a block, enough for snow, never a whole block.
+
 ## [#135] 2026-11-02, Splashes and wet ground
 ### Added
 - Rain splashes where it lands, around the player.

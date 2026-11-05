@@ -8,6 +8,7 @@
 #include <vxe/voxel/block_registry.hpp>
 
 #include <array>
+#include <vector>
 
 namespace vr {
 
@@ -91,6 +92,16 @@ struct BiomeLook {
     vxe::f32 boulders = 0.0F; // Chance per feature cell.
     vxe::f32 fallenLogs = 0.0F;
     TreeKind logKind = TreeKind::Oak;
+    // Snow layers lying on the open ground at most, 0 for a biome without snow.
+    // Where it snows, the top of still water freezes too.
+    vxe::u8 snowDepth = 0;
+};
+
+// What fallen snow does on a block (TerrainBlocks::snowRest).
+enum class SnowRest : vxe::u8 {
+    None,  // Slides off or melts: water, glass, slabs.
+    Holds, // Lies on top: ground, rock, logs, leaves.
+    Buries // Disappears under it: grass and flowers.
 };
 
 // The block states world generation places, from names in the catalog.
@@ -114,7 +125,11 @@ struct TerrainBlocks {
     vxe::voxel::BlockStateId floor = 0;
     std::array<vxe::voxel::BlockStateId, 9> soils{}; // What plants and trees root in.
     std::array<TreeBlocks, kTreeKindCount> trees{};
-    std::array<PlantChoice, 7> waterside{}; // What crowds the banks of rivers and lakes.
+    std::array<PlantChoice, 7> waterside{};               // What crowds the banks of rivers and lakes.
+    std::array<vxe::voxel::BlockStateId, 8> snowLayers{}; // snow[layers=1] to 8.
+    vxe::voxel::BlockStateId ice = 0;
+    vxe::voxel::BlockStateId packedIce = 0;
+    std::vector<SnowRest> snowRest; // Per state.
     vxe::u8 watersideCount = 0;
     std::array<BiomeLook, kBiomeCount> biomes{};
 

@@ -115,13 +115,13 @@ void PlayerController::update(vxe::render::Camera& camera, const vxe::voxel::Vox
     // as solid, so the player waits at their edge instead of falling through.
     const auto isSolid = [&](const BlockPos& block) {
         if (block.y >= top) {
-            return false;
+            return 0.0;
         }
         if (block.y < bottom) {
-            return true;
+            return 1.0;
         }
         const BlockStateId state = world.getBlock(block, kUnloaded);
-        return state == kUnloaded || m_catalog.isSolid(state);
+        return state == kUnloaded ? 1.0 : m_catalog.collisionHeight(state);
     };
     const auto isLiquid = [&](const BlockPos& block) {
         const BlockStateId state = world.getBlock(block, kAirState);
@@ -186,7 +186,8 @@ void BlockInteraction::update(const vxe::render::Camera& camera, const PlayerSta
         constexpr f64 kGrow = 0.003; // Off the faces, so the lines do not flicker.
         const vxe::DVec3 corner(static_cast<f64>(block.x), static_cast<f64>(block.y),
                                 static_cast<f64>(block.z));
-        draw->box(corner - kGrow, corner + 1.0 + kGrow, kOutlineColor);
+        const f64 height = m_catalog.shapeHeight(world.getBlock(block, kAirState));
+        draw->box(corner - kGrow, corner + vxe::DVec3(1.0, height, 1.0) + kGrow, kOutlineColor);
     }
 
     // A press acts at once; holding repeats after a pause.
@@ -212,6 +213,16 @@ void BlockInteraction::update(const vxe::render::Camera& camera, const PlayerSta
     if (shouldAct(m_actions.placeBlock, m_placeWait)) {
         const BlockStateId state = hotbar.current();
         const vxe::IVec3 normal = vxe::normalOf(m_target->face);
+        // Snow on snow: the top of a layer takes one more, up to a whole block.
+        const BlockStateId targetState = world.getBlock(block, kAirState);
+        const BlockStateId grown = m_catalog.nextLayer(targetState);
+        if (grown != kAirState && m_target->face == vxe::Face::PosY &&
+            m_catalog.sameBlock(state, targetState)) {
+            if (!overlapsPlayer(player, block)) {
+                static_cast<void>(setBlock(block, grown));
+            }
+            return;
+        }
         // Pointing at grass or a flower means the place it stands on: a block
         // goes where the plant is, not beside it, so foliage never gets in the
         // way of building.

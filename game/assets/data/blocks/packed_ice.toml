@@ -1,0 +1,8 @@
+# Ice pressed so hard it is opaque, in glaciers and icebergs. Format: see stone.toml.
+name = "packed_ice"
+display_name = "Packed Ice"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "packed_ice"

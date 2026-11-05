@@ -4,6 +4,7 @@
 
 #include <doctest/doctest.h>
 
+#include <format>
 #include <string>
 #include <vector>
 
@@ -109,6 +110,7 @@ TEST_CASE("Plants keep their variations in a row and tall plants know their halv
                  "variations = [\"foliage/high\"]"},
     };
     const auto loaded = BlockCatalog::load(sources);
+    INFO((loaded.hasValue() ? std::string() : loaded.error().message()));
     REQUIRE(loaded.hasValue());
     const BlockCatalog& catalog = loaded.value();
     const auto grass = *catalog.stateId("grass");
@@ -255,4 +257,38 @@ TEST_CASE("Invalid block files report every problem with file and field") {
           std::string::npos);
     CHECK(errorOf({}).find("no block definitions found") != std::string::npos);
     CHECK_FALSE(BlockCatalog::loadFolder("this/folder/does/not/exist").hasValue());
+}
+
+TEST_CASE("Snow comes in layers that stack to a whole block") {
+    std::string text = "name = \"snow\"\ndisplay_name = \"Snow\"\nlayer = \"opaque\"\nreplaceable = true\n"
+                       "needs_support = true\n"
+                       "[textures]\nall = \"s\"\n";
+    for (int layers = 1; layers <= 8; ++layers) {
+        text += std::format("[[variants]]\nproperties = {{ layers = \"{}\" }}\nheight = {}\n", layers,
+                            layers * 2);
+    }
+    const std::vector<BlockSource> sources = {{.file = "snow.toml", .text = text}};
+    const auto loaded = BlockCatalog::load(sources);
+    INFO((loaded.hasValue() ? std::string() : loaded.error().message()));
+    REQUIRE(loaded.hasValue());
+    const BlockCatalog& catalog = loaded.value();
+    const auto first = catalog.stateId("snow[layers=1]");
+    const auto last = catalog.stateId("snow[layers=8]");
+    REQUIRE(first.has_value());
+    REQUIRE(last.has_value());
+    CHECK(catalog.shapeHeight(*first) == doctest::Approx(2.0 / 16.0));
+    CHECK(catalog.shapeHeight(*last) == doctest::Approx(1.0));
+    CHECK(catalog.renderInfo(*last).height == 0);
+    vxe::voxel::BlockStateId state = *first;
+    int steps = 0;
+    while (catalog.nextLayer(state) != vxe::voxel::kAirState) {
+        state = catalog.nextLayer(state);
+        ++steps;
+    }
+    CHECK(steps == 7);
+    CHECK(state == *last);
+    CHECK(catalog.isReplaceable(*first));
+    CHECK_FALSE(catalog.isReplaceable(*catalog.stateId("snow[layers=3]")));
+    CHECK(catalog.needsSupport(*first));
+    CHECK(catalog.collisionHeight(*first) == doctest::Approx(2.0 / 16.0));
 }

@@ -52,14 +52,26 @@ constexpr vxe::f64 kSwimFactor = 0.6;
 // Keeps the box a hair off the block it touches, so the next step starts in
 // free space whatever rounding did.
 constexpr vxe::f64 kSkin = 1.0e-6;
+// Walking climbs this much without a jump: snow layers, never a whole block.
+constexpr vxe::f64 kStepHeight = 0.6;
 
 [[nodiscard]] inline vxe::i64 floorOf(vxe::f64 value) noexcept {
     return static_cast<vxe::i64>(std::floor(value));
 }
 
+// A collision callback answers whether a block is solid (bool), or how tall
+// its solid part stands from the cell's floor, 0 to 1 (f64: slabs like snow).
+[[nodiscard]] inline vxe::f64 heightOf(bool solid) noexcept {
+    return solid ? 1.0 : 0.0;
+}
+[[nodiscard]] inline vxe::f64 heightOf(vxe::f64 height) noexcept {
+    return height;
+}
+
 // How far the box may move along `axis` (0 X, 1 Y, 2 Z), up to `delta`. Walks
 // the layers of blocks in front of the box in order, so no speed can tunnel
-// through a block, and stops at the first solid one.
+// through a block, and stops at the first layer that blocks. A slab blocks a
+// fall at its top, and a sideways move only where it reaches above the feet.
 template <typename IsSolid>
 [[nodiscard]] vxe::f64 sweepAxis(const vxe::DVec3& feet, int axis, vxe::f64 delta, IsSolid&& isSolid) {
     if (delta == 0.0) {
@@ -80,19 +92,40 @@ template <typename IsSolid>
     const vxe::i64 bFirst = floorOf(low.at(b) + kSkin);
     const vxe::i64 bLast = floorOf(high.at(b) - kSkin);
     for (vxe::i64 layer = first;; layer += step) {
+        bool blocked = false;
+        vxe::f64 closest = delta;
         for (vxe::i64 i = aFirst; i <= aLast; ++i) {
             for (vxe::i64 j = bFirst; j <= bLast; ++j) {
                 std::array<vxe::i64, 3> cell{};
                 cell.at(index) = layer;
                 cell.at(a) = i;
                 cell.at(b) = j;
-                if (isSolid(vxe::BlockPos{.x = cell[0], .y = cell[1], .z = cell[2]})) {
-                    const vxe::f64 room = delta > 0.0 ? static_cast<vxe::f64>(layer) - leading - kSkin
-                                                      : static_cast<vxe::f64>(layer + 1) - leading + kSkin;
-                    // Already touching: stay, never get pushed back.
-                    return delta > 0.0 ? std::max(room, 0.0) : std::min(room, 0.0);
+                const vxe::f64 height =
+                    heightOf(isSolid(vxe::BlockPos{.x = cell[0], .y = cell[1], .z = cell[2]}));
+                if (height <= 0.0) {
+                    continue;
                 }
+                const vxe::f64 top = static_cast<vxe::f64>(cell[1]) + height;
+                if (axis != 1 && height < 1.0 && feet.y >= top - kSkin) {
+                    continue; // A slab below the feet.
+                }
+                vxe::f64 room = 0.0;
+                if (delta > 0.0) {
+                    room = static_cast<vxe::f64>(layer) - leading - kSkin;
+                } else {
+                    room = (axis == 1 ? top : static_cast<vxe::f64>(layer + 1)) - leading + kSkin;
+                    if (room <= delta) {
+                        continue; // A slab whose top the fall does not reach.
+                    }
+                }
+                // Already touching: stay, never get pushed back.
+                room = delta > 0.0 ? std::max(room, 0.0) : std::min(room, 0.0);
+                closest = blocked ? (delta > 0.0 ? std::min(closest, room) : std::max(closest, room)) : room;
+                blocked = true;
             }
+        }
+        if (blocked) {
+            return closest;
         }
         if (layer == last) {
             return delta;
@@ -172,7 +205,20 @@ void stepPlayer(PlayerState& state, const PlayerInput& input, IsSolid&& isSolid,
                 want = 0.0;
             }
         }
-        const vxe::f64 moved = sweepAxis(state.position, axis, want, isSolid);
+        vxe::f64 moved = sweepAxis(state.position, axis, want, isSolid);
+        if (moved != want && state.onGround && !state.flying && !swimming) {
+            // Blocked on the ground: try again from a step higher, and keep that
+            // if it goes further, settling back down onto what was climbed.
+            vxe::DVec3 lifted = state.position;
+            lifted.y += sweepAxis(lifted, 1, kStepHeight, isSolid);
+            const vxe::f64 across = sweepAxis(lifted, axis, want, isSolid);
+            if (std::abs(across) > std::abs(moved) + kSkin) {
+                (axis == 0 ? lifted.x : lifted.z) += across;
+                lifted.y += sweepAxis(lifted, 1, state.position.y - lifted.y, isSolid);
+                state.position.y = lifted.y;
+                moved = across;
+            }
+        }
         position += moved;
         if (moved != want || want == 0.0) {
             velocity = 0.0;

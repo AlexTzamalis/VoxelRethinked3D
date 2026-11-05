@@ -20,7 +20,7 @@ namespace {
 
 // Bumped whenever the terrain or this sampler changes what it makes, so cached
 // tiles of older versions are thrown away.
-constexpr vxe::u32 kGeneratorVersion = 20;
+constexpr vxe::u32 kGeneratorVersion = 21;
 constexpr i32 kNoCrown = std::numeric_limits<i32>::min();
 // How far crowns stand above the ground on average.
 constexpr i64 kCrownAboveGround = 8;
@@ -73,6 +73,9 @@ TerrainLodSampler::TerrainLodSampler(const Terrain& terrain, const vxe::voxel::B
     m_materials.sand = view.info(blocks.sand).textureLayer(BlockFace::PosY);
     m_materials.water = view.info(blocks.water).textureLayer(BlockFace::PosY);
     m_materials.leaves = view.info(blocks.trees[0].leaves).textureLayer(BlockFace::PosY);
+    m_materials.stone = view.info(blocks.stone).textureLayer(BlockFace::PosY);
+    m_materials.snow = view.info(blocks.snowLayers[0]).textureLayer(BlockFace::PosY);
+    m_materials.ice = view.info(blocks.ice).textureLayer(BlockFace::PosY);
     m_materials.waterOverFloor = layerCount;
     for (u32 k = 0; k + 1 < kBlendSteps; ++k) {
         m_materials.grassLeaves.at(k) = static_cast<vxe::u16>(layerCount + 1 + k);
@@ -140,6 +143,8 @@ bool TerrainLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
     thread_local std::vector<vxe::voxel::BlockStateId> tops;
     thread_local std::vector<f64> covers;
     thread_local std::vector<i64> waters;
+    thread_local std::vector<vxe::u8> snowy;
+    snowy.resize(vxe::voxel::kLodCellCount);
     heights.resize(vxe::voxel::kLodCellCount);
     tops.resize(vxe::voxel::kLodCellCount);
     covers.resize(vxe::voxel::kLodCellCount);
@@ -168,6 +173,7 @@ bool TerrainLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
                 heights[index] = m_terrain.surfaceHeight(x, z);
                 tops[index] = m_terrain.topBlock(x, z);
                 waters[index] = m_terrain.waterLevel(x, z);
+                snowy[index] = m_terrain.isSnowy(m_terrain.biomeAt(x, z)) ? 1U : 0U;
                 continue;
             }
             const u32 gx = cx / kClimateStride;
@@ -190,6 +196,7 @@ bool TerrainLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
             tops[index] = far.top;
             waters[index] = far.water;
             covers[index] = m_terrain.treeCover(far.biome);
+            snowy[index] = m_terrain.isSnowy(far.biome) ? 1U : 0U;
         }
     }
     thread_local Crowns crowns;
@@ -208,6 +215,16 @@ bool TerrainLodSampler::sampleTile(const vxe::voxel::LodTileKey& key,
                 // A hash of the cell: canopy heights depend on nothing else.
                 const i64 bump = ((index * 2654435761U) ^ static_cast<u32>(key.originX())) >> 20U;
                 addCoarseCell(base, heights[index], covers[index], bump, spans);
+            }
+            if (snowy[index] != 0) {
+                // As the chunks: snow on everything but bare rock, ice on water.
+                for (LodSpan& span : spans) {
+                    if (span.topMaterial == m_materials.waterOverFloor) {
+                        span.topMaterial = m_materials.ice;
+                    } else if (span.topMaterial != m_materials.stone) {
+                        span.topMaterial = m_materials.snow;
+                    }
+                }
             }
             builder.addCell(spans);
         }

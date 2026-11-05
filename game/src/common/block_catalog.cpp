@@ -146,7 +146,7 @@ void BlockCatalogLoader::loadFile(const BlockSource& source) {
         return;
     }
     for (const auto& [key, node] : root) {
-        static constexpr std::array<std::string_view, 23> kKnown = {"name",
+        static constexpr std::array<std::string_view, 24> kKnown = {"name",
                                                                     "display_name",
                                                                     "layer",
                                                                     "emitted_light",
@@ -168,7 +168,8 @@ void BlockCatalogLoader::loadFile(const BlockSource& source) {
                                                                     "needs_support",
                                                                     "overlay_tint",
                                                                     "tall_top",
-                                                                    "hidden"};
+                                                                    "hidden",
+                                                                    "height"};
         if (std::ranges::find(kKnown, key.str()) == kKnown.end()) {
             problem(source.file, std::format("unknown field '{}'", key.str()));
         }
@@ -260,7 +261,16 @@ u16 BlockCatalogLoader::addVariants(std::string_view file, const std::string& na
         if (!applyTextures(file, where + ".textures", variant->get("textures"), keys)) {
             continue;
         }
-        addState(file, stateName, info, keys);
+        BlockRenderInfo variantInfo = info;
+        if (const toml::node* heightNode = variant->get("height"); heightNode != nullptr) {
+            const std::optional<std::int64_t> height = heightNode->value_exact<std::int64_t>();
+            if (!height || *height < 1 || *height > 16) {
+                problem(file, where + ".height must be a whole number from 1 to 16");
+                continue;
+            }
+            variantInfo.height = *height == 16 ? vxe::u8{0} : static_cast<vxe::u8>(*height);
+        }
+        addState(file, stateName, variantInfo, keys);
         ++added;
     }
     return added;
@@ -305,6 +315,9 @@ bool BlockCatalogLoader::readCommon(const BlockSource& source, const toml::table
         integer("light_opacity", info.layer == RenderLayer::Opaque ? vxe::voxel::kMaxLightLevel : 0,
                 vxe::voxel::kMaxLightLevel);
     info.tintIndex = integer("tint", 0, vxe::voxel::kTintCount - 1);
+    // Sixteenths of a block; 16, the default, is a whole block (stored as 0).
+    const vxe::u8 height = integer("height", 16, 16);
+    info.height = height == 0 || height == 16 ? 0 : height;
     const auto flag = [&](std::string_view key, bool fallback) {
         const auto node = root[key];
         if (node && !node.is_boolean()) {
@@ -544,6 +557,27 @@ bool BlockCatalogLoader::readVariations(const BlockSource& source, const toml::t
         }
     }
     return true;
+}
+
+vxe::voxel::BlockStateId BlockCatalog::nextLayer(vxe::voxel::BlockStateId state) const {
+    const usize next = usize{state} + 1;
+    if (state == vxe::voxel::kAirState || next >= m_renderInfos.size() ||
+        m_renderInfos.at(state).height == 0 ||
+        !sameBlock(state, static_cast<vxe::voxel::BlockStateId>(next))) {
+        return vxe::voxel::kAirState;
+    }
+    const vxe::u8 taller = m_renderInfos.at(next).height;
+    return taller == 0 || taller > m_renderInfos.at(state).height
+               ? static_cast<vxe::voxel::BlockStateId>(next)
+               : vxe::voxel::kAirState;
+}
+
+bool BlockCatalog::sameBlock(vxe::voxel::BlockStateId a, vxe::voxel::BlockStateId b) const {
+    const auto blockName = [&](vxe::voxel::BlockStateId state) {
+        const std::string_view name = m_stateNames.at(state);
+        return name.substr(0, name.find('['));
+    };
+    return blockName(a) == blockName(b);
 }
 
 void BlockCatalogLoader::linkTallPlants() {

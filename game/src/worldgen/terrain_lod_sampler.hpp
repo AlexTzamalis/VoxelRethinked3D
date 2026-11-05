@@ -54,6 +54,9 @@ private:
         vxe::u16 sand = 0;
         vxe::u16 water = 0;
         vxe::u16 leaves = 0;
+        vxe::u16 stone = 0;
+        vxe::u16 snow = 0;
+        vxe::u16 ice = 0;
         vxe::u16 waterOverFloor = 0;                         // LOD only.
         std::array<vxe::u16, kBlendSteps - 1> grassLeaves{}; // LOD only.
     };

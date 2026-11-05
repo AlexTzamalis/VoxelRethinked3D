@@ -117,7 +117,14 @@ void main() {
         local = origin + vec3(0.5 + shiftX + along * directionX, up, 0.5 + shiftZ + along * directionZ);
     } else {
         const uint axis = face >> 1u;
-        local = origin + kAxisU[axis] * (cornerU * width) + kAxisV[axis] * (cornerV * height);
+        // A slab (BlockRenderInfo::height): the top drops to its height, and
+        // the sides end there, showing the lower part of the texture.
+        const float slab = float((quad.x >> 27u) & 15u) / 16.0;
+        const float rise = slab > 0.0 && axis != 1u ? slab : 1.0;
+        local = origin + kAxisU[axis] * (cornerU * width) + kAxisV[axis] * (cornerV * height * rise);
+        if (slab > 0.0 && face == 2u) {
+            local.y -= 1.0 - slab;
+        }
     }
     const ivec3 chunk = chunks[gl_BaseInstance].position.xyz;
     vRelative = cameraRelative(chunk, local);
@@ -140,7 +147,9 @@ void main() {
         const uint step = ticks % (animation & 0xFFu);
         layer = step == 0u ? layer : (animation >> 16u) + step - 1u;
     }
-    vUvLayer = vec3(u, cornerV * (crossed ? 1.0 : height), float(layer));
+    const float slab = crossed ? 0.0 : float((quad.x >> 27u) & 15u) / 16.0;
+    const float v = cornerV * (crossed ? 1.0 : height) * (slab > 0.0 && (face >> 1u) != 1u ? slab : 1.0);
+    vUvLayer = vec3(u, v, float(layer));
 
     const uint ao = (quad.y >> (14u + 2u * corner)) & 3u;
     const float occlusion = mix(1.0, kAoCurve[ao], chunkParams.params.x);

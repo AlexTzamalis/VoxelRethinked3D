@@ -134,3 +134,29 @@ TEST_CASE("Water sinks slowly and swims up") {
     }
     CHECK(state.position.y > sunk + 2.0);
 }
+
+TEST_CASE("Slabs carry the player at their height and walking steps onto them") {
+    // A floor below y = 0 and a snow slab a quarter block tall from z < 0.
+    const auto snowy = [](const BlockPos& block) -> vxe::f64 {
+        if (block.y < 0) {
+            return 1.0;
+        }
+        return block.y == 0 && block.z < 0 ? 0.25 : 0.0;
+    };
+    PlayerState state{.position = {kCenter, 0.0, kCenter}, .onGround = true};
+    run(state, {.forward = 1.0}, 1.5, snowy);
+    CHECK(state.position.z < -0.5);
+    CHECK(state.position.y == doctest::Approx(0.25).epsilon(1e-3));
+    // Standing still on the slab stays on it.
+    run(state, {}, 1.0, snowy);
+    CHECK(state.onGround);
+    CHECK(state.position.y == doctest::Approx(0.25).epsilon(1e-3));
+}
+
+TEST_CASE("Walking never steps up a whole block") {
+    const auto wall = [](const BlockPos& block) { return block.y < 0 || (block.y == 0 && block.z < 0); };
+    PlayerState state{.position = {kCenter, 0.0, kCenter}, .onGround = true};
+    run(state, {.forward = 1.0}, 1.5, wall);
+    CHECK(state.position.z > 0.0);
+    CHECK(state.position.y == doctest::Approx(0.0).epsilon(1e-3));
+}

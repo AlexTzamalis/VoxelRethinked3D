@@ -26,12 +26,14 @@ namespace {
 
 constexpr BlockStateId kAir = 0;
 constexpr BlockStateId kStone = 1;
-constexpr BlockStateId kGrass = 2;  // Its top has its own texture.
-constexpr BlockStateId kWater = 3;  // Translucent, hides faces against water.
-constexpr BlockStateId kGlass = 4;  // Translucent, hides faces against glass.
-constexpr BlockStateId kLeaves = 5; // Cutout, shows faces between leaves.
-constexpr BlockStateId kPlant = 6;  // Crossed planes, 4 variations from layer 60.
-constexpr BlockStateId kBushy = 7;  // Leaves with a bushy plane at layer 70.
+constexpr BlockStateId kGrass = 2;    // Its top has its own texture.
+constexpr BlockStateId kWater = 3;    // Translucent, hides faces against water.
+constexpr BlockStateId kGlass = 4;    // Translucent, hides faces against glass.
+constexpr BlockStateId kLeaves = 5;   // Cutout, shows faces between leaves.
+constexpr BlockStateId kPlant = 6;    // Crossed planes, 4 variations from layer 60.
+constexpr BlockStateId kBushy = 7;    // Leaves with a bushy plane at layer 70.
+constexpr BlockStateId kSnow = 8;     // A slab 4 sixteenths tall, texture 80.
+constexpr BlockStateId kDeepSnow = 9; // 8 sixteenths.
 
 std::shared_ptr<voxel::BlockRegistryView> testBlocks() {
     voxel::BlockRegistryBuilder builder;
@@ -52,6 +54,11 @@ std::shared_ptr<voxel::BlockRegistryView> testBlocks() {
     BlockRenderInfo bushy{.layer = RenderLayer::Cutout, .cullsSameType = false, .bushyLayer = 71};
     bushy.faceTextureLayer.fill(55);
     REQUIRE(builder.add(bushy));
+    for (const u8 height : {u8{4}, u8{8}}) {
+        BlockRenderInfo snow{.layer = RenderLayer::Opaque, .lightOpacity = 0, .height = height};
+        snow.faceTextureLayer.fill(80);
+        REQUIRE(builder.add(snow));
+    }
     return builder.build();
 }
 
@@ -610,4 +617,31 @@ TEST_CASE("Translucent quads sort back to front") {
     voxel::sortBackToFront(quads, Vec3(0.0F, 1.5F, 1.5F));
     CHECK(quads.front().x() >= 14); // The farthest water block comes first...
     CHECK(quads.back().x() <= 2);   // ...the nearest last.
+}
+
+TEST_CASE("Slabs carry their height, hide nothing and hide sides against taller slabs") {
+    TestSnapshot field;
+    field.set(5, 4, 5, kStone);
+    field.set(5, 5, 5, kSnow);
+    field.set(6, 4, 5, kStone);
+    field.set(6, 5, 5, kDeepSnow);
+    const ChunkMesh mesh = meshOf(field);
+    const auto height = [](const PackedQuad& quad) { return (quad.word0 >> 27U) & 15U; };
+    // The stones' tops still show under the snow; nothing of the snow is cut.
+    REQUIRE(findQuad(mesh, MeshLayer::Opaque, BlockFace::PosY, {5, 4, 5}) != nullptr);
+    const PackedQuad* top = findQuad(mesh, MeshLayer::Opaque, BlockFace::PosY, {5, 5, 5});
+    REQUIRE(top != nullptr);
+    CHECK(height(*top) == 4);
+    CHECK(top->textureLayer() == 80);
+    // On stone, so no bottom face.
+    CHECK(findQuad(mesh, MeshLayer::Opaque, BlockFace::NegY, {5, 5, 5}) == nullptr);
+    // The thin slab's side towards the deeper one is hidden, the deeper one's is not.
+    CHECK(findQuad(mesh, MeshLayer::Opaque, BlockFace::PosX, {5, 5, 5}) == nullptr);
+    const PackedQuad* deepSide = findQuad(mesh, MeshLayer::Opaque, BlockFace::NegX, {6, 5, 5});
+    REQUIRE(deepSide != nullptr);
+    CHECK(height(*deepSide) == 8);
+    REQUIRE(findQuad(mesh, MeshLayer::Opaque, BlockFace::NegX, {5, 5, 5}) != nullptr);
+    // Full blocks keep the height bits clear.
+    CHECK(height(*findQuad(mesh, MeshLayer::Opaque, BlockFace::PosY, {5, 4, 5})) == 0);
+    CHECK(mesh.boundsMax[1] == 6);
 }

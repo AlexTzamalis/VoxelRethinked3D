@@ -1,0 +1,44 @@
+# Snow lying on the ground in layers of 2 pixels, up to a whole block, like
+# fallen snow. Placing snow on top of a layer adds one. Format: see stone.toml.
+name = "snow"
+display_name = "Snow"
+category = "Nature"
+layer = "opaque"
+light_opacity = 0
+replaceable = true
+needs_support = true
+
+[textures]
+all = "snow_block"
+
+[[variants]]
+properties = { layers = "1" }
+height = 2
+
+[[variants]]
+properties = { layers = "2" }
+height = 4
+
+[[variants]]
+properties = { layers = "3" }
+height = 6
+
+[[variants]]
+properties = { layers = "4" }
+height = 8
+
+[[variants]]
+properties = { layers = "5" }
+height = 10
+
+[[variants]]
+properties = { layers = "6" }
+height = 12
+
+[[variants]]
+properties = { layers = "7" }
+height = 14
+
+[[variants]]
+properties = { layers = "8" }
+height = 16

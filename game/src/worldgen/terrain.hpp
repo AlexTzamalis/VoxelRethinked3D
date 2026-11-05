@@ -122,6 +122,10 @@ public:
 
     // How much of the ground lies under crowns in a biome, 0 to 1.
     [[nodiscard]] vxe::f64 treeCover(Biome biome) const noexcept;
+    // Whether snow lies in this biome (BiomeLook::snowDepth), for far terrain.
+    [[nodiscard]] bool isSnowy(Biome biome) const noexcept {
+        return m_blocks.biomes[static_cast<vxe::usize>(biome)].snowDepth > 0;
+    }
 
     // A block column on dry, gentle land near the origin, for the player to
     // start on. Searches outwards, so it costs a few milliseconds.
@@ -172,6 +176,10 @@ private:
     void placeFeatures(vxe::ChunkPos chunk, std::span<vxe::voxel::BlockStateId, vxe::kChunkVolume> out) const;
     void placeTrees(vxe::ChunkPos chunk, std::span<vxe::voxel::BlockStateId, vxe::kChunkVolume> out) const;
     void placePlants(vxe::ChunkPos chunk, std::span<vxe::voxel::BlockStateId, vxe::kChunkVolume> out) const;
+    // Snow on the highest blocks of snowy biomes, ice on their still water.
+    void coverSnow(vxe::ChunkPos chunk, std::span<vxe::voxel::BlockStateId, vxe::kChunkVolume> out) const;
+    [[nodiscard]] vxe::voxel::BlockStateId snowLayerAt(vxe::i64 x, vxe::i64 z, vxe::u8 depth) const noexcept;
+    [[nodiscard]] vxe::voxel::BlockStateId iceAt(vxe::i64 x, vxe::i64 z, Biome biome) const noexcept;
 
     TerrainBlocks m_blocks;
     vxe::u64 m_seed;

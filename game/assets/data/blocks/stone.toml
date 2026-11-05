@@ -31,6 +31,9 @@
 #   needs_support    It goes when the block below goes. Default true for plants.
 #   tall_top         A tall plant: the block of its upper half.
 #   hidden           Not in the creative inventory (the upper half of a tall plant).
+#   height           1 to 16: how tall the block stands in sixteenths, a slab on the
+#                    floor of its cell (snow layers). Default 16, a whole block. A
+#                    [[variants]] table may set its own.
 #   [[variants]]     Optional. Each variant is one block state with its own
 #                    properties and texture overrides (see oak_log.toml).
 

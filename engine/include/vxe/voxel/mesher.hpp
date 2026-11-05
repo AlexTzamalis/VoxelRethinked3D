@@ -21,7 +21,8 @@ namespace vxe::voxel {
 // word0: bits 0..4 x, 5..9 y, 10..14 z (0 to 16: the quad's minimum corner
 //        in chunk local block corners; a face can sit on the far edge 16),
 //        15..18 width - 1, 19..22 height - 1, 23..25 face (BlockFace),
-//        26 flip (AO diagonal), 27..31 reserved. Face 6 and 7 are the two
+//        26 flip (AO diagonal), 27..30 the height of a slab in sixteenths
+//        (0 a whole block: BlockRenderInfo::height), 31 reserved. Face 6 and 7 are the two
 //        diagonal planes of a plant: 27..28 and 29..30 shift it on X and Z,
 //        and 31 makes it a large bushy plane around the block's center, then
 //        with 27..30 as its turn.
@@ -256,11 +257,14 @@ private:
     // Appends the crossed planes of plants and bushy leaves.
     void addPlants(const ChunkSnapshot& snapshot, const BlockRegistryView& blocks, const MeshOptions& options,
                    ChunkMesh& out);
+    // Collects the faces of slabs (BlockRenderInfo::height) into m_shapeQuads.
+    void addShapes(const ChunkSnapshot& snapshot, const BlockRegistryView& blocks);
     [[nodiscard]] u16 connectivity();
 
     // One byte per possible state: its Kind, plus bit 2 if it hides faces
     // against its own state. Sized for every id so lookups need no check.
     std::vector<u8> m_classes;
+    std::vector<u8> m_heights; // BlockRenderInfo::height per state, for slabs.
     usize m_preparedSize = 0;
     const BlockRegistryView* m_preparedView = nullptr;
     u64 m_preparedGeneration = 0;
@@ -279,6 +283,9 @@ private:
     std::array<u32, kSnapshotArea> m_sameZ{};
     bool m_hasSeeThrough = false;
     bool m_hasPlants = false; // A state with kPlantBit is in the snapshot.
+    bool m_hasShapes = false; // A state with kShapeBit is in the snapshot.
+    // Slab faces per face direction, kept between meshes so they stop allocating.
+    std::array<std::vector<PackedQuad>, kBlockFaceCount> m_shapeQuads;
 
     // Visible faces per layer, face, slice (chunk local coordinate along the
     // normal) and row (along V), bit u for U 0 to 15. Merging consumes every

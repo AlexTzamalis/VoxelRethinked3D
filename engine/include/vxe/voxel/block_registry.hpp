@@ -73,6 +73,10 @@ struct BlockRenderInfo {
     u8 variationCount = 1;
     // Leaves: the layer plus 1 of bushy planes for MeshOptions::advancedLeaves.
     u16 bushyLayer = 0;
+    // 0 for a whole cube. 1 to 15: a slab that tall in sixteenths of a block,
+    // standing on the floor of its cell (snow layers). Slabs hide no neighbor
+    // faces and get their own quads, with the height in the spare quad bits.
+    u8 height = 0;
 
     [[nodiscard]] constexpr bool isOpaque() const noexcept { return layer == RenderLayer::Opaque; }
     [[nodiscard]] constexpr bool isVisible() const noexcept { return layer != RenderLayer::Invisible; }

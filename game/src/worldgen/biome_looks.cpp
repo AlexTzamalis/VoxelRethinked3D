@@ -51,6 +51,7 @@ struct Recipe {
     float boulders = 0.0F;
     float fallenLogs = 0.0F;
     TreeKind logKind = TreeKind::Oak;
+    vxe::u8 snowDepth = 0;
 };
 
 constexpr std::array<Weighted, 5> kMeadowGrass = {{{"short_grass", 8}, {"tall_grass", 3}, {"fern", 1}}};
@@ -98,7 +99,7 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .floor = "sand",
      .patch = "clay",
      .patchShare = 0.08F},
-    {.biome = Biome::FrozenOcean, .top = "snow_block", .under = "gravel", .floor = "gravel"},
+    {.biome = Biome::FrozenOcean, .top = "snow_block", .under = "gravel", .floor = "gravel", .snowDepth = 1},
     {.biome = Biome::Beach,
      .top = "sand",
      .under = "sand",
@@ -128,7 +129,8 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .boulderMix = "cobblestone",
      .boulders = 0.12F,
      .fallenLogs = 0.08F,
-     .logKind = TreeKind::Spruce},
+     .logKind = TreeKind::Spruce,
+     .snowDepth = 1},
     {.biome = Biome::StonyShore,
      .top = "stone",
      .under = "stone",
@@ -163,11 +165,14 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .under = "snow_block",
      .floor = "gravel",
      .patch = "calcite",
+     .patch2 = "packed_ice",
      .patchShare = 0.04F,
+     .patch2Share = 0.07F,
      .underDepth = 2,
      .boulder = "calcite",
      .boulderMix = "stone",
-     .boulders = 0.06F},
+     .boulders = 0.06F,
+     .snowDepth = 4},
     {.biome = Biome::RockyPeaks,
      .top = "stone",
      .under = "stone",
@@ -223,7 +228,8 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .treeKinds = {{{TreeKind::Spruce, 3}, {TreeKind::Pine, 1}}},
      .boulder = "stone",
      .boulderMix = "gravel",
-     .boulders = 0.08F},
+     .boulders = 0.08F,
+     .snowDepth = 2},
     {.biome = Biome::SnowyTaiga,
      .top = "snowy_grass",
      .floor = "gravel",
@@ -240,7 +246,8 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .boulderMix = "mossy_cobblestone",
      .boulders = 0.12F,
      .fallenLogs = 0.15F,
-     .logKind = TreeKind::Spruce},
+     .logKind = TreeKind::Spruce,
+     .snowDepth = 3},
     {.biome = Biome::Taiga,
      .floor = "gravel",
      .patch = "podzol",
@@ -624,6 +631,24 @@ vxe::Result<TerrainBlocks> TerrainBlocks::fromCatalog(const BlockCatalog& catalo
         look.boulders = recipe.boulders;
         look.fallenLogs = recipe.fallenLogs;
         look.logKind = recipe.logKind;
+        look.snowDepth = recipe.snowDepth;
+    }
+    for (vxe::u8 layers = 1; layers <= blocks.snowLayers.size(); ++layers) {
+        blocks.snowLayers.at(layers - 1U) = state(std::format("snow[layers={}]", layers));
+    }
+    blocks.ice = state("ice");
+    blocks.packedIce = state("packed_ice");
+    blocks.snowRest.assign(catalog.stateCount(), SnowRest::None);
+    for (vxe::usize id = 0; id < catalog.stateCount(); ++id) {
+        const auto stateId = static_cast<vxe::voxel::BlockStateId>(id);
+        const vxe::voxel::BlockRenderInfo& info = catalog.renderInfo(stateId);
+        if (info.layer == vxe::voxel::RenderLayer::Plant) {
+            blocks.snowRest.at(id) = SnowRest::Buries;
+        } else if (catalog.isSolid(stateId) && info.height == 0 &&
+                   (info.layer == vxe::voxel::RenderLayer::Opaque ||
+                    info.layer == vxe::voxel::RenderLayer::Cutout)) {
+            blocks.snowRest.at(id) = SnowRest::Holds;
+        }
     }
     if (!state.missing().empty()) {
         return vxe::Error(vxe::ErrorCode::NotFound,
