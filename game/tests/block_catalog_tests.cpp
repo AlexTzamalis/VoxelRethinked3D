@@ -292,3 +292,33 @@ TEST_CASE("Snow comes in layers that stack to a whole block") {
     CHECK(catalog.needsSupport(*first));
     CHECK(catalog.collisionHeight(*first) == doctest::Approx(2.0 / 16.0));
 }
+
+TEST_CASE("Aim boxes come from the kind of block or the block file") {
+    const std::vector<BlockSource> sources = {
+        {.file = "stone.toml",
+         .text = "name = \"stone\"\ndisplay_name = \"S\"\nlayer = \"opaque\"\n[textures]\nall = \"s\""},
+        {.file = "poppy.toml",
+         .text = "name = \"poppy\"\ndisplay_name = \"P\"\nlayer = \"plant\"\n[textures]\nall = \"p\""},
+        {.file = "torch.toml",
+         .text = "name = \"torch\"\ndisplay_name = \"T\"\nlayer = \"plant\"\naim_box = [7, 0, 7, 9, 10, 9]\n"
+                 "[textures]\nall = \"t\""},
+        {.file = "slab.toml",
+         .text = "name = \"slab\"\ndisplay_name = \"L\"\nlayer = \"opaque\"\nheight = 8\n[textures]\nall = "
+                 "\"l\""},
+    };
+    const auto loaded = BlockCatalog::load(sources);
+    REQUIRE(loaded.hasValue());
+    const BlockCatalog& catalog = loaded.value();
+    const auto box = [&](std::string_view name) { return catalog.aimBox(*catalog.stateId(name)); };
+    CHECK(box("stone") == BlockCatalog::AimBox{0, 0, 0, 16, 16, 16});
+    CHECK(box("poppy") == BlockCatalog::AimBox{2, 0, 2, 14, 13, 14});
+    CHECK(box("torch") == BlockCatalog::AimBox{7, 0, 7, 9, 10, 9});
+    CHECK(box("slab") == BlockCatalog::AimBox{0, 0, 0, 16, 8, 16});
+    CHECK(
+        errorOf(
+            {{.file = "bad.toml",
+              .text =
+                  "name = \"bad\"\ndisplay_name = \"B\"\nlayer = \"opaque\"\naim_box = [4, 0, 4, 2, 16, 16]\n"
+                  "[textures]\nall = \"b\""}})
+            .find("aim_box") != std::string::npos);
+}

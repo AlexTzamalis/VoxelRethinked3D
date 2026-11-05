@@ -174,11 +174,66 @@ void BlockInteraction::removeBlock(const vxe::voxel::VoxelWorld& world, const Bl
 void BlockInteraction::update(const vxe::render::Camera& camera, const PlayerState& player,
                               const vxe::voxel::VoxelWorld& world, Hotbar& hotbar, const SetBlock& setBlock,
                               vxe::render::DebugDraw* draw, f64 deltaSeconds) {
+    // The ray hits a block where it crosses the block's aim box, so it passes
+    // the empty part of a flower's or a snow layer's cell. The face and the
+    // point come from the box, so a snow layer's top is its top.
+    const vxe::DVec3 origin = camera.position;
+    const vxe::DVec3 direction = glm::normalize(vxe::DVec3(camera.forward()));
+    vxe::Face boxFace = vxe::Face::PosY;
+    f64 boxDistance = 0.0;
     const auto targetable = [&](const BlockPos& block) {
         const BlockStateId state = world.getBlock(block, kAirState);
-        return state != kAirState && !m_catalog.isLiquid(state);
+        if (state == kAirState || m_catalog.isLiquid(state)) {
+            return false;
+        }
+        const BlockCatalog::AimBox& box = m_catalog.aimBox(state);
+        const vxe::DVec3 corner(static_cast<f64>(block.x), static_cast<f64>(block.y),
+                                static_cast<f64>(block.z));
+        const vxe::DVec3 low = corner + (vxe::DVec3(box[0], box[1], box[2]) / 16.0);
+        const vxe::DVec3 high = corner + (vxe::DVec3(box[3], box[4], box[5]) / 16.0);
+        f64 enter = 0.0;
+        f64 leave = kReach + 2.0;
+        int enterAxis = 1;
+        for (int axis = 0; axis < 3; ++axis) {
+            const auto i = static_cast<glm::length_t>(axis);
+            if (std::abs(direction[i]) < 1e-12) {
+                if (origin[i] < low[i] || origin[i] > high[i]) {
+                    return false;
+                }
+                continue;
+            }
+            f64 near = (low[i] - origin[i]) / direction[i];
+            f64 far = (high[i] - origin[i]) / direction[i];
+            if (near > far) {
+                std::swap(near, far);
+            }
+            if (near > enter) {
+                enter = near;
+                enterAxis = axis;
+            }
+            leave = std::min(leave, far);
+        }
+        if (enter > leave) {
+            return false;
+        }
+        const bool positive = direction[static_cast<glm::length_t>(enterAxis)] < 0.0;
+        constexpr std::array<std::array<vxe::Face, 2>, 3> kFacesOf = {{{vxe::Face::NegX, vxe::Face::PosX},
+                                                                       {vxe::Face::NegY, vxe::Face::PosY},
+                                                                       {vxe::Face::NegZ, vxe::Face::PosZ}}};
+        boxFace = kFacesOf.at(static_cast<vxe::usize>(enterAxis)).at(positive ? 1 : 0);
+        boxDistance = enter;
+        return true;
     };
-    m_target = vxe::raycastBlocks(camera.position, vxe::DVec3(camera.forward()), kReach, targetable);
+    m_target = vxe::raycastBlocks(origin, direction, kReach, targetable);
+    if (m_target) {
+        if (boxDistance > kReach) {
+            m_target.reset();
+        } else {
+            m_target->face = boxFace;
+            m_target->distance = boxDistance;
+            m_target->point = origin + (direction * boxDistance);
+        }
+    }
     if (!m_target) {
         m_breakWait = 0.0;
         m_placeWait = 0.0;
@@ -189,8 +244,9 @@ void BlockInteraction::update(const vxe::render::Camera& camera, const PlayerSta
         constexpr f64 kGrow = 0.003; // Off the faces, so the lines do not flicker.
         const vxe::DVec3 corner(static_cast<f64>(block.x), static_cast<f64>(block.y),
                                 static_cast<f64>(block.z));
-        const f64 height = m_catalog.shapeHeight(world.getBlock(block, kAirState));
-        draw->box(corner - kGrow, corner + vxe::DVec3(1.0, height, 1.0) + kGrow, kOutlineColor);
+        const BlockCatalog::AimBox& box = m_catalog.aimBox(world.getBlock(block, kAirState));
+        draw->box(corner + (vxe::DVec3(box[0], box[1], box[2]) / 16.0) - kGrow,
+                  corner + (vxe::DVec3(box[3], box[4], box[5]) / 16.0) + kGrow, kOutlineColor);
     }
 
     // A press acts at once; holding repeats after a pause.

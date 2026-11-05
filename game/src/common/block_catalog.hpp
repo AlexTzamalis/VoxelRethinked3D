@@ -95,6 +95,12 @@ public:
     [[nodiscard]] vxe::f64 collisionHeight(vxe::voxel::BlockStateId state) const {
         return isSolid(state) ? shapeHeight(state) : 0.0;
     }
+    // The box a block fills in its cell, in sixteenths: x0, y0, z0, x1, y1, z1.
+    // Aiming and the outline use it, so a flower is a small target and the
+    // block behind it can be aimed at past it. From aim_box in the block file,
+    // or by kind: plants a small box, slabs their height, others the whole cell.
+    using AimBox = std::array<vxe::u8, 6>;
+    [[nodiscard]] const AimBox& aimBox(vxe::voxel::BlockStateId state) const { return m_aimBoxes.at(state); }
     // A slab one step taller of the same block (the next snow layer), or air.
     [[nodiscard]] vxe::voxel::BlockStateId nextLayer(vxe::voxel::BlockStateId state) const;
     // Whether two states belong to one block, like two snow layers.
@@ -134,6 +140,7 @@ private:
     std::vector<BlockDefinition> m_blocks;
     std::vector<std::string> m_stateNames;
     std::vector<vxe::voxel::BlockRenderInfo> m_renderInfos;
+    std::vector<AimBox> m_aimBoxes;
     std::vector<vxe::u8> m_stateFlags; // Per state: bit 0 solid, 1 liquid, 2 replaceable, 3 needs support.
     std::vector<vxe::voxel::BlockStateId> m_tallUpper;
     std::vector<vxe::voxel::BlockStateId> m_tallLower;

@@ -98,6 +98,7 @@ private:
     vxe::u8 m_flags = 0;                                         // Of the block being read.
     bool m_hasVariations = false;                                // Of the block being read.
     bool m_overlayTinted = true;                                 // Of the block being read.
+    std::optional<BlockCatalog::AimBox> m_aimBox;                // Of the block being read, from aim_box.
     std::vector<std::pair<std::string, std::string>> m_tallTops; // Lower and upper block names.
 };
 
@@ -106,6 +107,7 @@ Result<BlockCatalog> BlockCatalogLoader::run(std::span<const BlockSource> source
     m_catalog.m_stateNames.emplace_back("air");
     m_catalog.m_stateFlags.push_back(0);
     m_catalog.m_renderInfos.push_back(vxe::voxel::airRenderInfo());
+    m_catalog.m_aimBoxes.push_back({0, 0, 0, 16, 16, 16});
     m_catalog.m_stateIds.emplace("air", vxe::voxel::kAirState);
 
     // File name order, so the same files always give the same state ids.
@@ -146,7 +148,7 @@ void BlockCatalogLoader::loadFile(const BlockSource& source) {
         return;
     }
     for (const auto& [key, node] : root) {
-        static constexpr std::array<std::string_view, 24> kKnown = {"name",
+        static constexpr std::array<std::string_view, 25> kKnown = {"name",
                                                                     "display_name",
                                                                     "layer",
                                                                     "emitted_light",
@@ -169,7 +171,8 @@ void BlockCatalogLoader::loadFile(const BlockSource& source) {
                                                                     "overlay_tint",
                                                                     "tall_top",
                                                                     "hidden",
-                                                                    "height"};
+                                                                    "height",
+                                                                    "aim_box"};
         if (std::ranges::find(kKnown, key.str()) == kKnown.end()) {
             problem(source.file, std::format("unknown field '{}'", key.str()));
         }
@@ -334,6 +337,25 @@ bool BlockCatalogLoader::readCommon(const BlockSource& source, const toml::table
     m_flags = static_cast<vxe::u8>((solid ? 1U : 0U) | (liquid ? 2U : 0U) | (replaceable ? 4U : 0U) |
                                    (needsSupport ? 8U : 0U));
     m_overlayTinted = flag("overlay_tint", true);
+    m_aimBox.reset();
+    if (const toml::node* boxNode = root.get("aim_box"); boxNode != nullptr) {
+        const toml::array* box = boxNode->as_array();
+        BlockCatalog::AimBox read{};
+        bool good = box != nullptr && box->size() == read.size();
+        for (usize i = 0; good && i < read.size(); ++i) {
+            const std::optional<std::int64_t> value = box->get(i)->value_exact<std::int64_t>();
+            good = value && *value >= 0 && *value <= 16;
+            read.at(i) = good ? static_cast<vxe::u8>(*value) : vxe::u8{0};
+        }
+        good = good && read[0] < read[3] && read[1] < read[4] && read[2] < read[5];
+        if (!good) {
+            problem(source.file, "'aim_box' must be six whole numbers from 0 to 16: x0, y0, z0, x1, y1, z1, "
+                                 "each start below its end");
+            valid = false;
+        } else {
+            m_aimBox = read;
+        }
+    }
     if (const auto color = root["tint_color"]; color) {
         const std::string text = color.value_or(std::string());
         u32 value = 0;
@@ -505,6 +527,16 @@ void BlockCatalogLoader::addState(std::string_view file, std::string name, const
     m_catalog.m_stateNames.push_back(std::move(name));
     m_catalog.m_renderInfos.push_back(info);
     m_catalog.m_stateFlags.push_back(m_flags);
+    // Plants: a box like Minecraft's grass, 12 of 16 wide and 13 tall.
+    BlockCatalog::AimBox box{0, 0, 0, 16, 16, 16};
+    if (m_aimBox) {
+        box = *m_aimBox;
+    } else if (info.layer == RenderLayer::Plant) {
+        box = {2, 0, 2, 14, 13, 14};
+    } else if (info.height != 0) {
+        box[4] = info.height;
+    }
+    m_catalog.m_aimBoxes.push_back(box);
 }
 
 // Variations sit in consecutive layers, so a mesher only adds a number to the
@@ -592,6 +624,8 @@ void BlockCatalogLoader::linkTallPlants() {
         }
         m_catalog.m_tallUpper.at(*below) = *above;
         m_catalog.m_tallLower.at(*above) = *below;
+        // The lower half of a tall plant reaches into the upper half.
+        m_catalog.m_aimBoxes.at(*below)[4] = 16;
     }
 }
 
