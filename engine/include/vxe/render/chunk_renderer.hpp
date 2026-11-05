@@ -12,6 +12,7 @@
 #include <vxe/render/chunk_culling.hpp>
 #include <vxe/render/cpu_write_ring.hpp>
 #include <vxe/render/hi_z.hpp>
+#include <vxe/render/shadows.hpp>
 #include <vxe/rhi/command_list.hpp>
 #include <vxe/rhi/device.hpp>
 #include <vxe/rhi/shader_source.hpp>
@@ -169,6 +170,17 @@ public:
     void setSkyLight(const Vec3& color) noexcept { m_skyLight = color; }
     // How wet open ground looks, 0 dry to 1 soaked (PrecipitationRenderer::wetness).
     void setWetness(f32 wetness) noexcept { m_wetness = wetness; }
+    // Where the sun or moon casts shadows from and how strongly (shadowLightOf),
+    // every frame before beginFrame.
+    void setShadowLight(const ShadowLight& light) noexcept { m_shadowLight = light; }
+    // Draws the shadow map: terrain seen from the light into the cascades of a
+    // kShadowAtlasSize square depth target, in a pass that cleared it to 0.
+    void recordShadows(rhi::CommandList& commands);
+    // The shadow map the chunk passes read, set before record() each frame.
+    void setShadowMap(rhi::TextureHandle map) noexcept { m_shadowMap = map; }
+    [[nodiscard]] const ShadowFrame& shadowFrame() const noexcept { return m_shadowFrame; }
+    // Faces drawn into the shadow map last frame, all cascades.
+    [[nodiscard]] u32 shadowDrawCount() const noexcept { return m_shadowDrawTotal; }
     [[nodiscard]] f32 daylight() const noexcept { return m_daylight; }
     // The animation table of the block textures (BlockTextureData::animations,
     // one entry per texture key layer; 0 for still textures). Animated layers
@@ -398,6 +410,19 @@ private:
     f32 m_frozenAspect = 16.0F / 9.0F;
     CullPath m_cullPath = CullPath::None;
     u64 m_culledFrame = 0; // The latest frame recordCulling ran in.
+
+    // Shadows.
+    std::unique_ptr<ShadowSettings> m_shadowSettings;
+    ShadowLight m_shadowLight{};
+    ShadowFrame m_shadowFrame{};
+    rhi::TextureHandle m_shadowMap{};
+    rhi::SamplerHandle m_shadowSampler{};
+    std::array<rhi::PipelineHandle, kSortedPassCount> m_shadowPipelines{};
+    CpuWriteRing m_shadowParams;  // ShadowParams for the chunk passes.
+    CpuWriteRing m_shadowCasters; // One cascade matrix every kShadowCasterStride bytes.
+    CpuWriteRing m_shadowDraws;   // Draws per cascade and pass.
+    std::array<std::array<u32, kSortedPassCount>, kShadowMaxCascades> m_shadowCounts{};
+    u32 m_shadowDrawTotal = 0;
     ChunkCullingCounts m_counts{};
 
     config::Setting<i32> m_uploadBudgetKb;

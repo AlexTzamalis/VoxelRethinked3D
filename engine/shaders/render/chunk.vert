@@ -48,6 +48,21 @@ layout(location = 4) flat out vec3 vOverlayTint; // Multiplies the overlay textu
 layout(location = 5) flat out uint vOverlayLayer; // The overlay's layer plus 1, 0 for none.
 layout(location = 6) out float vWet;              // 0 dry to 1 soaked.
 layout(location = 7) flat out vec3 vSheen;        // The sky a wet top reflects, 0 elsewhere.
+// The parts of vShade, so the fragment shader can shade sky light alone.
+layout(location = 8) out vec3 vSky;
+layout(location = 9) out vec3 vBlock;
+layout(location = 10) out float vBase;          // Face shading times ambient occlusion.
+layout(location = 11) flat out vec3 vNormal;    // 0 for plants' crossed planes.
+
+#ifdef VXE_CHUNK_SHADOW
+// The cascade being drawn into the shadow map (render::ChunkRenderer::recordShadows).
+VXE_BINDING_STD140(1, 3) uniform ShadowCaster {
+    mat4 matrix;
+} caster;
+#endif
+
+const vec3 kNormals[6] = vec3[6](vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0),
+                                 vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0));
 
 // Per face (+X, -X, +Y, -Y, +Z, -Z) the U and V axes (voxel::faceAxes) and
 // the brightness of the classic directional shading (lighting stage A,
@@ -131,7 +146,11 @@ void main() {
     }
     const ivec3 chunk = chunks[gl_BaseInstance].position.xyz;
     vRelative = cameraRelative(chunk, local);
+#ifdef VXE_CHUNK_SHADOW
+    gl_Position = caster.matrix * vec4(vRelative, 1.0);
+#else
     gl_Position = frame.viewProjection * vec4(vRelative, 1.0);
+#endif
 
     // Textures repeat once per block. On +X and -Z faces U runs right to
     // left when seen from outside, so it is mirrored to keep textures the
@@ -140,10 +159,12 @@ void main() {
     const float u = (mirrorU ? 1.0 - cornerU : cornerU) * (crossed ? 1.0 : width);
     // Animated textures step through their frames at 20 game ticks per second.
     uint layer = quad.y & 0x3FFFu;
+#ifndef VXE_CHUNK_SHADOW
     const uint look = textureLooks[layer];
     vTint = chunkParams.tints[(look >> 16u) & 15u].rgb;
     vOverlayTint = chunkParams.tints[(look >> 20u) & 15u].rgb;
     vOverlayLayer = look & 0xFFFFu;
+#endif
     const uint animation = animations[layer];
     if ((animation & 0xFFu) > 1u) {
         const uint ticks = uint(frame.time.x * 20.0) / max((animation >> 8u) & 0xFFu, 1u);
@@ -153,6 +174,10 @@ void main() {
     const float slab = crossed ? 0.0 : float((quad.x >> 27u) & 15u) / 16.0;
     const float v = cornerV * (crossed ? 1.0 : height) * (slab > 0.0 && (face >> 1u) != 1u ? slab : 1.0);
     vUvLayer = vec3(u, v, float(layer));
+#ifdef VXE_CHUNK_SHADOW
+    // The shadow map needs only where the quad is and its holes.
+    return;
+#endif
 
     const uint ao = (quad.y >> (14u + 2u * corner)) & 3u;
     const float occlusion = mix(1.0, kAoCurve[ao], chunkParams.params.x);
@@ -163,7 +188,11 @@ void main() {
     const vec3 block = lightCurve(float(cornerLight >> 4u)) * kBlockLightTint;
     const vec3 light = mix(vec3(chunkParams.params.z), vec3(1.0), max(sky, block));
     const float faceShade = crossed ? kPlantShade : kFaceShade[face];
-    vShade = mix(1.0, faceShade, chunkParams.params.w) * occlusion * light;
+    vBase = mix(1.0, faceShade, chunkParams.params.w) * occlusion;
+    vShade = vBase * light;
+    vSky = sky;
+    vBlock = block;
+    vNormal = crossed ? vec3(0.0) : kNormals[face];
     // Rain only reaches what sees the sky, and soaks tops more than walls.
     const float open = smoothstep(12.5, 15.0, float((quad.y >> 22u) & 15u));
     const bool top = !crossed && face == 2u;

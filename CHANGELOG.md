@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#143] 2026-11-05, Sun and moon shadows
+### Added
+- Shadows from the sun, and faint ones from the moon at night (Graphics.Shadows.Enabled, Quality Low, Medium or High, Distance 32 to 256 blocks, default 64). Terrain is drawn from the light into a 4096 square map of 2 to 4 cascades, sharp near the camera, and the chunk shader darkens sky light where something stands between, with soft edges. Torch light is never shaded. Shadows fade in as the sun rises and out towards the shadow distance.
+- Only faces turned away from the light cast, so lit surfaces never shade themselves. Chunks whose shadow cannot reach the view, closed caves and plants beyond the nearest cascade are left out; leaves cast as whole blocks past it.
+### Performance
+- Shadows pass on an RTX 4060 over forest at render distance 16: 1.4 ms at distance 64 (Medium), 3.8 ms at 128, 0.45 ms at 32 (Low).
+
 ## [#142] 2026-11-05, Smooth lighting
 ### Added
 - Smooth lighting (Graphics.Lighting.SmoothLighting, on by default): each corner of a face takes the average light of the open cells around it, as in Minecraft, so light fades softly over slopes, into corners and under trees instead of one level per face.

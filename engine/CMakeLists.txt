@@ -226,6 +226,7 @@ vxe_add_module(render
         src/render/lod_renderer.cpp
         src/render/post_process.cpp
         src/render/precipitation.cpp
+        src/render/shadows.cpp
         src/render/renderer.cpp
         src/render/clouds.cpp
         src/render/sky.cpp

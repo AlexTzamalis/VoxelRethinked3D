@@ -171,8 +171,19 @@ Result<void> Renderer::buildGraph() {
              m_chunks->recordCulling(context.commands);
          }}));
 
-    auto chunks = graph.addPass({.name = "Chunks", .record = [this](PassContext& context) {
+    // Sun and moon shadows: terrain from the light, before the chunks read it.
+    auto shadows = graph.addPass({.name = "Shadows", .record = [this](PassContext& context) {
+                                      m_constants.bind(context.commands);
+                                      m_chunks->recordShadows(context.commands);
+                                  }});
+    const TextureRef shadowMap = shadows.createTexture(
+        "ShadowMap",
+        {.format = rhi::Format::D32Float, .width = kShadowAtlasSize, .height = kShadowAtlasSize});
+    shadows.depthAttachment(shadowMap, rhi::LoadOp::Clear, 0.0F);
+
+    auto chunks = graph.addPass({.name = "Chunks", .record = [this, shadowMap](PassContext& context) {
                                      m_constants.bind(context.commands);
+                                     m_chunks->setShadowMap(context.texture(shadowMap));
                                      m_chunks->record(context.commands, ChunkPass::Opaque);
                                      m_chunks->record(context.commands, ChunkPass::Cutout);
                                      m_chunks->record(context.commands, ChunkPass::Plants);
@@ -182,6 +193,7 @@ Result<void> Renderer::buildGraph() {
     // Reversed Z: depth 0 is infinitely far (ADR-010).
     chunks.colorAttachment(color, rhi::LoadOp::Clear, {0.0F, 0.0F, 0.0F, 1.0F});
     chunks.depthAttachment(depth, rhi::LoadOp::Clear, 0.0F);
+    chunks.sampleTexture(shadowMap);
 
     // Far terrain after the chunks: its depth test against them is cheap,
     // and the coverage map keeps it off columns they draw.
@@ -214,13 +226,16 @@ Result<void> Renderer::buildGraph() {
     cloudBlend.colorAttachment(color, rhi::LoadOp::Load);
     cloudBlend.sampleTexture(cloudLayer);
 
-    auto translucent = graph.addPass({.name = "ChunksTranslucent", .record = [this](PassContext& context) {
-                                          m_constants.bind(context.commands);
-                                          m_sky->bindParams(context.commands, 1);
-                                          m_chunks->record(context.commands, ChunkPass::Translucent);
-                                      }});
+    auto translucent =
+        graph.addPass({.name = "ChunksTranslucent", .record = [this, shadowMap](PassContext& context) {
+                           m_constants.bind(context.commands);
+                           m_chunks->setShadowMap(context.texture(shadowMap));
+                           m_sky->bindParams(context.commands, 1);
+                           m_chunks->record(context.commands, ChunkPass::Translucent);
+                       }});
     translucent.colorAttachment(color, rhi::LoadOp::Load);
     translucent.depthAttachment(depth, rhi::LoadOp::Load);
+    translucent.sampleTexture(shadowMap);
 
     // Rain and snow last, in front of water, glass and the clouds.
     auto precipitation = graph.addPass({.name = "Precipitation", .record = [this](PassContext& context) {
@@ -295,6 +310,8 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
     const Vec3 skyLight(m_sky->params().skyLight);
     m_chunks->setDaylight(daylight);
     m_chunks->setSkyLight(skyLight);
+    m_chunks->setShadowLight(
+        shadowLightOf(Vec3(m_sky->params().sunDirection), Vec3(m_sky->params().moonDirection)));
     m_precipitation->update(camera, time.elapsedSeconds, skyLight);
     m_chunks->setWetness(m_precipitation->wetness());
     m_lod->setLight(skyLight, m_chunks->brightness(), m_chunks->faceShading(), m_precipitation->wetness());

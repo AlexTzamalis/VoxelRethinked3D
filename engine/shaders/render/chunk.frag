@@ -20,9 +20,102 @@ layout(location = 4) flat in vec3 vOverlayTint;
 layout(location = 5) flat in uint vOverlayLayer;
 layout(location = 6) in float vWet;
 layout(location = 7) flat in vec3 vSheen;
+layout(location = 8) in vec3 vSky;
+layout(location = 9) in vec3 vBlock;
+layout(location = 10) in float vBase;
+layout(location = 11) flat in vec3 vNormal;
+
+#ifndef VXE_CHUNK_SHADOW
+VXE_BINDING_STD140(1, 0) uniform ChunkParams {
+    vec4 params; // z: darkest brightness (as chunk.vert).
+    vec4 skyLight;
+    vec4 tints[16];
+} chunkParams;
+
+// Sun and moon shadows (render::ChunkRenderer, render::ShadowFrame).
+VXE_BINDING_STD140(1, 2) uniform ShadowParams {
+    mat4 matrices[4];
+    vec4 splits;     // Where each cascade ends, in blocks from the camera.
+    vec4 depthRange; // Blocks across each cascade's depth.
+    vec4 radius;     // Half the width of each cascade.
+    vec4 toLight;    // xyz towards the light, w strength (0 is off).
+    vec4 settings;   // x cascades, y filter radius in texels, w the shadow distance.
+} shadow;
+VXE_BINDING(2, 5) uniform sampler2D shadowMap;
+
+const float kShadowAtlas = 4096.0; // render::kShadowAtlasSize.
+// What is left of sky light in shadow: the open sky still lights it.
+const float kShadowAmbient = 0.55;
+
+// How much of the light reaches this pixel, 0 (in shadow) to 1.
+float sunlit() {
+    const float distance = length(vRelative);
+    const int cascades = int(shadow.settings.x);
+    int c = -1;
+    for (int i = 0; i < cascades; ++i) {
+        if (distance < shadow.splits[i]) {
+            c = i;
+            break;
+        }
+    }
+    if (c < 0) {
+        return 1.0;
+    }
+    const bool plant = vNormal == vec3(0.0);
+    // A face turned away from the light is in its own shadow.
+    if (!plant && dot(vNormal, shadow.toLight.xyz) <= 0.0) {
+        return 0.0;
+    }
+    // Lifted off the face by about a texel, so it never shades itself.
+    const float texel = 2.0 * shadow.radius[c] / (kShadowAtlas * 0.5);
+    const vec3 position = vRelative + (plant ? shadow.toLight.xyz * texel * 3.0 : vNormal * texel * 1.5);
+    const vec4 light = shadow.matrices[c] * vec4(position, 1.0);
+    const vec2 uv = (light.xy * 0.5) + 0.5;
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
+        return 1.0;
+    }
+    const vec2 tile = vec2(float(c % 2), float(c / 2));
+    const float bias = (plant ? 0.3 : 0.04) / shadow.depthRange[c];
+    const int radius = int(shadow.settings.y);
+    const vec2 lowest = (tile + vec2(0.5 / (kShadowAtlas * 0.5))) * 0.5;
+    const vec2 highest = (tile + vec2(1.0 - (0.5 / (kShadowAtlas * 0.5)))) * 0.5;
+    float lit = 0.0;
+    float taps = 0.0;
+    for (int y = -radius; y <= radius; ++y) {
+        for (int x = -radius; x <= radius; ++x) {
+            const vec2 at = clamp(((uv + tile) * 0.5) + (vec2(x, y) / kShadowAtlas), lowest, highest);
+            lit += texture(shadowMap, at).r > light.z + bias ? 0.0 : 1.0;
+            taps += 1.0;
+        }
+    }
+    // Fades out towards the shadow distance, where far terrain has none.
+    const float fade = smoothstep(shadow.settings.w * 0.8, shadow.settings.w, distance);
+    return mix(lit / taps, 1.0, fade);
+}
+
+// vShade with the sky light shaded by the shadow map.
+vec3 shadedLight() {
+    if (shadow.toLight.w <= 0.0) {
+        return vShade;
+    }
+    const float keep = 1.0 - (shadow.toLight.w * (1.0 - sunlit()) * (1.0 - kShadowAmbient));
+    const vec3 light = mix(vec3(chunkParams.params.z), vec3(1.0), max(vSky * keep, vBlock));
+    return vBase * light;
+}
+#endif
 layout(location = 0) out vec4 outColor;
 
 void main() {
+#ifdef VXE_CHUNK_SHADOW
+    // Into the shadow map: depth only, with the holes of leaves and plants.
+#ifdef VXE_CHUNK_CUTOUT
+    if (texture(blockTextures, vUvLayer).a < 0.5) {
+        discard;
+    }
+#endif
+    return;
+#else
+    const vec3 shade = shadedLight();
     vec4 albedo = texture(blockTextures, vUvLayer);
     albedo.rgb *= vTint;
     if (vOverlayLayer != 0u) {
@@ -36,7 +129,7 @@ void main() {
     }
 #endif
 #ifdef VXE_CHUNK_TRANSLUCENT
-    vec3 color = albedo.rgb * vShade;
+    vec3 color = albedo.rgb * shade;
     if (sky.flags.y != 0) {
         const float distance = length(vRelative);
         const vec3 direction = vRelative / max(distance, 1e-4);
@@ -46,9 +139,10 @@ void main() {
 #else
     // Wet ground is darker, since water fills the gaps that scattered light, and
     // a wet top shines with the sky when seen low across it.
-    vec3 color = albedo.rgb * vShade * (1.0 - vWet * 0.38);
+    vec3 color = albedo.rgb * shade * (1.0 - vWet * 0.38);
     const float grazing = 1.0 - abs(vRelative.y) / max(length(vRelative), 1e-4);
     color += vSheen * pow(grazing, 4.0);
     outColor = vec4(color, 1.0);
+#endif
 #endif
 }

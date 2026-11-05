@@ -24,6 +24,18 @@ constexpr u32 kMaxQuadsPerDraw = 16 * 16 * 16;
 constexpr u32 kIndicesPerQuad = 6;
 
 using IndirectDraw = ChunkRenderer::IndirectDraw;
+
+// The layout must match ShadowParams in chunk.frag (std140).
+struct ShadowParams {
+    std::array<Mat4, kShadowMaxCascades> matrices{};
+    Vec4 splits{0.0F};     // Distance where each cascade ends.
+    Vec4 depthRange{1.0F}; // Blocks across each cascade's depth.
+    Vec4 radius{1.0F};     // Half the width of each cascade, in blocks.
+    Vec4 toLight{0.0F};    // xyz towards the light, w strength (0 is off).
+    Vec4 settings{0.0F};   // x cascades, y filter radius in texels, z unused, w the distance.
+};
+// Uniform ranges must start on 256 bytes for every driver.
+constexpr usize kShadowCasterStride = 256;
 // Texture layers the animation table covers: the 14 bit layer field of a quad.
 constexpr usize kMaxTextureLayers = 16384;
 static_assert(sizeof(IndirectDraw) == 20);
@@ -310,10 +322,56 @@ Result<std::unique_ptr<ChunkRenderer>> ChunkRenderer::create(const ChunkRenderer
             built = solid ? lines.error() : solid.error();
         }
     }
+    // Shadow casters: depth only, both sides (the faces are chosen per light).
+    for (usize pass = 0; pass < kSortedPassCount && built; ++pass) {
+        std::vector<rhi::ShaderDefine> shadowDefines = defines.at(pass);
+        shadowDefines.push_back({.name = "VXE_CHUNK_SHADOW"});
+        const auto vertexShadow =
+            rhi::createShaderFromFile(device, "render/chunk.vert", desc.shaders, shadowDefines);
+        const auto fragmentShadow =
+            rhi::createShaderFromFile(device, "render/chunk.frag", desc.shaders, shadowDefines);
+        if (!vertexShadow || !fragmentShadow) {
+            built = !vertexShadow ? vertexShadow.error() : fragmentShadow.error();
+            if (vertexShadow) {
+                device.destroy(vertexShadow.value());
+            }
+            if (fragmentShadow) {
+                device.destroy(fragmentShadow.value());
+            }
+            break;
+        }
+        rhi::PipelineDesc pipeline{
+            .vertex = vertexShadow.value(), .fragment = fragmentShadow.value(), .debugName = "Chunk shadows"};
+        pipeline.colorCount = 0;
+        pipeline.depthFormat = rhi::Format::D32Float;
+        pipeline.raster.cullMode = rhi::CullMode::None;
+        auto created = device.createPipeline(pipeline);
+        device.destroy(vertexShadow.value());
+        device.destroy(fragmentShadow.value());
+        if (created) {
+            r.m_shadowPipelines.at(pass) = created.value();
+        } else {
+            built = created.error();
+        }
+    }
     device.destroy(vertex.value());
     if (!built) {
         return built.error().withContext("Chunk renderer");
     }
+    r.m_shadowSettings = std::make_unique<ShadowSettings>(*desc.settings);
+    auto shadowSampler = device.createSampler({.minFilter = rhi::Filter::Nearest,
+                                               .magFilter = rhi::Filter::Nearest,
+                                               .mipmapMode = rhi::MipmapMode::None,
+                                               .addressU = rhi::AddressMode::ClampToEdge,
+                                               .addressV = rhi::AddressMode::ClampToEdge,
+                                               .debugName = "Shadow map sampler"});
+    if (!shadowSampler) {
+        return shadowSampler.error().withContext("Chunk renderer");
+    }
+    r.m_shadowSampler = shadowSampler.value();
+    VXE_TRY(r.m_shadowParams.create(device, sizeof(ShadowParams), BufferUsage::Uniform, "Shadow parameters"));
+    VXE_TRY(r.m_shadowCasters.create(device, kShadowCasterStride * kShadowMaxCascades, BufferUsage::Uniform,
+                                     "Shadow cascade matrices"));
     if (Result<void> culling = r.createCulling(desc); !culling) {
         return culling.error().withContext("Chunk renderer");
     }
@@ -449,6 +507,17 @@ void ChunkRenderer::registerStats() {
 }
 
 ChunkRenderer::~ChunkRenderer() {
+    m_shadowParams.destroy(m_device);
+    m_shadowCasters.destroy(m_device);
+    m_shadowDraws.destroy(m_device);
+    for (const rhi::PipelineHandle pipeline : m_shadowPipelines) {
+        if (pipeline.isValid()) {
+            m_device.destroy(pipeline);
+        }
+    }
+    if (m_shadowSampler.isValid()) {
+        m_device.destroy(m_shadowSampler);
+    }
     m_staging.destroy(m_device);
     m_cullParams.destroy(m_device);
     m_cpuDraws.destroy(m_device);
@@ -575,6 +644,28 @@ void ChunkRenderer::beginFrame(const Camera& camera) {
         m_lastParams = params.params;
         m_lastSkyLight = params.skyLight;
         static_cast<void>(m_device.updateBuffer(m_params, 0, std::as_bytes(std::span(&params, 1))));
+    }
+    // Shadows: the cascades for this camera and light, and what the chunk passes read.
+    const bool shadowsOn = m_shadowSettings && m_shadowSettings->enabled() && m_shadowLight.strength > 0.0F;
+    m_shadowFrame =
+        shadowsOn ? computeShadowFrame(camera, viewAspect(), m_shadowLight.toLight, m_shadowLight.strength,
+                                       m_shadowSettings->cascades(), m_shadowSettings->distance())
+                  : ShadowFrame{};
+    if (m_shadowParams.bytesPerFrame() != 0) {
+        ShadowParams shadow;
+        for (u32 i = 0; i < m_shadowFrame.cascades; ++i) {
+            const ShadowCascade& cascade = m_shadowFrame.cascade.at(i);
+            shadow.matrices.at(i) = cascade.matrix;
+            shadow.splits[static_cast<glm::length_t>(i)] = cascade.far;
+            shadow.depthRange[static_cast<glm::length_t>(i)] = cascade.depthRange;
+            shadow.radius[static_cast<glm::length_t>(i)] = cascade.radius;
+        }
+        shadow.toLight = Vec4(m_shadowFrame.toLight, m_shadowFrame.enabled ? m_shadowFrame.strength : 0.0F);
+        const f32 filter = m_shadowSettings ? static_cast<f32>(m_shadowSettings->quality() - 1) : 0.0F;
+        shadow.settings = Vec4(static_cast<f32>(m_shadowFrame.cascades), filter, 0.0F,
+                               m_shadowSettings ? m_shadowSettings->distance() : 0.0F);
+        const std::span<std::byte> memory = m_shadowParams.next(m_device);
+        std::memcpy(memory.data(), &shadow, sizeof(shadow));
     }
     readCullingCounts();
     if (m_occlusionCulling.get() && !m_frozenCamera) {
@@ -1181,6 +1272,10 @@ void ChunkRenderer::record(rhi::CommandList& commands, ChunkPass pass) {
     commands.bindTexture(2, 2, m_textures, m_sampler);
     commands.bindStorageBuffer(2, 3, m_animations, 0, kMaxTextureLayers * sizeof(u32));
     commands.bindStorageBuffer(2, 4, m_looks, 0, kMaxTextureLayers * sizeof(u32));
+    // The shadow map, or the block textures as a stand in the shader never reads.
+    commands.bindUniformBuffer(1, 2, m_shadowParams.current(), 0, sizeof(ShadowParams));
+    commands.bindTexture(2, 5, m_shadowMap.isValid() ? m_shadowMap : m_textures,
+                         m_shadowMap.isValid() ? m_shadowSampler : m_sampler);
     commands.bindIndexBuffer(m_indices, rhi::IndexType::Uint16);
     const usize offset = usize{m_drawFirst.at(index)} * sizeof(IndirectDraw);
     switch (m_cullPath) {
@@ -1198,6 +1293,121 @@ void ChunkRenderer::record(rhi::CommandList& commands, ChunkPass pass) {
     case CullPath::None:
         commands.multiDrawIndexedIndirect(m_draws, offset, count);
         break;
+    }
+}
+
+void ChunkRenderer::recordShadows(rhi::CommandList& commands) {
+    VXE_PROFILE_FUNCTION();
+    m_shadowCounts = {};
+    m_shadowDrawTotal = 0;
+    if (!m_shadowFrame.enabled || !m_textures.isValid() || m_drawCapacity == 0) {
+        return;
+    }
+    const usize perCascade = m_drawCapacity * sizeof(IndirectDraw);
+    if (m_shadowDraws.bytesPerFrame() < perCascade * kShadowMaxCascades) {
+        m_shadowDraws.destroy(m_device);
+        if (!m_shadowDraws.create(m_device, perCascade * kShadowMaxCascades, BufferUsage::Indirect,
+                                  "Shadow draws")) {
+            return;
+        }
+    }
+    const std::span<std::byte> draws = m_shadowDraws.next(m_device);
+    const std::span<std::byte> casters = m_shadowCasters.next(m_device);
+    const CameraPosition camera = m_camera.renderPosition();
+    const Vec3 toLight = m_shadowFrame.toLight;
+    const bool caveOn = m_caveCulling.get() && !m_caveBits.empty();
+    // A chunk only matters if its shadow can fall into view: its box, swept
+    // away from the light, must touch the camera's frustum. Most of a cascade
+    // lies beside or behind the view, so this skips most of it.
+    const Frustum view = Frustum::fromViewProjection(m_camera.viewProjection(viewAspect()));
+    const Vec3 sweep = -toLight * kShadowCasterReach;
+    // A face casts from its back: only faces turned away from the light go in,
+    // so a lit surface never meets its own depth and needs almost no bias.
+    const std::array<Vec3, kChunkFaceCount> kNormals = {Vec3(1, 0, 0),  Vec3(-1, 0, 0), Vec3(0, 1, 0),
+                                                        Vec3(0, -1, 0), Vec3(0, 0, 1),  Vec3(0, 0, -1)};
+    for (u32 c = 0; c < m_shadowFrame.cascades; ++c) {
+        const Mat4& m = m_shadowFrame.cascade.at(c).matrix;
+        std::memcpy(casters.data() + (usize{c} * kShadowCasterStride), &m, sizeof(m));
+        std::byte* out = draws.data() + (usize{c} * perCascade);
+        u32 written = 0;
+        u32 boxSlot = OffsetAllocator::kNoSpace;
+        bool inside = false;
+        for (usize pass = 0; pass < kSortedPassCount; ++pass) {
+            const u32 first = m_drawFirst.at(pass);
+            u32 kept = 0;
+            // Grass and flowers are most of the quads but small shadows: only
+            // the nearest cascade draws them.
+            const u32 end = pass == static_cast<usize>(ChunkPass::Plants) && c > 0
+                                ? first
+                                : first + m_drawCounts.at(pass);
+            for (u32 i = first; i < end; ++i) {
+                const IndirectDraw& draw = m_drawData[i];
+                if (draw.baseInstance != boxSlot) {
+                    boxSlot = draw.baseInstance;
+                    const SlotInfo& info = m_slotInfo[boxSlot];
+                    const Vec3 origin = relativeToCamera(info.position, camera);
+                    const Vec3 low =
+                        origin + Vec3(info.bounds.min[0], info.bounds.min[1], info.bounds.min[2]);
+                    const Vec3 high =
+                        origin + Vec3(info.bounds.max[0], info.bounds.max[1], info.bounds.max[2]);
+                    const Vec3 center = (low + high) * 0.5F;
+                    const Vec3 half = (high - low) * 0.5F;
+                    const Vec4 p = m * Vec4(center, 1.0F);
+                    const auto reach = [&](int row) {
+                        return (std::abs(m[0][row]) * half.x) + (std::abs(m[1][row]) * half.y) +
+                               (std::abs(m[2][row]) * half.z);
+                    };
+                    inside = std::abs(p.x) <= 1.0F + reach(0) && std::abs(p.y) <= 1.0F + reach(1) &&
+                             p.z + reach(2) >= 0.0F && p.z - reach(2) <= 1.0F &&
+                             view.intersects(Aabb{.min = glm::min(low, low + sweep),
+                                                  .max = glm::max(high, high + sweep)});
+                }
+                if (!inside) {
+                    continue;
+                }
+                // Closed caves sit under rock that already stops the light: only
+                // chunks the cave search reached through open air cast.
+                if (caveOn &&
+                    (m_caveBits[draw.baseInstance >> 5U] & (1U << (draw.baseInstance & 31U))) == 0) {
+                    continue;
+                }
+                if (pass < static_cast<usize>(ChunkPass::Plants) &&
+                    glm::dot(kNormals.at(m_drawFaceData[i]), toLight) >= 0.0F) {
+                    continue;
+                }
+                std::memcpy(out + (usize{first + kept} * sizeof(IndirectDraw)), &draw, sizeof(draw));
+                ++kept;
+            }
+            m_shadowCounts.at(c).at(pass) = kept;
+            written += kept;
+        }
+        m_shadowDrawTotal += written;
+    }
+    const auto tile = static_cast<f32>(kShadowTileSize);
+    for (u32 c = 0; c < m_shadowFrame.cascades; ++c) {
+        commands.setViewport(static_cast<f32>(c % 2U) * tile, static_cast<f32>(c / 2U) * tile, tile, tile);
+        for (usize pass = 0; pass < kSortedPassCount; ++pass) {
+            const u32 count = m_shadowCounts.at(c).at(pass);
+            if (count == 0) {
+                continue;
+            }
+            // Past the nearest cascade leaves cast as whole blocks: their holes
+            // are smaller than a texel there, and the alpha test is the cost.
+            const bool solid = c > 0 && pass == static_cast<usize>(ChunkPass::Cutout);
+            commands.bindPipeline(m_shadowPipelines.at(solid ? static_cast<usize>(ChunkPass::Opaque) : pass));
+            commands.bindUniformBuffer(1, 0, m_params, 0, sizeof(ChunkParams));
+            commands.bindUniformBuffer(1, 3, m_shadowCasters.current(), usize{c} * kShadowCasterStride,
+                                       sizeof(Mat4));
+            commands.bindStorageBuffer(2, 0, m_arena, 0, m_arenaBytes);
+            commands.bindStorageBuffer(2, 1, m_metadata, 0, usize{m_maxChunks} * sizeof(ChunkInfo));
+            commands.bindTexture(2, 2, m_textures, m_sampler);
+            commands.bindStorageBuffer(2, 3, m_animations, 0, kMaxTextureLayers * sizeof(u32));
+            commands.bindStorageBuffer(2, 4, m_looks, 0, kMaxTextureLayers * sizeof(u32));
+            commands.bindIndexBuffer(m_indices, rhi::IndexType::Uint16);
+            const usize offset =
+                (usize{c} * perCascade) + (usize{m_drawFirst.at(pass)} * sizeof(IndirectDraw));
+            commands.multiDrawIndexedIndirect(m_shadowDraws.current(), offset, count);
+        }
     }
 }
 
