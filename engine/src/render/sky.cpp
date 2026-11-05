@@ -29,10 +29,10 @@ constexpr std::array<config::EnumSettingDesc<WeatherChoice>::Option, 6> kWeather
      {WeatherChoice::Rain, "Rain", "Rain"}}};
 
 const Vec3 kMoonTint(0.92F, 0.95F, 1.05F);
-const Vec3 kMoonLight(0.24F, 0.3F, 0.46F); // On terrain, under a full moon.
+const Vec3 kMoonLight(0.11F, 0.14F, 0.22F); // On terrain, under a full moon: dark, as in Minecraft.
 // How bright each phase is, full first. A new moon still leaves starlight.
-constexpr std::array<f32, kMoonPhases> kMoonPhaseLight = {1.0F,  0.86F, 0.68F, 0.5F,
-                                                          0.36F, 0.5F,  0.68F, 0.86F};
+constexpr std::array<f32, kMoonPhases> kMoonPhaseLight = {1.0F,  0.84F, 0.62F, 0.42F,
+                                                          0.25F, 0.42F, 0.62F, 0.84F};
 
 } // namespace
 

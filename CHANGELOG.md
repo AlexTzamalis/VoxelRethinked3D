@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#139] 2026-11-05, Darker nights\n### Changed\n- Moonlight on terrain is about half as bright: open ground under a full moon gets about a fifth of daylight, a new moon about a tenth, close to Minecraft.
+
+## [#138] 2026-11-05, Loading screen\n### Added\n- The loading screen hides the world while it builds: dark tiled dirt (packs can set ui/loading_background.png), what is being done and a rough progress bar that only moves forward.
+
 ## [#137] 2026-11-05, Minecraft movement\n### Changed\n- Walking, running, jumping, swimming and flying follow Minecraft's numbers at 20 ticks a second, with the camera smoothed between ticks: speed builds up and runs out, a stop on the ground takes a quarter block, and letting go in the air or in flight glides on. Sprinting jumps get the forward boost, and touching the ground ends flight.\n### Added\n- Movement settings: walking speed, flying speed (up to 30 times, for crossing the world fast) and momentum on or off.
 
 ## [#136] 2026-11-05, Snow layers and ice
