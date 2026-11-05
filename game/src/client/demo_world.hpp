@@ -130,6 +130,10 @@ public:
     // The spawn area is ready (or loading took too long).
     [[nodiscard]] bool isLoaded() const noexcept { return m_loaded; }
     [[nodiscard]] std::string progressText() const;
+    // A rough share of the loading done, 0 to 1, and what is being done now,
+    // for the loading screen.
+    [[nodiscard]] vxe::f32 loadFraction() const;
+    [[nodiscard]] std::string_view loadStage() const;
     [[nodiscard]] const Terrain& terrain() const noexcept { return m_terrain; }
     // A spot above dry land near the origin, looking across the terrain.
     [[nodiscard]] vxe::DVec3 spawnPosition() const;

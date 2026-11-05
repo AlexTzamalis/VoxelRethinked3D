@@ -28,6 +28,7 @@ set(vrGameSources
     src/server/world_store.hpp
     src/ui/screens/background_task.hpp
     src/ui/screens/hud_screen.cpp
+    src/ui/screens/loading_screen.cpp
     src/ui/screens/hud_screen.hpp
     src/ui/screens/inventory_screen.cpp
     src/ui/screens/inventory_screen.hpp

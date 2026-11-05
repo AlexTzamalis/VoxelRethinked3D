@@ -1519,6 +1519,34 @@ bool StreamingManager::isAreaReady(i32 radius, i32 layers) const {
     return true;
 }
 
+f32 StreamingManager::areaReadiness(i32 radius, i32 layers) const {
+    if (!m_hasCenter) {
+        return 0.0F;
+    }
+    const i32 horizontal = std::clamp(radius, 0, renderDistance());
+    const i32 vertical = layers < 0 ? verticalRenderDistance() : std::min(layers, verticalRenderDistance());
+    usize total = 0;
+    usize ready = 0;
+    for (i32 dy = -vertical; dy <= vertical; ++dy) {
+        for (i32 dz = -horizontal; dz <= horizontal; ++dz) {
+            for (i32 dx = -horizontal; dx <= horizontal; ++dx) {
+                const auto position = offsetPosition(m_center, dx, dy, dz);
+                if (!position || !inWorldHeight(position->y)) {
+                    continue;
+                }
+                ++total;
+                const auto it = m_entries.find(*position);
+                ready += it != m_entries.end() && inWorld(it->second.stage) &&
+                                 (m_blocks == nullptr || it->second.lit) &&
+                                 (m_sink == nullptr || it->second.meshed)
+                             ? 1U
+                             : 0U;
+            }
+        }
+    }
+    return total == 0 ? 1.0F : static_cast<f32>(ready) / static_cast<f32>(total);
+}
+
 void StreamingManager::unloadAll() {
     m_memoryReach = kNoReachLimit;
     m_meshRefused = false;

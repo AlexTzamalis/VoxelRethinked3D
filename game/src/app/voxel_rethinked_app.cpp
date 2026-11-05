@@ -768,6 +768,7 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
         for (const std::string_view name : kHudImages) {
             images.push_back(std::format("ui/{}.png", name));
         }
+        images.emplace_back("ui/loading_background.png");
         // Block textures too, as PNG files: the icons are baked from them.
         for (const std::string& key : m_blocks->textureKeys()) {
             images.push_back(vxe::render::textureFile(key) + ".png");
@@ -1173,6 +1174,15 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
         };
         std::ranges::for_each(vxe::ui::kThemeImages, addImage);
         std::ranges::for_each(kHudImages, addImage);
+        // The loading screen's floor: a pack's own, or its dirt.
+        const vxe::render::PackImage* floor = m_texturePacks->image("ui/loading_background.png");
+        floor = floor != nullptr ? floor : m_texturePacks->image(vxe::render::textureFile("dirt") + ".png");
+        if (floor != nullptr) {
+            images.push_back({.name = "loading_background",
+                              .width = floor->width,
+                              .height = floor->height,
+                              .pixels = floor->pixels});
+        }
         m_blockIcons.bake(*m_blocks, [this](std::string_view key) {
             return m_texturePacks->image(vxe::render::textureFile(key) + ".png");
         });
@@ -1263,10 +1273,18 @@ void VoxelRethinkedApp::onFrame(vxe::EngineContext& context, const vxe::FrameTim
     updateTextures(context);
     drawUi(context, time);
     updateSounds(context, time);
-    // The world streams in while loading (no loading screen before G5.3).
+    // The world streams in behind the loading screen.
     const GameState state = m_states.current();
     if (isWorldState(state) || state == GameState::LoadingWorld) {
         updateWorld(context, time);
+    }
+    if (m_screens) {
+        if (auto* loading = dynamic_cast<LoadingScreen*>(m_screens->bottom());
+            loading != nullptr && loading->loading() != nullptr) {
+            loading->loading()->sync(m_demo ? m_demo->loadFraction() : 0.0F,
+                                     m_demo ? m_demo->loadStage() : std::string_view("Starting"),
+                                     static_cast<vxe::f32>(time.deltaSeconds));
+        }
     }
     if (!m_menuShown && state == GameState::MainMenu && m_ui && m_ui->font() != nullptr) {
         m_menuShown = true;

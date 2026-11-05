@@ -247,6 +247,35 @@ std::string DemoWorld::progressText() const {
     return m_streaming->summary();
 }
 
+vxe::f32 DemoWorld::loadFraction() const {
+    if (m_loaded) {
+        return 1.0F;
+    }
+    // Chunks around the spawn are most of the wait; far terrain the rest.
+    const vxe::i32 radius = std::min(kSpawnRadius, m_streaming->renderDistance());
+    const vxe::f32 chunks = m_streaming->areaReadiness(radius, kSpawnLayers);
+    vxe::f32 far = 1.0F;
+    if (m_premap) {
+        far = m_premap->progress().fraction() * 0.8F;
+    } else if (!m_lodReady && m_lodRenderer != nullptr) {
+        const vxe::voxel::LodManager::Counts counts = m_lod->counts();
+        far =
+            counts.wanted == 0
+                ? 0.8F
+                : 0.8F + (0.2F * static_cast<vxe::f32>(counts.ready) / static_cast<vxe::f32>(counts.wanted));
+    }
+    return (chunks * 0.7F) + (far * 0.3F);
+}
+
+std::string_view DemoWorld::loadStage() const {
+    if (m_premap) {
+        return "Mapping far terrain";
+    }
+    const vxe::i32 radius = std::min(kSpawnRadius, m_streaming->renderDistance());
+    return m_streaming->areaReadiness(radius, kSpawnLayers) < 1.0F ? "Building terrain"
+                                                                   : "Preparing the horizon";
+}
+
 vxe::DVec3 DemoWorld::spawnGround() const {
     return spawnPosition() - vxe::DVec3(0.0, 23.0, 0.0);
 }
