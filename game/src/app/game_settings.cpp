@@ -54,6 +54,29 @@ GameSettings::GameSettings(vxe::config::SettingsRegistry& settings)
                                            .displayName = "Toggle crouch",
                                            .description = "Press crouch once to start and again to stop."},
                                           false}))
+    , walkSpeed(
+          settings.registerFloat({{.id = "Movement.WalkSpeed",
+                                   .displayName = "Walking speed",
+                                   .description = "Times the normal speed of walking, running and swimming."},
+                                  1.0F,
+                                  0.5F,
+                                  3.0F,
+                                  0.05F}))
+    , flySpeed(settings.registerFloat(
+          {{.id = "Movement.FlySpeed",
+            .displayName = "Flying speed",
+            .description = "Times the normal flying speed. High values cross the world "
+                           "fast, to test far terrain and loading."},
+           1.0F,
+           0.25F,
+           30.0F,
+           0.25F}))
+    , momentum(
+          settings.registerBool({{.id = "Movement.Momentum",
+                                  .displayName = "Momentum",
+                                  .description = "Speed builds up and runs out, so stopping in the air or in "
+                                                 "flight glides on a little. Off stops at once."},
+                                 true}))
     , hudOpacity(settings.registerFloat({{.id = "Interface.HudOpacity",
                                           .displayName = "HUD opacity",
                                           .description = "How solid the HUD looks."},

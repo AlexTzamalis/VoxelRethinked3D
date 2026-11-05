@@ -13,8 +13,13 @@ namespace vr {
 // Player movement (Section 20.4). A plain function of the state, the input and
 // the blocks, with a fixed step, so the client and the future server (G0.2)
 // run exactly the same code and get exactly the same result.
+//
+// The numbers are Minecraft's, per tick of 1/20 second: speed is gained by a
+// push each tick and lost by friction, so starting and stopping take a moment
+// and letting go in the air or in flight glides on. The camera interpolates
+// between ticks, so 20 a second still looks smooth.
 
-inline constexpr vxe::f64 kPlayerStep = 1.0 / 60.0; // Seconds per step.
+inline constexpr vxe::f64 kPlayerStep = 1.0 / 20.0; // Seconds per step (one tick).
 inline constexpr vxe::f64 kPlayerHalfWidth = 0.3;
 inline constexpr vxe::f64 kPlayerHeight = 1.8;
 
@@ -33,22 +38,33 @@ struct PlayerInput {
     bool jump = false;      // Also up in flight and in water.
     bool down = false;      // Crouch, or down in flight.
     bool sprint = false;
+    vxe::f64 walkScale = 1.0; // Times the walking and running speeds.
+    vxe::f64 flyScale = 1.0;  // Times the flying speeds.
+    bool momentum = true;     // False: full speed at once and a dead stop on letting go.
 };
 
 namespace detail {
 
-constexpr vxe::f64 kWalkSpeed = 4.3;
-constexpr vxe::f64 kSprintSpeed = 5.6;
-constexpr vxe::f64 kCrouchSpeed = 1.3;
-constexpr vxe::f64 kFlySpeed = 11.0;
-constexpr vxe::f64 kFlySprintSpeed = 22.0;
-constexpr vxe::f64 kFlyVerticalSpeed = 8.0;
-constexpr vxe::f64 kGravity = 32.0;
-constexpr vxe::f64 kJumpSpeed = 9.0; // Clears one block, about 1.27 high.
-constexpr vxe::f64 kTerminalSpeed = 78.0;
-constexpr vxe::f64 kSwimUpSpeed = 4.0;
-constexpr vxe::f64 kSinkSpeed = 2.0;
-constexpr vxe::f64 kSwimFactor = 0.6;
+// Pushes per tick in blocks per tick, and the share of speed kept each tick.
+constexpr vxe::f64 kTicksPerSecond = 20.0;
+constexpr vxe::f64 kWalkPush = 0.1; // Steady speed 0.1 * 0.98 / (1 - 0.546): 4.317 blocks per second.
+constexpr vxe::f64 kSprintFactor = 1.3;
+constexpr vxe::f64 kAirPush = 0.02; // In the air: 0.026 sprinting.
+constexpr vxe::f64 kFlyPush = 0.05; // Steady 10.9 blocks per second, twice that sprinting.
+constexpr vxe::f64 kFlyRise = 0.15; // Up or down per tick in flight, kept at 0.6 a tick: 7.5 per second.
+constexpr vxe::f64 kInputScale = 0.98;
+constexpr vxe::f64 kCrouchInput = 0.3;
+constexpr vxe::f64 kGroundKeep = 0.6 * 0.91; // Friction of ordinary ground.
+constexpr vxe::f64 kAirKeep = 0.91;
+constexpr vxe::f64 kFlyRiseKeep = 0.6;
+constexpr vxe::f64 kGravity = 0.08; // Per tick, then 0.98 of the fall kept: 78.4 blocks per second at most.
+constexpr vxe::f64 kFallKeep = 0.98;
+constexpr vxe::f64 kJump = 0.42;      // Blocks per tick up: about 1.25 blocks high.
+constexpr vxe::f64 kSprintJump = 0.2; // Forward, for a sprinting jump.
+constexpr vxe::f64 kWaterKeep = 0.8;
+constexpr vxe::f64 kWaterPush = 0.02;
+constexpr vxe::f64 kWaterSink = 0.02;
+constexpr vxe::f64 kWaterRise = 0.04;
 // Keeps the box a hair off the block it touches, so the next step starts in
 // free space whatever rounding did.
 constexpr vxe::f64 kSkin = 1.0e-6;
@@ -158,31 +174,53 @@ void stepPlayer(PlayerState& state, const PlayerInput& input, IsSolid&& isSolid,
     const bool swimming = !state.flying && isLiquid(body);
     state.crouching = input.down && !state.flying && !swimming;
 
-    const auto approach = [](vxe::f64 value, vxe::f64 target, vxe::f64 rate) {
-        return value + ((target - value) * std::min(rate * kPlayerStep, 1.0));
-    };
+    // Velocity is kept in blocks per second; the rules below work in blocks per
+    // tick, so every push is scaled by kTicksPerSecond.
+    const vxe::DVec3 facing = forward;
+    wish *= kInputScale * (state.crouching ? kCrouchInput : 1.0);
+    const bool sprinting = input.sprint && !state.crouching && input.forward > 0.0;
+    vxe::f64 push = 0.0;
+    vxe::f64 keep = 0.0;
     if (state.flying) {
-        const vxe::f64 speed = input.sprint ? kFlySprintSpeed : kFlySpeed;
-        const vxe::f64 vertical = (input.jump ? 1.0 : 0.0) - (input.down ? 1.0 : 0.0);
-        state.velocity.x = approach(state.velocity.x, wish.x * speed, 12.0);
-        state.velocity.z = approach(state.velocity.z, wish.z * speed, 12.0);
-        state.velocity.y = approach(state.velocity.y, vertical * kFlyVerticalSpeed, 12.0);
+        push = kFlyPush * (input.sprint ? 2.0 : 1.0) * input.flyScale;
+        keep = kAirKeep;
+    } else if (swimming) {
+        push = kWaterPush * input.walkScale;
+        keep = kWaterKeep;
+    } else if (state.onGround) {
+        push = kWalkPush * (sprinting ? kSprintFactor : 1.0) * input.walkScale;
+        keep = kGroundKeep;
     } else {
-        vxe::f64 speed = input.sprint ? kSprintSpeed : kWalkSpeed;
-        if (state.crouching) {
-            speed = kCrouchSpeed;
+        push = kAirPush * (sprinting ? kSprintFactor : 1.0) * input.walkScale;
+        keep = kAirKeep;
+    }
+    if (input.momentum) {
+        state.velocity.x += wish.x * push * kTicksPerSecond;
+        state.velocity.z += wish.z * push * kTicksPerSecond;
+    } else {
+        // The speed momentum would settle at, at once. In the air the walking
+        // speed holds, so jumps carry as far as they would.
+        const vxe::f64 steady = (state.flying || swimming ? push / (1.0 - keep)
+                                                          : kWalkPush * (sprinting ? kSprintFactor : 1.0) *
+                                                                input.walkScale / (1.0 - kGroundKeep)) *
+                                kTicksPerSecond;
+        state.velocity.x = wish.x * steady;
+        state.velocity.z = wish.z * steady;
+    }
+    const vxe::f64 vertical = (input.jump ? 1.0 : 0.0) - (input.down ? 1.0 : 0.0);
+    if (state.flying) {
+        const vxe::f64 rise = kFlyRise * input.flyScale * kTicksPerSecond;
+        state.velocity.y =
+            input.momentum ? state.velocity.y + (vertical * rise) : vertical * rise / (1.0 - kFlyRiseKeep);
+    } else if (swimming) {
+        if (input.jump) {
+            state.velocity.y += kWaterRise * kTicksPerSecond;
         }
-        speed *= swimming ? kSwimFactor : 1.0;
-        const vxe::f64 grip = state.onGround ? 20.0 : 5.0;
-        state.velocity.x = approach(state.velocity.x, wish.x * speed, grip);
-        state.velocity.z = approach(state.velocity.z, wish.z * speed, grip);
-        if (swimming) {
-            state.velocity.y = approach(state.velocity.y, input.jump ? kSwimUpSpeed : -kSinkSpeed, 8.0);
-        } else {
-            if (input.jump && state.onGround) {
-                state.velocity.y = kJumpSpeed;
-            }
-            state.velocity.y = std::max(state.velocity.y - (kGravity * kPlayerStep), -kTerminalSpeed);
+    } else if (input.jump && state.onGround) {
+        state.velocity.y = kJump * kTicksPerSecond;
+        if (sprinting) {
+            state.velocity.x += facing.x * kSprintJump * kTicksPerSecond;
+            state.velocity.z += facing.z * kSprintJump * kTicksPerSecond;
         }
     }
 
@@ -226,6 +264,23 @@ void stepPlayer(PlayerState& state, const PlayerInput& input, IsSolid&& isSolid,
     };
     moveFlat(0, state.position.x, state.velocity.x);
     moveFlat(2, state.position.z, state.velocity.z);
+
+    // What carries into the next tick.
+    if (input.momentum || state.flying || swimming) {
+        state.velocity.x *= input.momentum ? keep : 0.0;
+        state.velocity.z *= input.momentum ? keep : 0.0;
+    }
+    if (state.flying) {
+        state.velocity.y *= input.momentum ? kFlyRiseKeep : 0.0;
+        // Touching down ends flight, as in creative mode.
+        if (state.onGround) {
+            state.flying = false;
+        }
+    } else if (swimming) {
+        state.velocity.y = (state.velocity.y * kWaterKeep) - (kWaterSink * kTicksPerSecond);
+    } else {
+        state.velocity.y = (state.velocity.y - (kGravity * kTicksPerSecond)) * kFallKeep;
+    }
 }
 
 } // namespace vr

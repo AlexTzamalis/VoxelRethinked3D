@@ -98,7 +98,10 @@ void PlayerController::update(vxe::render::Camera& camera, const vxe::voxel::Vox
         .yaw = m_yaw,
         .jump = m_input.isHeld(m_actions.jump) || m_jumpWaiting,
         .down = m_settings.toggleCrouch.get() ? m_crouchLatched : m_input.isHeld(m_actions.crouch),
-        .sprint = m_settings.toggleSprint.get() ? m_sprintLatched : m_input.isHeld(m_actions.sprint)};
+        .sprint = m_settings.toggleSprint.get() ? m_sprintLatched : m_input.isHeld(m_actions.sprint),
+        .walkScale = static_cast<f64>(m_settings.walkSpeed.get()),
+        .flyScale = static_cast<f64>(m_settings.flySpeed.get()),
+        .momentum = m_settings.momentum.get()};
 
     m_sinceJumpPress += deltaSeconds;
     if (m_input.isPressed(m_actions.jump)) {

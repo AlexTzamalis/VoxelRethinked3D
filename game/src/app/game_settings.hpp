@@ -24,6 +24,10 @@ struct GameSettings {
     vxe::config::Setting<bool> invertY;
     vxe::config::Setting<bool> toggleSprint; // Press once instead of holding.
     vxe::config::Setting<bool> toggleCrouch;
+
+    vxe::config::Setting<vxe::f32> walkSpeed; // Times Minecraft's walking speeds.
+    vxe::config::Setting<vxe::f32> flySpeed;  // Times Minecraft's flying speeds.
+    vxe::config::Setting<bool> momentum;
     // Interface
     vxe::config::Setting<vxe::f32> hudOpacity;
     vxe::config::Setting<bool> showHud; // F1 flips it.
