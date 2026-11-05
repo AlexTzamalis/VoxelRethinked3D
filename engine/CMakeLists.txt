@@ -222,6 +222,7 @@ vxe_add_module(render
         src/render/frame_constants.cpp
         src/render/frame_graph.cpp
         src/render/frame_pacer.cpp
+        src/render/god_rays.cpp
         src/render/hi_z.cpp
         src/render/lod_renderer.cpp
         src/render/post_process.cpp

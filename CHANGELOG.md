@@ -2,6 +2,12 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#144] 2026-11-05, Sun rays
+### Added
+- Sun rays (Graphics.Sky.GodRays and GodRayStrength): when looking towards the sun, shafts of light stream through gaps in leaves, past mountain edges and between clouds, at the horizon too. Each pixel marches towards the sun on the screen at half resolution and adds up the open sky it passes; the result is added over the scene in the sun's color. They fade as the sun leaves the screen, sets or falls behind the camera.
+### Performance
+- About 4 FPS at 165 FPS on an RTX 4060 while the sun is in view; nothing otherwise.
+
 ## [#143] 2026-11-05, Sun and moon shadows
 ### Added
 - Shadows from the sun, and faint ones from the moon at night (Graphics.Shadows.Enabled, Quality Low, Medium or High, Distance 32 to 256 blocks, default 64). Terrain is drawn from the light into a 4096 square map of 2 to 4 cascades, sharp near the camera, and the chunk shader darkens sky light where something stands between, with soft edges. Torch light is never shaded. Shadows fade in as the sun rises and out towards the shadow distance.

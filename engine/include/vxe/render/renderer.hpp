@@ -12,6 +12,7 @@
 #include <vxe/render/debug_draw.hpp>
 #include <vxe/render/frame_constants.hpp>
 #include <vxe/render/frame_graph.hpp>
+#include <vxe/render/god_rays.hpp>
 #include <vxe/render/lod_renderer.hpp>
 #include <vxe/render/post_process.hpp>
 #include <vxe/render/precipitation.hpp>
@@ -114,6 +115,7 @@ private:
     std::unique_ptr<LodRenderer> m_lod;
     std::unique_ptr<SkyRenderer> m_sky;
     std::unique_ptr<CloudRenderer> m_clouds;
+    std::unique_ptr<GodRayRenderer> m_godRays;
     std::unique_ptr<PrecipitationRenderer> m_precipitation;
     std::unique_ptr<PostProcess> m_post;
     std::unique_ptr<DebugDraw> m_debugDraw;

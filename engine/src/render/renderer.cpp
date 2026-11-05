@@ -110,6 +110,12 @@ Result<std::unique_ptr<Renderer>> Renderer::create(const RendererDesc& desc) {
         return fail(clouds.error());
     }
     renderer->m_clouds = std::move(clouds.value());
+    auto godRays = GodRayRenderer::create(
+        {.device = &device, .settings = desc.settings, .shaders = desc.shaders, .colorFormat = kSceneFormat});
+    if (!godRays) {
+        return fail(godRays.error());
+    }
+    renderer->m_godRays = std::move(godRays.value());
     auto post = PostProcess::create({.device = &device, .settings = desc.settings, .shaders = desc.shaders});
     if (!post) {
         return fail(post.error());
@@ -144,6 +150,7 @@ Renderer::~Renderer() {
     m_graph.reset();
     m_debugDraw.reset();
     m_post.reset();
+    m_godRays.reset();
     m_clouds.reset();
     m_precipitation.reset();
     m_sky.reset();
@@ -225,6 +232,22 @@ Result<void> Renderer::buildGraph() {
                        }});
     cloudBlend.colorAttachment(color, rhi::LoadOp::Load);
     cloudBlend.sampleTexture(cloudLayer);
+
+    // Sun rays: shafts through the gaps between what stands before the sun.
+    auto godRays = graph.addPass(
+        {.name = "GodRays", .record = [this, depth, cloudLayer](PassContext& context) {
+             m_godRays->recordLayer(context.commands, context.texture(depth), context.texture(cloudLayer));
+         }});
+    const TextureRef rayLayer = godRays.createTexture("RayLayer", {.format = kSceneFormat, .scale = 0.5F});
+    godRays.colorAttachment(rayLayer, rhi::LoadOp::Clear, {0.0F, 0.0F, 0.0F, 0.0F});
+    godRays.sampleTexture(depth);
+    godRays.sampleTexture(cloudLayer);
+    auto godRayBlend =
+        graph.addPass({.name = "GodRaysBlend", .record = [this, rayLayer](PassContext& context) {
+                           m_godRays->recordBlend(context.commands, context.texture(rayLayer));
+                       }});
+    godRayBlend.colorAttachment(color, rhi::LoadOp::Load);
+    godRayBlend.sampleTexture(rayLayer);
 
     auto translucent =
         graph.addPass({.name = "ChunksTranslucent", .record = [this, shadowMap](PassContext& context) {
@@ -323,6 +346,8 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
                                                              .frameIndex = m_frameIndex}));
     m_chunks->setViewSize(width, height);
     m_chunks->beginFrame(camera);
+    m_godRays->update(camera, m_chunks->viewAspect(), Vec3(m_sky->params().sunDirection),
+                      Vec3(m_sky->params().sunColor));
     m_lod->setViewSize(width, height);
     m_lod->beginFrame(camera);
     m_debugDraw->handleInput();
