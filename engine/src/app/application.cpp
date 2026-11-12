@@ -226,10 +226,14 @@ void beginDebugFrame(EngineServices& services, std::span<const platform::Platfor
     services.console->update();
 }
 
-void endDebugFrame(EngineServices& services) {
+void endDebugFrame(EngineServices& services, bool applicationWantsText) {
+    bool wantsText = applicationWantsText;
     if (services.debugUi) {
         services.debugUi->endFrame();
-        services.window->setTextInputEnabled(services.debugUi->wantsTextInput());
+        wantsText = wantsText || services.debugUi->wantsTextInput();
+    }
+    if (services.window) {
+        services.window->setTextInputEnabled(wantsText);
     }
 }
 
@@ -459,7 +463,7 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
         services.events->dispatch();
         application->onFrame(context, time);
         retryStartupCommands(services, pendingCommands, startupClock);
-        endDebugFrame(services);
+        endDebugFrame(services, context.wantsTextInput);
 
         if (services.renderer) {
             services.pacer->update();

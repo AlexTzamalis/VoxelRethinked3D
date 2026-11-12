@@ -91,6 +91,12 @@ struct EngineContext {
     // applies.
     bool inMenu = false;
 
+    // Set by the application in onFrame while one of its text fields has the
+    // keyboard. The engine turns the window's text input on when this or the
+    // debug tools (console, ImGui) want it, once per frame, so neither turns
+    // it off under the other.
+    bool wantsTextInput = false;
+
     // The OS events of the current frame, in order. Valid during onFrame.
     std::span<const platform::PlatformEvent> frameEvents;
 

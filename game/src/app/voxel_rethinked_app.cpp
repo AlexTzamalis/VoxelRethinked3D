@@ -1316,9 +1316,7 @@ void VoxelRethinkedApp::drawUi(vxe::EngineContext& context, const vxe::FrameTime
         m_screens->update(input.deltaSeconds);
         m_uiContext->update(width, height, input, *m_ui);
         m_uiContext->draw(*m_ui);
-        if (context.window != nullptr) {
-            context.window->setTextInputEnabled(m_uiContext->wantsTextInput());
-        }
+        context.wantsTextInput = m_uiContext->wantsTextInput();
     }
     if (m_settings->fontSample.get()) {
         drawFontSample(*m_ui);

@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#148] 2026-11-12, Typing into text fields
+### Fixed
+- Text fields (world names, seeds, search boxes, text settings) never received typed characters: the game turned the window's text input on for a focused field, and the engine turned it off again in the same frame because the debug tools did not want it. The engine now turns it on when either asks (EngineContext::wantsTextInput).
+
 ## [#147] 2026-11-12, Resource packs screen and edits in far terrain
 ### Added
 - Resource Packs screen (G4.4), from the main menu: the packs in the packs folder on the left, the enabled ones on the right with the highest priority on top and the default pack always last. Selecting a pack shows its name, author, version, resolution and description; Enable, Disable, Move up and Move down change Graphics.Textures.Packs, which loads the textures again at once. Open Packs Folder and Reload for packs copied in.
