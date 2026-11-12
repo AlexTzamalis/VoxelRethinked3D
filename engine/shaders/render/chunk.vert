@@ -75,6 +75,13 @@ const float kPlantShade = 0.9;
 const float kPlantShift = 0.125; // Blocks per step of a plant's shift.
 const float kBushySize = 1.7;    // Blocks across a bushy leaf plane.
 const float kBushyTurn = 0.07;   // Radians per step of a bushy plane's turn, about 28 degrees at most.
+// Greedy meshing joins faces of different sizes, so the corner of one face
+// can sit on the middle of a neighbor's edge (a T junction). Rounding puts
+// that corner a hair off the edge, and single pixels of whatever lies behind
+// (bright sky) flicker through the gap as the camera moves, worst in dark
+// caves. Every face grows by this much on each side, so neighbors overlap in
+// their own plane instead of leaving a gap; too thin to see anywhere else.
+const float kSeamOverlap = 1.0 / 1024.0;
 const float kAoCurve[4] = float[4](0.45, 0.62, 0.8, 1.0);
 // Block light is firelight: a little warm next to white daylight.
 const vec3 kBlockLightTint = vec3(1.0, 0.86, 0.68);
@@ -139,7 +146,8 @@ void main() {
         // the sides end there, showing the lower part of the texture.
         const float slab = float((quad.x >> 27u) & 15u) / 16.0;
         const float rise = slab > 0.0 && axis != 1u ? slab : 1.0;
-        local = origin + kAxisU[axis] * (cornerU * width) + kAxisV[axis] * (cornerV * height * rise);
+        local = origin + kAxisU[axis] * (cornerU * width + (cornerU * 2.0 - 1.0) * kSeamOverlap) +
+                kAxisV[axis] * (cornerV * height * rise + (cornerV * 2.0 - 1.0) * kSeamOverlap);
         if (slab > 0.0 && face == 2u) {
             local.y -= 1.0 - slab;
         }

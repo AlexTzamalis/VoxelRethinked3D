@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#157] 2026-11-12, First person arm, no flicker through face seams
+### Added
+- First person shows the right arm, reaching into the view from the lower right like Bedrock's, with the held item resting on the hand: a block shows its corner, two sides and its top; a plant is held up facing the eye. The swing of breaking and placing pushes the arm in towards the crosshair.
+- Console command cave: moves the camera into the nearest dark cave below it, looking along its longest open way.
+### Fixed
+- Single pixels flickered in caves: where greedy meshing joins faces of different sizes, a corner can sit on a neighbor's edge, and rounding left a gap the sky showed through. Faces now grow by 1/1024 of a block on each side. In a dark cave capture, 7 lone bright pixels before, 0 after.
+- The held block faced the view squarely in first person.
 ## [#156] 2026-11-12, Developer game mode, rain and snow from the clouds
 ### Added
 - Game mode setting (Gameplay.GameMode): Creative as before, or Developer, which always flies at four times the flying speed (about 44 blocks a second, 87 sprinting), straight through blocks, and lights the darkest places nearly like day, so the inside of the terrain and its caves can be looked at. While the camera is inside rock, cave culling pauses: from there the cave search reaches nothing, though the caves are in plain view. Survival waits for health, damage and item counts.

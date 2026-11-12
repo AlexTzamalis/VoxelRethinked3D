@@ -26,6 +26,21 @@ constexpr f32 kStridePerBlock = 2.66F; // Radians of leg swing per block (Minecr
 constexpr f32 kBodyLag = 0.87F;        // Radians (50 degrees) the head turns before the body follows.
 constexpr f32 kSwingSeconds = 0.3F;    // Six ticks, as Minecraft's.
 constexpr f32 kDarkest = 0.08F;        // Brightness in total darkness.
+// First person, in the view's space (blocks; x right, y up, z backwards):
+// where the shoulder is, how the arm points (radians: turned left towards
+// the middle, raised forward from hanging, rolled to show its outer side),
+// the middle of the hand's end (arm pixels), how far above it in the view the
+// item rests, and the item's size. With a 70 degree view the hand ends about
+// half way out to the right and two thirds down, the item just above it.
+const Vec3 kFirstPersonShoulder(0.58F, -0.5F, -0.2F);
+constexpr f32 kFirstPersonArmYaw = 0.21F;   // 12 degrees.
+constexpr f32 kFirstPersonArmPitch = 1.83F; // 105 degrees.
+constexpr f32 kFirstPersonArmRoll = -0.35F; // -20 degrees.
+const Vec3 kFirstPersonHandEnd(1.0F, -10.0F, 0.0F);
+const Vec3 kFirstPersonItemLift(0.0F, 0.15F, -0.02F);
+constexpr f32 kFirstPersonBlockSize = 0.24F;
+constexpr f32 kFirstPersonItemTurn = 15.0F; // Degrees around the view's up.
+constexpr f32 kFirstPersonItemTip = 18.0F;  // Degrees, the top towards the eye.
 
 // Brightness of a face by where it points, like the blocks: tops brightest,
 // sides facing east or west darker than north or south, bottoms darkest.
@@ -315,34 +330,48 @@ void PlayerModel::buildFirstPerson(const PlayerPose& pose, const vxe::render::Ca
     const Mat4 view(Vec4(right, 0.0F), Vec4(up, 0.0F), Vec4(back, 0.0F), Vec4(0.0F, 0.0F, 0.0F, 1.0F));
     const f32 f = m_swinging ? m_swing : 1.0F;
     const f32 swingRoot = std::sin(std::sqrt(f) * kPi);
+    const f32 swingArc = std::sin(f * kPi);
     // A gentle bob with the walk, like the view's.
     const f32 bob = std::sin(m_walkPhase * 0.5F) * 0.02F * m_walkAmount;
-    if (pose.held != HeldItem::None) {
-        // Minecraft's place for a block in the main hand, and its swing.
-        Mat4 item =
-            glm::translate(view, Vec3(0.5F - (0.4F * swingRoot) + bob,
-                                      -0.44F + (0.2F * std::sin(std::sqrt(f) * 2.0F * kPi)) - std::abs(bob),
-                                      -0.95F - (0.2F * std::sin(f * kPi))));
-        item =
-            glm::rotate(item, glm::radians(45.0F - (20.0F * std::sin(f * f * kPi))), Vec3(0.0F, 1.0F, 0.0F));
-        item = glm::rotate(item, glm::radians(-20.0F * swingRoot), Vec3(0.0F, 0.0F, 1.0F));
-        item = glm::rotate(item, glm::radians(-80.0F * swingRoot), Vec3(1.0F, 0.0F, 0.0F));
-        if (pose.held == HeldItem::Block) {
-            addItemCube(out, item, 0.3F, light);
-        } else {
-            addItemFlat(out, glm::rotate(item, -kPi / 4.0F, Vec3(0.0F, 1.0F, 0.0F)), 0.5F, light);
-        }
+
+    // The right arm reaches up into the view from below the lower right
+    // corner, like Bedrock's: the shoulder out of sight, the hand at the lower
+    // right. The swing of breaking and placing pushes it in towards the
+    // crosshair and back.
+    const Vec3 shoulder(kFirstPersonShoulder.x - (0.22F * swingRoot) + bob,
+                        kFirstPersonShoulder.y + (0.1F * std::sin(std::sqrt(f) * 2.0F * kPi)) - std::abs(bob),
+                        kFirstPersonShoulder.z - (0.12F * swingArc));
+    const f32 armYaw = kFirstPersonArmYaw + (glm::radians(28.0F) * swingRoot);
+    const f32 armPitch = kFirstPersonArmPitch - (glm::radians(22.0F) * swingArc);
+    Mat4 arm = glm::translate(Mat4(1.0F), shoulder);
+    arm = glm::rotate(arm, armYaw, Vec3(0.0F, 1.0F, 0.0F));
+    arm = glm::rotate(arm, armPitch, Vec3(1.0F, 0.0F, 0.0F));
+    arm = glm::rotate(arm, kFirstPersonArmRoll, Vec3(0.0F, 1.0F, 0.0F));
+    arm = glm::scale(arm, Vec3(kPixel));
+    const Mat4 armM = view * arm;
+    addSkinBox(out, armM, {-1.0F, -10.0F, -2.0F}, {4.0F, 12.0F, 4.0F}, 40.0F, 16.0F, 0.0F, light);
+    addSkinBox(out, armM, {-1.0F, -10.0F, -2.0F}, {4.0F, 12.0F, 4.0F}, 40.0F, 32.0F, 0.25F, light);
+    if (pose.held == HeldItem::None) {
         return;
     }
-    // The empty right arm, reaching into the view from the lower right.
-    Mat4 arm = glm::translate(view, Vec3(0.62F - (0.3F * swingRoot) + bob, -0.78F - std::abs(bob),
-                                         -0.3F - (0.25F * std::sin(f * kPi))));
-    arm = glm::rotate(arm, glm::radians(-15.0F), Vec3(0.0F, 1.0F, 0.0F));
-    arm = glm::rotate(arm, glm::radians(100.0F + (40.0F * swingRoot)), Vec3(1.0F, 0.0F, 0.0F));
-    arm = glm::rotate(arm, glm::radians(8.0F), Vec3(0.0F, 0.0F, 1.0F));
-    arm = glm::scale(arm, Vec3(kPixel));
-    addSkinBox(out, arm, {-1.0F, -10.0F, -2.0F}, {4.0F, 12.0F, 4.0F}, 40.0F, 16.0F, 0.0F, light);
-    addSkinBox(out, arm, {-1.0F, -10.0F, -2.0F}, {4.0F, 12.0F, 4.0F}, 40.0F, 32.0F, 0.25F, light);
+    // The item rests in the hand, upright in the view whatever the arm's
+    // angle. It sits about 45 degrees to the right of the line of sight, so a
+    // block turned only a little shows its corner: more of the side facing
+    // the middle of the screen than the other, and, tipped towards the eye,
+    // its top.
+    const Vec3 hand = Vec3(arm * Vec4(kFirstPersonHandEnd, 1.0F)) + kFirstPersonItemLift;
+    Mat4 item = glm::translate(Mat4(1.0F), hand);
+    item = glm::rotate(item, glm::radians(kFirstPersonItemTip - (30.0F * swingArc)), Vec3(1.0F, 0.0F, 0.0F));
+    item = glm::rotate(item, glm::radians(kFirstPersonItemTurn) + (armYaw - kFirstPersonArmYaw),
+                       Vec3(0.0F, 1.0F, 0.0F));
+    if (pose.held == HeldItem::Block) {
+        addItemCube(out, view * item, kFirstPersonBlockSize, light);
+    } else {
+        // A plant stands like a picture held up, its face towards the view.
+        item = glm::rotate(item, glm::radians(-45.0F), Vec3(0.0F, 1.0F, 0.0F)); // Facing the eye.
+        item = glm::translate(item, Vec3(0.0F, kFirstPersonBlockSize * 0.4F, 0.0F));
+        addItemFlat(out, view * item, kFirstPersonBlockSize * 1.5F, light);
+    }
 }
 
 } // namespace vr

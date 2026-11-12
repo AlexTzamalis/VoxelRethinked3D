@@ -582,6 +582,83 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
              output.lines.emplace_back("Camera moved");
              return output;
          }});
+    // Into the nearest dark cave below the camera, looking along its longest
+    // open way: for looking at caves (Developer mode) and for scripted runs.
+    context.commands.registerCommand(
+        {.name = "cave",
+         .usage = "cave",
+         .description = "Moves the camera into the nearest dark cave below it.",
+         .handler = [this](std::span<const std::string> /*arguments*/) {
+             vxe::config::CommandOutput output;
+             if (!m_demo || !m_blocks) {
+                 output.lines.emplace_back("No world");
+                 output.success = false;
+                 return output;
+             }
+             constexpr vxe::i64 kRadius = 48;
+             constexpr vxe::i64 kRun = 24;
+             const vxe::voxel::VoxelWorld& world = m_demo->world();
+             const auto open = [&](const vxe::BlockPos& at) {
+                 // Unloaded counts as closed: a camera there would see nothing.
+                 return world.getBlock(at, vxe::voxel::BlockStateId{0xFFFF}) == vxe::voxel::kAirState;
+             };
+             const vxe::BlockPos start{.x = static_cast<vxe::i64>(std::floor(m_camera.position.x)),
+                                       .y = static_cast<vxe::i64>(std::floor(m_camera.position.y)),
+                                       .z = static_cast<vxe::i64>(std::floor(m_camera.position.z))};
+             constexpr std::array<std::array<vxe::i64, 2>, 4> kWays = {{{0, -1}, {1, 0}, {0, 1}, {-1, 0}}};
+             vxe::f64 bestScore = -1.0;
+             vxe::BlockPos best{};
+             vxe::usize bestWay = 0;
+             for (vxe::i64 dy = 16; dy <= 96; dy += 2) {
+                 for (vxe::i64 dz = -kRadius; dz <= kRadius; dz += 2) {
+                     for (vxe::i64 dx = -kRadius; dx <= kRadius; dx += 2) {
+                         const vxe::BlockPos at{.x = start.x + dx, .y = start.y - dy, .z = start.z + dz};
+                         // Standing room in the dark, on a floor.
+                         if (!open(at) || !open({.x = at.x, .y = at.y + 1, .z = at.z}) ||
+                             open({.x = at.x, .y = at.y - 1, .z = at.z}) ||
+                             vxe::voxel::skyLightOf(world.getLight(at)) != 0) {
+                             continue;
+                         }
+                         for (vxe::usize way = 0; way < kWays.size(); ++way) {
+                             vxe::i64 run = 0;
+                             while (run < kRun && open({.x = at.x + (kWays.at(way)[0] * (run + 1)),
+                                                        .y = at.y + 1,
+                                                        .z = at.z + (kWays.at(way)[1] * (run + 1))})) {
+                                 ++run;
+                             }
+                             const vxe::f64 score =
+                                 static_cast<vxe::f64>(run) -
+                                 (0.05 * std::hypot(static_cast<vxe::f64>(dx), static_cast<vxe::f64>(dz)));
+                             if (run >= 8 && score > bestScore) {
+                                 bestScore = score;
+                                 best = at;
+                                 bestWay = way;
+                             }
+                         }
+                     }
+                 }
+             }
+             if (bestScore < 0.0) {
+                 output.lines.emplace_back("No dark cave within 48 blocks and 96 below");
+                 output.success = false;
+                 return output;
+             }
+             vxe::render::Camera camera = m_camera;
+             camera.position =
+                 vxe::DVec3(static_cast<vxe::f64>(best.x) + 0.5, static_cast<vxe::f64>(best.y) + 1.62,
+                            static_cast<vxe::f64>(best.z) + 0.5);
+             camera.yaw = glm::radians(90.0F * static_cast<vxe::f32>(bestWay));
+             camera.pitch = 0.0F;
+             m_camera = camera;
+             if (m_player) {
+                 m_player->place(
+                     vxe::DVec3(camera.position.x, static_cast<vxe::f64>(best.y), camera.position.z),
+                     camera.yaw, camera.pitch, false);
+             }
+             m_cameraOverride = camera;
+             output.lines.push_back(std::format("Cave at {} {} {}", best.x, best.y, best.z));
+             return output;
+         }});
     // Jumps to a biome, for looking at world generation on foot.
     context.commands.registerCommand(
         {.name = "locate",

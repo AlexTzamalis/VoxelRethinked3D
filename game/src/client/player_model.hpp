@@ -57,7 +57,7 @@ public:
     // The body in the world (third person), camera relative.
     void buildBody(const PlayerPose& pose, const vxe::render::Camera& camera,
                    std::vector<vxe::render::EntityVertex>& out) const;
-    // The right arm, or the item in hand, at the bottom right of the view.
+    // The right arm at the bottom right of the view, with the item in its hand.
     void buildFirstPerson(const PlayerPose& pose, const vxe::render::Camera& camera,
                           std::vector<vxe::render::EntityVertex>& out) const;
 
