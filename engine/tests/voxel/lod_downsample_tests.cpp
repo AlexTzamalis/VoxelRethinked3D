@@ -225,3 +225,48 @@ TEST_CASE("An edited chunk column reaches every LOD level, on screen and in the 
     CHECK(level1->cell(groundX, groundZ).front().topY == 20);
     CHECK(sink.adds == addsBefore + shown);
 }
+
+TEST_CASE("finishEdits writes every waiting edit to the cache before a manager goes away") {
+    const auto folder = std::filesystem::temp_directory_path() / "vxe_tests" / "lod_finish_edits";
+    std::error_code error;
+    std::filesystem::remove_all(folder, error);
+    config::SettingsRegistry settings;
+    jobs::JobSystem jobs{jobs::JobSystemConfig{.workerCount = 2, .ioThreadCount = 1}};
+    FlatSampler sampler;
+    voxel::LodTileCache cache({.folder = folder});
+    voxel::VoxelWorld world;
+    const auto blocks = testBlocks();
+    // Two edited columns, each a pillar up to y 40.
+    for (const i32 column : {0, 3}) {
+        voxel::ChunkStorage storage;
+        for (u8 ly = 0; ly < 16; ++ly) {
+            for (u8 z = 0; z < 16; ++z) {
+                for (u8 x = 0; x < 16; ++x) {
+                    storage.set({.x = x, .y = ly, .z = z}, kStone);
+                }
+            }
+        }
+        world.insertChunk({.x = column, .y = 2, .z = 0}, storage);
+        world.insertChunk({.x = column, .y = 1, .z = 0}, storage);
+    }
+    u64 hash = 0;
+    {
+        voxel::LodManager manager(
+            {.jobs = &jobs, .settings = &settings, .sampler = &sampler, .cache = &cache});
+        manager.update(DVec3(8.0, 50.0, 8.0));
+        hash = voxel::lodCacheHash(sampler.worldHash(), manager.sampleOptions());
+        manager.columnEdited(world, {.x = 0, .z = 0}, blocks);
+        manager.columnEdited(world, {.x = 3, .z = 0}, blocks);
+        CHECK(manager.pendingEdits() == 2);
+        manager.finishEdits();
+        CHECK(manager.pendingEdits() == 0);
+    }
+    for (const i64 x : {i64{0}, i64{48}}) {
+        const LodTileKey key = voxel::lodTileAt(1, x, 0);
+        const auto cached = cache.load(key, hash);
+        REQUIRE(cached.has_value());
+        const auto cellX = static_cast<u32>((x - key.originX()) / key.cellSize());
+        const auto cellZ = static_cast<u32>((0 - key.originZ()) / key.cellSize());
+        CHECK(cached->cell(cellX, cellZ).front().topY == 47);
+    }
+}

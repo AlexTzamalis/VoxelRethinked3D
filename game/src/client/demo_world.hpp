@@ -32,6 +32,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace vr {
 
@@ -108,6 +109,10 @@ public:
     // Chunk layers above and below the player that must be ready. The rest of
     // the vertical range is mostly rock nobody can see yet.
     static constexpr vxe::i32 kSpawnLayers = 4;
+    // Far terrain takes an edited chunk column this long after its last
+    // edit (Section 13.6, G8.3), so building a wall is one rebuild, not one per
+    // block. Short enough that the chunks are still loaded when it happens.
+    static constexpr vxe::f64 kLodEditDelayMs = 1000.0;
     // Shows the world anyway after this long, for example when the renderer
     // refused chunks.
     static constexpr vxe::f64 kLoadTimeoutMs = 20000.0;
@@ -130,9 +135,9 @@ public:
     // the textures. Saves every edit first. Logs the streaming time per frame.
     void shutdown();
 
-    // Changes a block and marks its chunk for saving. All edits of the world
-    // go through here, so the integrated server (G0.2) has one place to take
-    // over. False if the chunk is not loaded.
+    // Changes a block, marks its chunk for saving and its column for the far
+    // terrain. All edits of the world go through here, so the integrated
+    // server (G0.2) has one place to take over. False if the chunk is not loaded.
     bool setBlock(const vxe::BlockPos& position, vxe::voxel::BlockStateId state);
     // Commits edits in the background (autosave). The world stays playable.
     void saveEdits();
@@ -151,12 +156,18 @@ public:
     [[nodiscard]] vxe::DVec3 spawnGround() const;
     [[nodiscard]] const vxe::voxel::VoxelWorld& world() const noexcept { return m_world; }
     [[nodiscard]] const vxe::voxel::StreamingManager& streaming() const noexcept { return *m_streaming; }
+    // What far terrain tiles in the cache are keyed with (tests). Not after shutdown().
+    [[nodiscard]] vxe::u64 lodCacheHash() const {
+        return vxe::voxel::lodCacheHash(m_lodSampler.worldHash(), m_lod->sampleOptions());
+    }
 
 private:
     explicit DemoWorld(const DemoWorldDesc& desc, const TerrainBlocks& blocks);
 
     // shutdown() without its log line, for the destructor.
     void release() noexcept;
+    // Hands columns edited at least `delayMs` ago to the far terrain.
+    void sendEditsToLod(vxe::f64 delayMs);
 
     vxe::render::ChunkRenderer* m_chunks;
     const BlockCatalog& m_catalog;
@@ -182,6 +193,9 @@ private:
     bool m_premapping = false; // A premap was started for this load (it may be done already).
     std::unique_ptr<vxe::voxel::StreamingManager> m_streaming; // Last: it waits for its jobs first.
     vxe::Stopwatch m_loadClock;
+    // Edited chunk columns waiting for the far terrain, with their last edit
+    // (m_loadClock milliseconds). Few at a time, so a vector does.
+    std::vector<std::pair<vxe::voxel::ColumnPos, vxe::f64>> m_lodEdits;
     bool m_loaded = false;
     bool m_shutDown = false;
 };

@@ -185,6 +185,10 @@ public:
 
     // Edits waiting or running.
     [[nodiscard]] usize pendingEdits() const noexcept { return m_edits.size(); }
+    // Runs every waiting edit to the end and waits for it, so the cache holds
+    // them all: for leaving a world, where the destructor would drop them.
+    // An edit takes milliseconds, on an IO thread.
+    void finishEdits();
 
     // True when every wanted tile is ready, nothing is retiring, no edit is
     // waiting and no job is running.

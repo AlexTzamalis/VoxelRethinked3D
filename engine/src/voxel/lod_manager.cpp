@@ -10,6 +10,7 @@
 #include <cmath>
 #include <format>
 #include <string>
+#include <thread>
 
 namespace vxe::voxel {
 namespace {
@@ -482,6 +483,20 @@ void LodManager::columnEdited(const VoxelWorld& world, ColumnPos column,
     }
     edit->blocks = std::move(blocks);
     m_edits.push_back(std::move(edit));
+}
+
+void LodManager::finishEdits() {
+    VXE_PROFILE_FUNCTION();
+    while (!m_edits.empty()) {
+        processEdits();
+        if (m_editRunning) {
+            // Only this edit is waited for; tile jobs keep their own pace.
+            const Edit& edit = *m_edits.front();
+            while (!edit.done.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+        }
+    }
 }
 
 // Takes a finished edit's tiles into the view and starts the next edit.

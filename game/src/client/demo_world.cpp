@@ -143,7 +143,29 @@ bool DemoWorld::setBlock(const vxe::BlockPos& position, BlockStateId state) {
     if (m_saver) {
         m_saver->markEdited(vxe::toChunk(position));
     }
+    const vxe::voxel::ColumnPos column = vxe::voxel::columnOf(vxe::toChunk(position));
+    const vxe::f64 now = m_loadClock.elapsedMilliseconds();
+    if (const auto found = std::ranges::find(m_lodEdits, column, &decltype(m_lodEdits)::value_type::first);
+        found != m_lodEdits.end()) {
+        found->second = now;
+    } else {
+        m_lodEdits.emplace_back(column, now);
+    }
     return true;
+}
+
+void DemoWorld::sendEditsToLod(vxe::f64 delayMs) {
+    if (m_lodEdits.empty() || !m_lod) {
+        return;
+    }
+    const vxe::f64 now = m_loadClock.elapsedMilliseconds();
+    std::erase_if(m_lodEdits, [&](const auto& edit) {
+        if (now - edit.second < delayMs) {
+            return false;
+        }
+        m_lod->columnEdited(m_world, edit.first, m_view);
+        return true;
+    });
 }
 
 void DemoWorld::saveEdits() {
@@ -160,6 +182,16 @@ void DemoWorld::shutdown() {
     if (m_saver) {
         m_saver->encodeEdited(m_world);
         m_saver->flush();
+    }
+    // The last edits reach the far terrain cache, or they would be missing
+    // from the horizon next time.
+    sendEditsToLod(0.0);
+    if (m_lod && m_lod->pendingEdits() > 0) {
+        const vxe::Stopwatch edits;
+        const vxe::usize count = m_lod->pendingEdits();
+        m_lod->finishEdits();
+        VXE_LOG_INFO(vxe::log::core, "Far terrain took {} edited columns in {:.0f} ms", count,
+                     edits.elapsedMilliseconds());
     }
     const vxe::voxel::StreamingManager::UpdateTimes& times = m_streaming->updateTimes();
     if (times.updates > 0) {
@@ -209,6 +241,7 @@ void DemoWorld::update(const vxe::render::Camera& camera) {
         }
     }
     if (!m_premap) {
+        sendEditsToLod(kLodEditDelayMs);
         m_lod->update(camera.position);
     }
     if (m_debugDraw != nullptr) {

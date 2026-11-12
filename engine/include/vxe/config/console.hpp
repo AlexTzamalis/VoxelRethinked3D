@@ -31,6 +31,9 @@ namespace vxe::config {
 // What a command printed, and whether it worked.
 struct CommandOutput {
     bool success = true;
+    // With success false: not yet, try again later. Startup commands that say so are retried
+    // without the usual time limit (a scripted "wait" for a world that takes long to load).
+    bool retryLater = false;
     std::vector<std::string> lines;
 };
 

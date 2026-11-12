@@ -9,9 +9,9 @@
 namespace vr {
 
 // The first screen after launch (Section 19.3): the title over the panorama,
-// Singleplayer, Multiplayer (disabled), Settings, Resource Packs (until G4.4,
-// disabled) and Quit, with the version in a corner. It needs nothing but the
-// font, so it shows at once while the world streams in behind it.
+// Singleplayer, Multiplayer (disabled), Settings, Resource Packs (G4.4) and
+// Quit, with the version in a corner. It needs nothing but the font, so it
+// shows at once.
 class MainMenuScreen final : public vxe::ui::Screen {
 public:
     MainMenuScreen(const MenuServices& services, std::function<void()> singleplayer,

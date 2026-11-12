@@ -40,6 +40,8 @@ set(vrGameSources
     src/ui/screens/menu_services.hpp
     src/ui/screens/pause_screen.cpp
     src/ui/screens/pause_screen.hpp
+    src/ui/screens/resource_packs_screen.cpp
+    src/ui/screens/resource_packs_screen.hpp
     src/ui/screens/settings_screen.cpp
     src/ui/screens/settings_screen.hpp
     src/ui/screens/widget_sample.cpp

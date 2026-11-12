@@ -104,6 +104,8 @@ public:
     [[nodiscard]] std::vector<PackManifest> availablePacks() const;
     // The packs of the latest load, highest priority first.
     [[nodiscard]] std::span<const std::string> activeStack() const noexcept { return m_activeStack; }
+    // The folder packs are found in (Graphics.Textures.Folder, or textures/).
+    [[nodiscard]] std::filesystem::path folder() const;
 
 private:
     struct Load;
@@ -111,7 +113,6 @@ private:
     void registerStats();
     void scanPacks();
     void watchFolder();
-    [[nodiscard]] std::filesystem::path folder() const;
     void startLoad();
     [[nodiscard]] Result<void> upload(const BlockTextureData& data);
     void destroyTextures();

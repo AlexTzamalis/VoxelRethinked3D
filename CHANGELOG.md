@@ -2,6 +2,12 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#147] 2026-11-12, Resource packs screen and edits in far terrain
+### Added
+- Resource Packs screen (G4.4), from the main menu: the packs in the packs folder on the left, the enabled ones on the right with the highest priority on top and the default pack always last. Selecting a pack shows its name, author, version, resolution and description; Enable, Disable, Move up and Move down change Graphics.Textures.Packs, which loads the textures again at once. Open Packs Folder and Reload for packs copied in.
+- Edits reach the far terrain (G8.3): a chunk column goes to the far terrain one second after its last edit, and every waiting column when the world closes (LodManager::finishEdits), so builds stay on the horizon past the render distance and in the far terrain cache.
+### Changed
+- The console's wait command keeps scripted startup commands waiting until the world is entered, however long loading takes (CommandOutput::retryLater), instead of giving up after 10 seconds.
 ## [#146] 2026-11-12, World loading options, Re-create and Open Folder
 ### Added
 - Pre-map distance now works (G8.2): Off enters as soon as the ground around the spawn is ready and far terrain fills in while playing; 4k to 32k blocks bakes far terrain that far before the world shows; Whole horizon (the new default) bakes it all and waits for it, as before. Worlds from before keep the whole horizon.

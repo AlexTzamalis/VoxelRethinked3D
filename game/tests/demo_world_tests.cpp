@@ -11,13 +11,16 @@
 #include <vxe/render/camera.hpp>
 #include <vxe/voxel/block_registry.hpp>
 #include <vxe/voxel/chunk_codec.hpp>
+#include <vxe/voxel/lod_cache.hpp>
 #include <vxe/voxel/region_store.hpp>
 #include <vxe/voxel/voxel_world.hpp>
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -248,4 +251,60 @@ TEST_CASE("Far terrain carries the trees: crowns in fine levels, a leaf tint in 
     // The color table: every layer, then water over its floor and 7 blends.
     const std::vector<vxe::u32> layerColors(layers, 0xFF808080U);
     CHECK(sampler.materialColors(layerColors).size() == vxe::usize{layers} + 8);
+}
+
+TEST_CASE("Edits reach the far terrain cache, at the latest when the world closes") {
+    const auto folder = std::filesystem::temp_directory_path() / "vr_tests" / "demo_lod_edits";
+    std::error_code error;
+    std::filesystem::remove_all(folder, error);
+    vxe::config::SettingsRegistry settings;
+    vxe::voxel::BlockRegistry blocks;
+    auto view = catalog().buildRegistry();
+    REQUIRE(view.hasValue());
+    blocks.publish(std::move(view).value());
+    vxe::jobs::JobSystem jobs({.workerCount = 4, .ioThreadCount = 1});
+    auto world = vr::DemoWorld::create({.jobs = &jobs,
+                                        .settings = &settings,
+                                        .catalog = &catalog(),
+                                        .blocks = &blocks,
+                                        .lodCacheFolder = folder,
+                                        .premapBlocks = 0});
+    REQUIRE(world.hasValue());
+    vr::DemoWorld& demo = *world.value();
+    REQUIRE(settings.set("World.Streaming.RenderDistance", vxe::config::SettingValue{2}).hasValue());
+    REQUIRE(settings.set("Graphics.LOD.Levels", vxe::config::SettingValue{2}).hasValue());
+    REQUIRE(settings.set("Graphics.LOD.DetailTiles", vxe::config::SettingValue{2}).hasValue());
+    vxe::render::Camera camera;
+    camera.position = demo.spawnPosition();
+    const vxe::Stopwatch stopwatch;
+    while (!demo.isLoaded() && stopwatch.elapsedMilliseconds() < 30000.0) {
+        demo.update(camera);
+    }
+    REQUIRE(demo.isLoaded());
+    // A lumen pillar from the ground to 40 blocks above the spawn's feet,
+    // above any tree, so only the edit can put a span that high.
+    const vxe::DVec3 feet = demo.spawnGround();
+    const vxe::BlockPos ground{.x = static_cast<vxe::i64>(std::floor(feet.x)),
+                               .y = static_cast<vxe::i64>(std::floor(feet.y)),
+                               .z = static_cast<vxe::i64>(std::floor(feet.z))};
+    const auto lumen = catalog().stateId("lumen_block");
+    REQUIRE(lumen.has_value());
+    const vxe::i64 top = ground.y + 40;
+    for (vxe::i64 y = ground.y; y <= top; ++y) {
+        REQUIRE(demo.setBlock({.x = ground.x, .y = y, .z = ground.z}, *lumen));
+    }
+    const vxe::u64 hash = demo.lodCacheHash();
+    demo.shutdown(); // Well within the delay: the shutdown must send the column.
+
+    vxe::voxel::LodTileCache cache({.folder = folder});
+    const vxe::voxel::LodTileKey key = vxe::voxel::lodTileAt(1, ground.x, ground.z);
+    const auto tile = cache.load(key, hash);
+    REQUIRE(tile.has_value());
+    const auto cellX = static_cast<vxe::u32>((ground.x - key.originX()) / key.cellSize());
+    const auto cellZ = static_cast<vxe::u32>((ground.z - key.originZ()) / key.cellSize());
+    vxe::i64 highest = 0;
+    for (const vxe::voxel::LodSpan& span : tile->cell(cellX, cellZ)) {
+        highest = std::max<vxe::i64>(highest, span.topY);
+    }
+    CHECK(highest >= top);
 }

@@ -249,7 +249,8 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
     context.commands.registerCommand(
         {.name = "wait",
          .usage = "wait <frames>",
-         .description = "Fails until this many frames have been played, holding back later startup commands.",
+         .description = "Waits until this many frames have been played in the world (after entering it), "
+                        "holding back later startup commands.",
          .handler = [this](std::span<const std::string> arguments) {
              vxe::config::CommandOutput output;
              if (m_waitUntil == 0 && m_states.current() == GameState::InGame && arguments.size() == 1) {
@@ -259,6 +260,8 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
              if (output.success) {
                  m_waitUntil = 0;
              }
+             // Entering a world can take longer than startup commands usually wait.
+             output.retryLater = !output.success;
              return output;
          }});
     context.commands.registerCommand(
@@ -712,7 +715,8 @@ MenuServices VoxelRethinkedApp::menuServices(vxe::EngineContext& context) {
             .input = context.input,
             .ui = *m_uiContext,
             .jobs = context.jobs,
-            .saves = saves ? saves.value() : std::filesystem::path()};
+            .saves = saves ? saves.value() : std::filesystem::path(),
+            .packs = m_texturePacks.get()};
 }
 
 void VoxelRethinkedApp::rebuildScreens(vxe::EngineContext& context) {

@@ -1,5 +1,6 @@
 #include "main_menu_screen.hpp"
 
+#include "resource_packs_screen.hpp"
 #include "settings_screen.hpp"
 
 #include <vxe/core/version.hpp>
@@ -40,9 +41,8 @@ void MainMenuScreen::build(vxe::ui::Widget& root) {
     multiplayer.setEnabled(false);
     multiplayer.setTooltip("Coming later.");
     addButton("Settings", [this] { manager()->push(std::make_unique<SettingsScreen>(m_services)); });
-    auto& packs = addButton("Resource Packs", {});
-    packs.setEnabled(false);
-    packs.setTooltip("Coming soon. Until then, the Graphics settings list the enabled packs.");
+    addButton("Resource Packs",
+              [this] { manager()->push(std::make_unique<ResourcePacksScreen>(m_services)); });
     addButton("Quit", [this] { m_quit(); });
 
     auto& corner = root.add<Widget>();

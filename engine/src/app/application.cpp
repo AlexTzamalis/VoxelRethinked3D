@@ -317,6 +317,9 @@ void retryStartupCommands(EngineServices& services, std::vector<std::string>& pe
         if (output.success) {
             VXE_LOG_INFO(log::core, "> {} (applied after {:.0f} ms, once its system started)", command,
                          clock.elapsedMilliseconds());
+        } else if (output.retryLater) {
+            clock.restart(); // The time limit counts from when it stops asking to wait.
+            return;
         } else if (clock.elapsedMilliseconds() > kStartupRetrySeconds * 1000.0) {
             VXE_LOG_WARN(log::core, "> {} still fails after {:.0f} s: {}", command, kStartupRetrySeconds,
                          output.lines.empty() ? std::string("no output") : output.lines.front());
