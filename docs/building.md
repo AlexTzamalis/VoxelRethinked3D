@@ -44,10 +44,19 @@ Each preset has its own folder, `build\<preset>\bin\`. It holds the program and 
 |--------|----------|
 | `voxel_rethinked.exe` | The game, next to `vxe_tests.exe` and the tools |
 | `shaders\`, `assets\`, `textures\`, `sounds\` | Copied from the repository on every build |
-| `config\`, `saves\`, `logs\` | Written by the game |
+Your own files live in **`%APPDATA%\.voxelrethinked\`**, shared by every preset, like `.minecraft`:
 
-So **each preset keeps its own settings and worlds**: changing a setting in the `release` game does not change
-the `debug` game. Read `logs\latest.log` there when something goes wrong at runtime.
+| Folder | Contents |
+|--------|----------|
+| `saves\` | Worlds |
+| `config\` | `settings.toml` and `keybinds.toml` |
+| `resourcepacks\` | Texture packs you add (the default pack ships in `textures\` next to the program) |
+| `shaderpacks\` | Shader packs, later |
+| `screenshots\`, `logs\`, `captures\` | Pictures, `latest.log`, overlay recordings |
+
+Read `logs\latest.log` there when something goes wrong at runtime. A program with a `portable.txt` beside it, or
+started with `--portable`, keeps all of these next to itself instead. The first start after this change copies
+`config\` and `saves\` from next to the program into `%APPDATA%\.voxelrethinked\` once; the old copies stay.
 
 A changed texture reaches the game on the next build. To see edits live, set `Graphics.Textures.HotReload` on and
 `Graphics.Textures.Folder` to the repository's `textures` folder.
@@ -115,7 +124,9 @@ changes; Visual Studio only runs the program here.
 ## Sharing a build
 
 `.\build.cmd release package` makes `out\VoxelRethinked`. Zip that folder and send it; the game starts from
-`voxel_rethinked.exe` inside it. It holds no settings, saves or logs of yours.
+`voxel_rethinked.exe` inside it. It holds no settings, saves or logs of yours, and it is portable (it has a
+`portable.txt`): it keeps its own files in its folder. Delete `portable.txt` for a copy that uses
+`%APPDATA%\.voxelrethinked\` like an installed game.
 
 The other PC needs Windows 10 or 11 (64 bit), a GPU with OpenGL 4.5 or newer, and Microsoft's C++ runtime. The
 folder includes the matching installer, `vc_redist.x64.exe`. If the game does not start or names `VCRUNTIME140`

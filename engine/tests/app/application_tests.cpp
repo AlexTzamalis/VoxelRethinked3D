@@ -89,6 +89,7 @@ vxe::EngineConfig headlessConfig(const std::filesystem::path& folder, vxe::u64 m
     return vxe::EngineConfig{.window = false,
                              .jobs = {.workerCount = 2, .ioThreadCount = 1},
                              .runtimeFolder = folder,
+                             .userFolder = {},
                              .maxFrames = maxFrames,
                              .idleFpsLimit = 0};
 }

@@ -16,6 +16,7 @@ add_executable(vr_tests
     terrain_tests.cpp
     player_physics_tests.cpp
     resource_packs_tests.cpp
+    user_folder_tests.cpp
     world_store_tests.cpp
 )
 target_link_libraries(vr_tests PRIVATE vr_game doctest::doctest)

@@ -26,7 +26,10 @@ struct TexturePackManagerDesc {
     jobs::JobSystem* jobs = nullptr;
     stats::StatRegistry* stats = nullptr; // Optional.
     std::filesystem::path packsFolder{};  // textures/ next to the executable; may not exist.
-    io::FileWatcher* watcher = nullptr;   // Optional: hot reload (Graphics.Textures.HotReload).
+    // The player's own packs (resourcepacks/ in the user folder); may be
+    // empty. A pack here with the id of a shipped one is skipped.
+    std::filesystem::path userPacksFolder{};
+    io::FileWatcher* watcher = nullptr; // Optional: hot reload (Graphics.Textures.HotReload).
     // The default pack built into the executable: used for whatever no
     // folder pack has (Section 15.1), so every key always resolves.
     std::unique_ptr<PackSource> builtIn{};
@@ -104,8 +107,13 @@ public:
     [[nodiscard]] std::vector<PackManifest> availablePacks() const;
     // The packs of the latest load, highest priority first.
     [[nodiscard]] std::span<const std::string> activeStack() const noexcept { return m_activeStack; }
-    // The folder packs are found in (Graphics.Textures.Folder, or textures/).
+    // The folder the shipped packs are found in (Graphics.Textures.Folder, or textures/).
     [[nodiscard]] std::filesystem::path folder() const;
+    // Where the player puts packs: what "Open Packs Folder" shows. The
+    // shipped folder when there is no separate one.
+    [[nodiscard]] std::filesystem::path userFolder() const {
+        return m_userPacksFolder.empty() ? folder() : m_userPacksFolder;
+    }
 
 private:
     struct Load;
@@ -121,9 +129,9 @@ private:
     jobs::JobSystem& m_jobs;
     stats::StatRegistry* m_stats;
     std::filesystem::path m_packsFolder;
+    std::filesystem::path m_userPacksFolder;
     io::FileWatcher* m_watcher;
-    io::WatchId m_watch = 0;
-    bool m_watching = false;
+    std::vector<io::WatchId> m_watches;
     bool m_reloadRequested = false;
     std::unique_ptr<PackSource> m_builtIn;
     // Shared with load jobs, so a rescan never pulls packs from under one.

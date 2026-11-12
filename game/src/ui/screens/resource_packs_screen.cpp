@@ -131,7 +131,7 @@ void ResourcePacksScreen::build(vxe::ui::Widget& root) {
         if (m_services.packs == nullptr) {
             return;
         }
-        if (const auto opened = vxe::platform::Platform::openInFileBrowser(m_services.packs->folder());
+        if (const auto opened = vxe::platform::Platform::openInFileBrowser(m_services.packs->userFolder());
             !opened) {
             VXE_LOG_WARN(vxe::log::core, "{}", opened.error().describe());
         }

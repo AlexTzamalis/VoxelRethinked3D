@@ -40,9 +40,15 @@ struct EngineConfig {
     bool window = true;
     platform::WindowDesc windowDesc{};
     jobs::JobSystemConfig jobs{};
-    // Folder that holds config/, saves/, textures/, assets/ and logs/.
-    // Empty means the folder of the executable (Section 5).
+    // Folder of what ships with the program, read only: assets/, textures/
+    // (the default pack) and sounds/. Empty means the folder of the executable
+    // (Section 5).
     std::filesystem::path runtimeFolder;
+    // Folder of the player's own files, written by the game: config/,
+    // saves/, logs/, captures/, screenshots/, resourcepacks/ (texture packs
+    // the player adds) and shaderpacks/. Created when missing. Empty means
+    // the runtime folder (a portable install, tests).
+    std::filesystem::path userFolder;
     // Stop after this many frames, 0 for no limit. For smoke tests and
     // scripted runs (for example --frames 120 on the command line).
     u64 maxFrames = 0;

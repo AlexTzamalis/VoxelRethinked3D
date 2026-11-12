@@ -61,6 +61,11 @@ public:
     // and textures/ live next to it (Section 5).
     [[nodiscard]] static std::filesystem::path executableFolder();
 
+    // Where programs keep their users' files: %APPDATA% on Windows, the home
+    // folder elsewhere. Empty when the system does not say. Works without a
+    // Platform.
+    [[nodiscard]] static std::filesystem::path roamingDataFolder();
+
     // Shows a folder in the system's file browser (Explorer on Windows), for
     // buttons like "Open textures folder". Fails if the folder does not exist
     // or the system refuses.

@@ -9,9 +9,14 @@
 //                     --exec "set Video.FpsLimit 144". May repeat.
 //   --window WxH      Open the window at this size, like --window 1440x1440
 //                     (panorama bakes want a large square).
+//   --portable        Keep worlds, settings and logs next to the program
+//                     instead of %APPDATA%\.voxelrethinked (as a portable.txt
+//                     beside it does).
+#include "user_folder.hpp"
 #include "voxel_rethinked_app.hpp"
 
 #include <vxe/app/application.hpp>
+#include <vxe/platform/platform.hpp>
 
 #include <charconv>
 #include <cstdio>
@@ -26,9 +31,12 @@ namespace {
 vxe::EngineConfig configFromArguments(std::span<char*> arguments) {
     vxe::EngineConfig config;
     config.windowDesc.title = "Voxel Rethinked";
+    bool portable = false;
     for (std::size_t i = 1; i < arguments.size(); ++i) {
         const std::string_view argument = arguments[i];
-        if (argument == "--headless") {
+        if (argument == "--portable") {
+            portable = true;
+        } else if (argument == "--headless") {
             config.window = false;
         } else if (argument == "--exec" && i + 1 < arguments.size()) {
             config.startupCommands.emplace_back(arguments[++i]);
@@ -53,6 +61,8 @@ vxe::EngineConfig configFromArguments(std::span<char*> arguments) {
             }
         }
     }
+    config.userFolder = vr::chooseUserFolder(vxe::platform::Platform::executableFolder(),
+                                             vxe::platform::Platform::roamingDataFolder(), portable);
     return config;
 }
 

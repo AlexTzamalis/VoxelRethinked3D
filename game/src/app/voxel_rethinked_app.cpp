@@ -10,11 +10,13 @@
 #include "ui/screens/settings_screen.hpp"
 #include "ui/screens/widget_sample.hpp"
 #include "ui/screens/world_screens.hpp"
+#include "user_folder.hpp"
 
 #include <vxe/core/log.hpp>
 #include <vxe/core/version.hpp>
 #include <vxe/debug/developer_console.hpp>
 #include <vxe/debug/overlay.hpp>
+#include <vxe/platform/platform.hpp>
 #include <vxe/render/debug_draw.hpp>
 #include <vxe/render/renderer.hpp>
 #include <vxe/ui/dialog.hpp>
@@ -116,6 +118,20 @@ vxe::Result<void> VoxelRethinkedApp::onInit(vxe::EngineContext& context) {
     }
     vxe::log::registerCategory(gameLog);
     VXE_LOG_INFO(gameLog, "Voxel Rethinked {} started", vxe::engineVersion());
+    // Before the settings load (right after onInit): a player whose files
+    // still sit next to the program finds them in the user folder.
+    if (const auto config = context.vfs.resolveForWrite("config:/"); config) {
+        const std::filesystem::path userFolder = userFolderOf(config.value());
+        constexpr std::array<std::string_view, 1> kShippedPacks = {"default"};
+        const auto copied =
+            copyOldUserFiles(vxe::platform::Platform::executableFolder(), userFolder, kShippedPacks);
+        if (!copied) {
+            VXE_LOG_WARN(gameLog, "Could not copy the old player files: {}", copied.error().describe());
+        } else if (copied.value() > 0) {
+            VXE_LOG_INFO(gameLog, "Copied {} player files from next to the program into {}", copied.value(),
+                         userFolder.string());
+        }
+    }
     if (context.window != nullptr) {
         context.window->setTitle("Voxel Rethinked");
     }
@@ -774,19 +790,22 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
     VXE_LOG_INFO(gameLog, "Loaded {} blocks with {} states and {} texture keys", m_blocks->blockCount(),
                  m_blocks->stateCount(), m_blocks->textureKeys().size());
     if (context.device != nullptr && context.renderer != nullptr) {
-        // Texture packs from textures/ next to the program, over the default
-        // pack built into it (Section 15.1); loaded on a job.
+        // Texture packs from textures/ next to the program and the player's
+        // resourcepacks/, over the default pack built into it (Section 15.1);
+        // loaded on a job.
         auto builtIn = vxe::render::openEmbeddedPack("default", defaultPackFiles());
         if (!builtIn) {
             return std::move(builtIn).error();
         }
         const auto packsFolder = context.vfs.resolve("textures:/");
+        const auto userPacksFolder = context.vfs.resolveForWrite("resourcepacks:/");
         auto packs = vxe::render::TexturePackManager::create(
             {.device = context.device,
              .settings = &context.settings,
              .jobs = &context.jobs,
              .stats = &context.stats,
              .packsFolder = packsFolder ? packsFolder.value() : std::filesystem::path(),
+             .userPacksFolder = userPacksFolder ? userPacksFolder.value() : std::filesystem::path(),
              .watcher = &context.fileWatcher,
              .builtIn = std::move(builtIn).value()});
         if (!packs) {

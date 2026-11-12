@@ -51,5 +51,8 @@ if /i "%action%"=="package" (
     )
     rem The C++ runtime of the compiler that made this build, for PCs without it.
     copy /y "%VCToolsRedistDir%vc_redist.x64.exe" "out\VoxelRethinked\" >nul || exit /b 1
+    rem A shared or test copy keeps its worlds and settings next to the exe,
+    rem never in the player's %%APPDATA%%\.voxelrethinked.
+    echo This copy keeps its worlds and settings in this folder.> "out\VoxelRethinked\portable.txt"
     echo Ready to share: out\VoxelRethinked
 )

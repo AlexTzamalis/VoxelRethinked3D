@@ -183,6 +183,20 @@ std::filesystem::path Platform::executableFolder() {
     return base != nullptr ? std::filesystem::path(base) : std::filesystem::current_path();
 }
 
+std::filesystem::path Platform::roamingDataFolder() {
+#ifdef _WIN32
+    const char* folder = SDL_getenv("APPDATA");
+#else
+    const char* folder = SDL_getenv("HOME");
+#endif
+    if (folder == nullptr || *folder == '\0') {
+        return {};
+    }
+    // The variable holds UTF-8 (SDL converts it), so the path is built from UTF-8.
+    const std::string_view text(folder);
+    return std::filesystem::path(std::u8string(text.begin(), text.end()));
+}
+
 std::string Platform::fileUrl(const std::filesystem::path& absolutePath) {
     const std::u8string utf8 = absolutePath.generic_u8string();
     std::string url = "file://";

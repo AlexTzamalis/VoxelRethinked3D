@@ -4,6 +4,8 @@
 # tests (vr_tests) share it; the executable only adds main().
 
 set(vrGameSources
+    src/app/user_folder.cpp
+    src/app/user_folder.hpp
     src/app/game_settings.cpp
     src/app/game_settings.hpp
     src/app/game_state.cpp

@@ -26,14 +26,17 @@
 namespace vxe {
 namespace {
 
-// Mounts the four runtime folders (Section 5). config/ and saves/ are
-// created on first start; assets/ and textures/ are read only and only
-// mounted when present, so a fresh build without assets still starts.
-Result<void> mountRuntimeFolders(io::Vfs& vfs, const std::filesystem::path& root) {
-    VXE_TRY(vfs.mount("config", root / "config",
-                      io::MountOptions{.access = io::MountAccess::ReadWrite, .createIfMissing = true}));
-    VXE_TRY(vfs.mount("saves", root / "saves",
-                      io::MountOptions{.access = io::MountAccess::ReadWrite, .createIfMissing = true}));
+// Mounts the runtime folders (Section 5). The player's folders (config/,
+// saves/, resourcepacks/, shaderpacks/, screenshots/) live in the user folder
+// and are created on first start; assets/, textures/ and sounds/ ship with
+// the program, are read only and only mounted when present, so a fresh build
+// without assets still starts.
+Result<void> mountRuntimeFolders(io::Vfs& vfs, const std::filesystem::path& root,
+                                 const std::filesystem::path& user) {
+    for (const char* name : {"config", "saves", "resourcepacks", "shaderpacks", "screenshots"}) {
+        VXE_TRY(vfs.mount(name, user / name,
+                          io::MountOptions{.access = io::MountAccess::ReadWrite, .createIfMissing = true}));
+    }
     for (const char* name : {"assets", "textures", "sounds"}) {
         std::error_code error;
         if (std::filesystem::is_directory(root / name, error)) {
@@ -152,7 +155,7 @@ struct EngineServices {
 // The graphics device, renderer, frame pacer and debug tools (Section 6.5,
 // G0.1): what a windowed program needs to show anything.
 Result<void> createRendering(EngineServices& services, const EngineConfig& config,
-                             const std::filesystem::path& root) {
+                             const std::filesystem::path& root, const std::filesystem::path& user) {
     auto device = rhi::createGlDevice(*services.window);
     if (!device) {
         return device.error();
@@ -174,7 +177,7 @@ Result<void> createRendering(EngineServices& services, const EngineConfig& confi
                                                                      .input = services.input.get(),
                                                                      .stats = services.stats.get(),
                                                                      .device = services.device.get(),
-                                                                     .captureFolder = root / "captures"});
+                                                                     .captureFolder = user / "captures"});
         services.console = std::make_unique<debug::DeveloperConsole>(
             debug::ConsoleDesc{.commands = services.commands.get(),
                                .settings = services.settings.get(),
@@ -342,9 +345,11 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
 
     const std::filesystem::path root =
         config.runtimeFolder.empty() ? platform::Platform::executableFolder() : config.runtimeFolder;
-    log::initialize(log::Config{.filePath = root / "logs" / "latest.log"});
+    const std::filesystem::path user = config.userFolder.empty() ? root : config.userFolder;
+    log::initialize(log::Config{.filePath = user / "logs" / "latest.log"});
     profiling::setThreadName("Main");
-    VXE_LOG_INFO(log::core, "vxe engine {} starting in '{}'", engineVersion(), root.string());
+    VXE_LOG_INFO(log::core, "vxe engine {} starting in '{}', player files in '{}'", engineVersion(),
+                 root.string(), user.string());
 
     EngineServices services;
     const auto failStartup = [&services](const Error& error) {
@@ -361,7 +366,7 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
     }
     services.platform = std::move(platformResult).value();
     services.vfs = std::make_unique<io::Vfs>();
-    if (Result<void> mounted = mountRuntimeFolders(*services.vfs, root); !mounted) {
+    if (Result<void> mounted = mountRuntimeFolders(*services.vfs, root, user); !mounted) {
         return failStartup(mounted.error());
     }
     services.fileWatcher = std::make_unique<io::FileWatcher>();
@@ -379,7 +384,7 @@ int runApplication(std::unique_ptr<Application> application, const EngineConfig&
         }
         services.window = std::move(windowResult).value();
         if (config.renderer) {
-            if (Result<void> rendering = createRendering(services, config, root); !rendering) {
+            if (Result<void> rendering = createRendering(services, config, root, user); !rendering) {
                 return failStartup(rendering.error());
             }
         }

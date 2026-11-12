@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#149] 2026-11-12, Player files in %APPDATA%\.voxelrethinked
+### Added
+- Worlds, settings, logs, overlay captures, screenshots, texture packs the player adds (resourcepacks/) and shader packs (shaderpacks/, empty for now) live in %APPDATA%\.voxelrethinked on Windows (~/.voxelrethinked elsewhere), shared by every build, like .minecraft. What ships with the program (assets, sounds, the default pack in textures/) stays beside it. EngineConfig::userFolder, platform::Platform::roamingDataFolder.
+- The first start copies config/ and saves/ (and any pack other than the default) from beside the program into the new folder; the old files stay where they were.
+- --portable, or a portable.txt beside the program, keeps everything next to it. build.cmd package writes portable.txt, so shared and test copies never touch the player's folder.
+- The texture pack loader reads the shipped textures/ and the player's resourcepacks/; Open Packs Folder shows resourcepacks/.
+### Docs
+- docs/building.md describes the new folder.
 ## [#148] 2026-11-12, Typing into text fields
 ### Fixed
 - Text fields (world names, seeds, search boxes, text settings) never received typed characters: the game turned the window's text input on for a focused field, and the engine turned it off again in the same frame because the debug tools did not want it. The engine now turns it on when either asks (EngineContext::wantsTextInput).

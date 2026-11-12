@@ -32,14 +32,15 @@ TexturePackManager::TexturePackManager(TexturePackManagerDesc desc)
     , m_jobs(*desc.jobs)
     , m_stats(desc.stats)
     , m_packsFolder(std::move(desc.packsFolder))
+    , m_userPacksFolder(std::move(desc.userPacksFolder))
     , m_watcher(desc.watcher)
     , m_builtIn(std::move(desc.builtIn)) {
     config::SettingsRegistry& settings = *desc.settings;
     m_enabledPacks = settings.registerString(
         {{.id = "Graphics.Textures.Packs",
           .displayName = "Texture packs",
-          .description = "Enabled texture packs (folders in textures/), highest priority first, separated by "
-                         "commas. The default pack is always last."},
+          .description = "Enabled texture packs (folders in resourcepacks/), highest priority first, "
+                         "separated by commas. The default pack is always last."},
          ""});
     m_maxResolution =
         settings.registerInt({{.id = "Graphics.Textures.MaxResolution",
@@ -72,7 +73,8 @@ TexturePackManager::TexturePackManager(TexturePackManagerDesc desc)
     m_folderSetting = settings.registerString(
         {{.id = "Graphics.Textures.Folder",
           .displayName = "Texture packs folder",
-          .description = "Where texture packs are. Empty: textures/ next to the program.",
+          .description = "Where the shipped packs are, for editing the default pack in place. Empty: "
+                         "textures/ next to the program.",
           .visibility = config::Visibility::Advanced},
          ""});
     const auto restart = [this](const auto& /*oldValue*/, const auto& /*newValue*/) { startLoad(); };
@@ -97,8 +99,8 @@ Result<std::unique_ptr<TexturePackManager>> TexturePackManager::create(TexturePa
 }
 
 TexturePackManager::~TexturePackManager() {
-    if (m_watching) {
-        m_watcher->unwatch(m_watch);
+    for (const io::WatchId watch : m_watches) {
+        m_watcher->unwatch(watch);
     }
     m_jobs.wait(m_jobCounter);
     destroyTextures();
@@ -138,6 +140,20 @@ void TexturePackManager::scanPacks() {
     } else if (!m_folderSetting.get().empty()) {
         m_scanProblems.push_back(std::format("Texture packs folder {} does not exist", root.string()));
     }
+    if (!m_userPacksFolder.empty() && m_userPacksFolder != root &&
+        std::filesystem::is_directory(m_userPacksFolder, error)) {
+        for (auto& pack : discoverPacks(m_userPacksFolder, m_scanProblems)) {
+            const std::string& id = pack->manifest().id;
+            if (std::ranges::any_of(*packs,
+                                    [&id](const auto& shipped) { return shipped->manifest().id == id; })) {
+                m_scanProblems.push_back(
+                    std::format("Texture pack '{}' in {} has the name of a shipped pack and is skipped", id,
+                                m_userPacksFolder.string()));
+                continue;
+            }
+            packs->push_back(std::move(pack));
+        }
+    }
     m_packs = std::move(packs);
 }
 
@@ -148,23 +164,27 @@ void TexturePackManager::watchFolder() {
     if (m_watcher == nullptr) {
         return;
     }
-    if (m_watching) {
-        m_watcher->unwatch(m_watch);
-        m_watching = false;
+    for (const io::WatchId watch : m_watches) {
+        m_watcher->unwatch(watch);
     }
-    std::error_code error;
-    const std::filesystem::path root = folder();
-    if (!m_hotReload.get() || root.empty() || !std::filesystem::is_directory(root, error)) {
+    m_watches.clear();
+    if (!m_hotReload.get()) {
         return;
     }
-    auto watch =
-        m_watcher->watch(root, true, [this](const io::FileEvent& /*event*/) { m_reloadRequested = true; });
-    if (!watch) {
-        VXE_LOG_WARN(log::core, "Texture packs: cannot watch {}: {}", root.string(), watch.error().message());
-        return;
+    for (const std::filesystem::path& root : {folder(), m_userPacksFolder}) {
+        std::error_code error;
+        if (root.empty() || !std::filesystem::is_directory(root, error)) {
+            continue;
+        }
+        auto watch = m_watcher->watch(root, true,
+                                      [this](const io::FileEvent& /*event*/) { m_reloadRequested = true; });
+        if (!watch) {
+            VXE_LOG_WARN(log::core, "Texture packs: cannot watch {}: {}", root.string(),
+                         watch.error().message());
+            continue;
+        }
+        m_watches.push_back(watch.value());
     }
-    m_watch = watch.value();
-    m_watching = true;
 }
 
 void TexturePackManager::setKeys(std::vector<std::string> keys) {
@@ -234,7 +254,7 @@ void TexturePackManager::startLoad() {
         if (found == m_packs->end()) {
             if (id != "default") {
                 load->problems.push_back(
-                    std::format("Texture pack '{}' is not in {}", id, folder().string()));
+                    std::format("Texture pack '{}' is not in {}", id, userFolder().string()));
             }
             continue;
         }
