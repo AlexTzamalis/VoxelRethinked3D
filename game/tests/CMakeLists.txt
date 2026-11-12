@@ -14,6 +14,7 @@ add_executable(vr_tests
     rivers_tests.cpp
     sound_tests.cpp
     terrain_tests.cpp
+    player_controller_tests.cpp
     player_physics_tests.cpp
     player_stats_tests.cpp
     resource_packs_tests.cpp

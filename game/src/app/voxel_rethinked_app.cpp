@@ -1161,6 +1161,21 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
         return;
     }
     vxe::render::Renderer& renderer = *context.renderer;
+    // Developer mode lights the caves, and a camera inside rock sees past it:
+    // from there the cave search reaches nothing, though the caves are in view.
+    const bool developer =
+        m_demo && isWorldState(m_states.current()) && m_settings->gameMode.get() == GameMode::Developer;
+    bool insideRock = false;
+    if (developer) {
+        const vxe::voxel::BlockStateId around =
+            m_demo->world().getBlock({.x = static_cast<vxe::i64>(std::floor(m_camera.position.x)),
+                                      .y = static_cast<vxe::i64>(std::floor(m_camera.position.y)),
+                                      .z = static_cast<vxe::i64>(std::floor(m_camera.position.z))},
+                                     vxe::voxel::kAirState);
+        insideRock = m_blocks->renderInfo(around).layer == vxe::voxel::RenderLayer::Opaque;
+    }
+    renderer.chunks().setNightVision(developer);
+    renderer.chunks().setCaveCullingPaused(insideRock);
     renderer.beginFrame(m_camera, time);
     m_clockHours = renderer.sky().clockHours();
     if (m_demo) {

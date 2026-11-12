@@ -404,7 +404,9 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
         shadowLightOf(Vec3(m_sky->params().sunDirection), Vec3(m_sky->params().moonDirection));
     m_chunks->setShadowLight(light);
     m_sunlight->update(camera, light, m_clouds->shadowInfo());
-    m_precipitation->update(camera, time.elapsedSeconds, skyLight);
+    const CloudShadowInfo clouds = m_clouds->shadowInfo();
+    m_precipitation->update(camera, time.elapsedSeconds, skyLight,
+                            static_cast<f64>(clouds.floorY) + (0.5 * static_cast<f64>(clouds.thickness)));
     m_chunks->setWetness(m_precipitation->wetness());
     m_lod->setLight(skyLight, m_chunks->brightness(), m_chunks->faceShading(), m_precipitation->wetness());
     m_post->update(width, height);

@@ -2,6 +2,12 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#156] 2026-11-12, Developer game mode, rain and snow from the clouds
+### Added
+- Game mode setting (Gameplay.GameMode): Creative as before, or Developer, which always flies at four times the flying speed (about 44 blocks a second, 87 sprinting), straight through blocks, and lights the darkest places nearly like day, so the inside of the terrain and its caves can be looked at. While the camera is inside rock, cave culling pauses: from there the cave search reaches nothing, though the caves are in plain view. Survival waits for health, damage and item counts.
+- ChunkRenderer::setNightVision and setCaveCullingPaused.
+### Fixed
+- Rain and snow fell around the camera above the clouds. They now start in the middle of the cloud layer.
 ## [#155] 2026-11-12, Caves and ore veins
 ### Added
 - Caves (G3.4): long round tunnels where two noise fields both pass zero, winding for hundreds of blocks and crossing each other; caverns deep under the ground that grow wider with depth; rare ravines that crack the surface open, narrowing towards their floor; and cave mouths where tunnels reach the surface. Under lakes, rivers and the sea the roof stays at least 10 blocks thick. All read from a field of 4 block steps per chunk, so they cost fewer noise samples than the old single tunnel field did per block.

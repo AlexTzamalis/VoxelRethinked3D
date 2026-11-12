@@ -33,6 +33,23 @@ constexpr std::array<WindowModeOption, 3> kWindowModes{{
 }};
 constexpr std::array<vxe::i32, 6> kWindowSizes = {0, 720, 900, 1080, 1440, 2160};
 
+using GameModeOption = vxe::config::EnumSettingDesc<GameMode>::Option;
+constexpr std::array<GameModeOption, 2> kGameModes{{
+    {.value = GameMode::Creative, .name = "Creative", .displayName = "Creative"},
+    {.value = GameMode::Developer, .name = "Developer", .displayName = "Developer"},
+}};
+
+vxe::config::Setting<GameMode> registerGameMode(vxe::config::SettingsRegistry& settings) {
+    vxe::config::EnumSettingDesc<GameMode> mode;
+    mode.id = "Gameplay.GameMode";
+    mode.displayName = "Game mode";
+    mode.description = "Creative: walk, fly and build. Developer: always flying and fast, straight through "
+                       "blocks, with caves lit, to look inside the terrain.";
+    mode.defaultValue = GameMode::Creative;
+    mode.options = kGameModes;
+    return settings.registerEnum(mode);
+}
+
 vxe::config::Setting<vxe::platform::WindowMode> registerWindowMode(vxe::config::SettingsRegistry& settings) {
     vxe::config::EnumSettingDesc<vxe::platform::WindowMode> mode;
     mode.id = "Video.WindowMode";
@@ -100,6 +117,7 @@ GameSettings::GameSettings(vxe::config::SettingsRegistry& settings)
                                           .displayName = "View bobbing",
                                           .description = "The camera sways a little while walking."},
                                          true}))
+    , gameMode(registerGameMode(settings))
     , mouseSensitivity(settings.registerFloat({{.id = "Controls.MouseSensitivity",
                                                 .displayName = "Mouse sensitivity",
                                                 .description = "How fast the view turns with the mouse."},

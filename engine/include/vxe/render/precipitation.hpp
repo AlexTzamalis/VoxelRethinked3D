@@ -77,8 +77,10 @@ public:
     void setColumns(i64 cornerX, i64 cornerZ, std::span<const i32> tops);
     static constexpr i32 kOpenColumn = -0x40000000;
 
-    // Uploads this frame's grid and parameters. Once per frame.
-    void update(const Camera& camera, f64 seconds, const Vec3& skyLight);
+    // Uploads this frame's grid and parameters. Once per frame. Streaks start
+    // at `fallsFromY` (world blocks, the middle of the cloud layer), so above
+    // the clouds nothing falls.
+    void update(const Camera& camera, f64 seconds, const Vec3& skyLight, f64 fallsFromY);
     // Draws the streaks, in a pass with the scene color and depth attached
     // (both load) and the frame constants bound.
     void record(rhi::CommandList& commands) const;

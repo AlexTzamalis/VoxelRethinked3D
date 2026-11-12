@@ -8,6 +8,13 @@
 
 namespace vr {
 
+// How the player moves and what they see (Gameplay.GameMode). Survival comes
+// with health, damage and item counts, none of which exist yet.
+enum class GameMode : vxe::u8 {
+    Creative,  // Walk, fly on double Space, build.
+    Developer, // Always flying, fast, through every block, with caves lit.
+};
+
 // The game's own settings (Section 16.4), registered at startup in their
 // categories so the settings file, the console and later the settings
 // screen (G4.2) know them. Values are read live wherever they are used.
@@ -20,6 +27,7 @@ struct GameSettings {
     // Gameplay
     vxe::config::Setting<vxe::i32> fieldOfView; // Degrees, vertical.
     vxe::config::Setting<bool> viewBobbing;
+    vxe::config::Setting<GameMode> gameMode;
     // Controls
     vxe::config::Setting<vxe::f32> mouseSensitivity;
     vxe::config::Setting<bool> invertY;

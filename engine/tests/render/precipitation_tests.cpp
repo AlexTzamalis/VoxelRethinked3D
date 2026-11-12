@@ -55,7 +55,7 @@ TEST_CASE("Rain only falls with the weather, an image and the setting on") {
     rain.setColumns(-16, -16, tops);
     render::Camera camera;
     camera.position = DVec3(0.5, 90.0, 0.5);
-    rain.update(camera, 12.0, Vec3(1.0F));
+    rain.update(camera, 12.0, Vec3(1.0F), 192.0);
     rhi::CommandList commands;
     rain.record(commands);
     CHECK_FALSE(commands.empty());
@@ -73,21 +73,21 @@ TEST_CASE("Ground gets wet in rain and dries slowly after, never under snow") {
     rain.setWeather(PrecipitationKind::Rain, 1.0F);
     f64 seconds = 0.0;
     for (int i = 0; i < 600; ++i) {
-        rain.update(camera, seconds, Vec3(1.0F));
+        rain.update(camera, seconds, Vec3(1.0F), 192.0);
         seconds += 0.1;
     }
     const f32 soaked = rain.wetness();
     CHECK(soaked > 0.8F);
     rain.setWeather(PrecipitationKind::None, 0.0F);
     for (int i = 0; i < 600; ++i) {
-        rain.update(camera, seconds, Vec3(1.0F));
+        rain.update(camera, seconds, Vec3(1.0F), 192.0);
         seconds += 0.1;
     }
     CHECK(rain.wetness() < soaked);
     CHECK(rain.wetness() > 0.1F); // A minute later it is still damp.
     rain.setWeather(PrecipitationKind::Snow, 1.0F);
     for (int i = 0; i < 6000; ++i) {
-        rain.update(camera, seconds, Vec3(1.0F));
+        rain.update(camera, seconds, Vec3(1.0F), 192.0);
         seconds += 0.1;
     }
     CHECK(rain.wetness() < 0.1F); // Ten minutes on, snow has let it dry.

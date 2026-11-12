@@ -17,6 +17,7 @@
 #include <vxe/rhi/device.hpp>
 #include <vxe/rhi/shader_source.hpp>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <optional>
@@ -194,8 +195,18 @@ public:
     // The color of each tint kind, 0xAABBGGRR in sRGB like texture colors.
     // Kind 0 stays white. Biomes replace this with a color per column (G3.7).
     void setTintColors(std::span<const u32> colors);
-    // Graphics.Lighting.Brightness, for other renderers that light terrain alike.
-    [[nodiscard]] f32 brightness() const { return m_brightness.get(); }
+    // Graphics.Lighting.Brightness, raised by night vision, for other renderers
+    // that light terrain alike.
+    [[nodiscard]] f32 brightness() const {
+        return m_nightVision ? std::max(m_brightness.get(), kNightVisionBrightness) : m_brightness.get();
+    }
+    // Lights the darkest places nearly like day (a developer's view of caves).
+    void setNightVision(bool on) noexcept { m_nightVision = on; }
+    // Stops hiding chunks the cave search did not reach, for a camera inside
+    // solid blocks (a developer flying through terrain): from there the search
+    // reaches nothing, though every cave around is in plain view.
+    void setCaveCullingPaused(bool paused) noexcept { m_caveCullingPaused = paused; }
+    static constexpr f32 kNightVisionBrightness = 0.7F;
     // 1 with the classic face shading, 0 with Graphics.Lighting.NoShading.
     [[nodiscard]] f32 faceShading() const { return m_noShading.get() ? 0.0F : 1.0F; }
     // Multiplies World.Streaming.MaxUploadKBPerFrame, still capped by the
@@ -432,6 +443,9 @@ private:
     config::Setting<f32> m_aoStrength;
     config::Setting<f32> m_brightness;
     config::Setting<bool> m_noShading;
+    bool m_nightVision = false;
+    bool m_caveCullingPaused = false;
+    [[nodiscard]] bool caveCullingOn() const { return m_caveCulling.get() && !m_caveCullingPaused; }
     f32 m_daylight = 1.0F;
     Vec3 m_skyLight{1.0F};
     f32 m_wetness = 0.0F;

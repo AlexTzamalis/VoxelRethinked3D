@@ -9,7 +9,7 @@ namespace {
 
 // The layout must match PrecipitationParams in precipitation.vert.
 struct PrecipitationParams {
-    Vec4 shape;          // Amount, kind (0 rain, 1 snow), seconds, unused.
+    Vec4 shape;          // Amount, kind (0 rain, 1 snow), seconds, top relative to the camera's chunk.
     Vec4 light;          // The color of sky light.
     glm::ivec4 corner{}; // x and z: the grid's corner, relative to the camera's chunk.
 };
@@ -145,7 +145,7 @@ bool PrecipitationRenderer::isFalling() const noexcept {
            m_loaded.at(static_cast<usize>(m_kind) - 1);
 }
 
-void PrecipitationRenderer::update(const Camera& camera, f64 seconds, const Vec3& skyLight) {
+void PrecipitationRenderer::update(const Camera& camera, f64 seconds, const Vec3& skyLight, f64 fallsFromY) {
     const f64 step = m_lastSeconds < 0.0 ? 0.0 : std::clamp(seconds - m_lastSeconds, 0.0, 1.0);
     m_lastSeconds = seconds;
     const bool raining = m_enabled.get() && m_kind == PrecipitationKind::Rain;
@@ -167,7 +167,8 @@ void PrecipitationRenderer::update(const Camera& camera, f64 seconds, const Vec3
     static_cast<void>(
         m_device.uploadTexture(m_topsTexture, {.data = std::as_bytes(std::span<const f32>(m_relativeTops))}));
     const PrecipitationParams params{.shape = Vec4(m_amount, m_kind == PrecipitationKind::Snow ? 1.0F : 0.0F,
-                                                   static_cast<f32>(std::fmod(seconds, kWrapSeconds)), 0.0F),
+                                                   static_cast<f32>(std::fmod(seconds, kWrapSeconds)),
+                                                   static_cast<f32>(fallsFromY - static_cast<f64>(chunkY))),
                                      .light = Vec4(skyLight, 1.0F),
                                      .corner = glm::ivec4(static_cast<i32>(m_cornerX - chunkX), 0,
                                                           static_cast<i32>(m_cornerZ - chunkZ), 0)};

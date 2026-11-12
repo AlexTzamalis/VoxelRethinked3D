@@ -28,6 +28,7 @@ constexpr f32 kRadiansPerPixel = 0.0026F;
 constexpr f32 kMinZoom = 1.5F;
 constexpr f32 kMaxZoom = 12.0F;
 constexpr f32 kZoomWheelStep = 1.2F;
+constexpr f64 kDeveloperFlyFactor = 4.0; // Developer flight: about 44 blocks a second, 87 sprinting.
 constexpr BlockStateId kUnloaded = 0xFFFF;
 constexpr vxe::u32 kOutlineColor = vxe::render::debugColor(0, 0, 0, 255);
 
@@ -92,6 +93,13 @@ void PlayerController::update(vxe::render::Camera& camera, const vxe::voxel::Vox
     // At high frame rates a short press can fall between two steps; it counts
     // until a step has seen it.
     m_jumpWaiting = m_jumpWaiting || m_input.isPressed(m_actions.jump);
+    // Developer mode flies through everything, so the inside of the terrain
+    // and its caves can be looked at.
+    const bool developer = m_settings.gameMode.get() == GameMode::Developer;
+    if (developer) {
+        m_state.flying = true;
+        m_state.onGround = false;
+    }
     PlayerInput input{
         .forward = axis(m_actions.moveForward, m_actions.moveBack),
         .strafe = axis(m_actions.moveRight, m_actions.moveLeft),
@@ -100,12 +108,12 @@ void PlayerController::update(vxe::render::Camera& camera, const vxe::voxel::Vox
         .down = m_settings.toggleCrouch.get() ? m_crouchLatched : m_input.isHeld(m_actions.crouch),
         .sprint = m_settings.toggleSprint.get() ? m_sprintLatched : m_input.isHeld(m_actions.sprint),
         .walkScale = static_cast<f64>(m_settings.walkSpeed.get()),
-        .flyScale = static_cast<f64>(m_settings.flySpeed.get()),
+        .flyScale = static_cast<f64>(m_settings.flySpeed.get()) * (developer ? kDeveloperFlyFactor : 1.0),
         .momentum = m_settings.momentum.get()};
     m_sprinting = input.sprint && input.forward > 0.0;
 
     m_sinceJumpPress += deltaSeconds;
-    if (m_input.isPressed(m_actions.jump)) {
+    if (m_input.isPressed(m_actions.jump) && !developer) {
         if (m_sinceJumpPress < kDoubleTapSeconds) {
             m_state.flying = !m_state.flying;
             m_state.velocity.y = 0.0;
@@ -118,6 +126,9 @@ void PlayerController::update(vxe::render::Camera& camera, const vxe::voxel::Vox
     // Above the world is open air and below it a floor. Unloaded chunks count
     // as solid, so the player waits at their edge instead of falling through.
     const auto isSolid = [&](const BlockPos& block) {
+        if (developer) {
+            return 0.0;
+        }
         if (block.y >= top) {
             return 0.0;
         }
@@ -128,6 +139,9 @@ void PlayerController::update(vxe::render::Camera& camera, const vxe::voxel::Vox
         return state == kUnloaded ? 1.0 : m_catalog.collisionHeight(state);
     };
     const auto isLiquid = [&](const BlockPos& block) {
+        if (developer) {
+            return false;
+        }
         const BlockStateId state = world.getBlock(block, kAirState);
         return m_catalog.isLiquid(state);
     };

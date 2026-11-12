@@ -636,8 +636,7 @@ void ChunkRenderer::beginFrame(const Camera& camera) {
     } else {
         m_frozenCamera.reset();
     }
-    const ChunkParams params{.params =
-                                 Vec4(m_aoStrength.get(), m_daylight, m_brightness.get(), faceShading()),
+    const ChunkParams params{.params = Vec4(m_aoStrength.get(), m_daylight, brightness(), faceShading()),
                              .skyLight = Vec4(m_skyLight, m_wetness),
                              .tints = m_tints};
     if (params.params != m_lastParams || params.skyLight != m_lastSkyLight) {
@@ -1113,7 +1112,7 @@ void ChunkRenderer::cullOnGpu(rhi::CommandList& commands, const Camera& cullCame
     params.cameraChunk = glm::ivec4(position.chunk.x, position.chunk.y, position.chunk.z, 0);
     params.cameraFraction = Vec4(position.fraction, 0.0F);
     u32 tests = (m_frustumCulling.get() ? kTestFrustum : 0U) | (m_faceCulling.get() ? kTestDirection : 0U) |
-                (m_caveCulling.get() ? kTestCave : 0U);
+                (caveCullingOn() ? kTestCave : 0U);
     const bool occlusionUsable =
         m_occlusionCulling.get() && m_hiZ->hasData() &&
         glm::distance(m_occlusionCamera.position, cullCamera.position) <= kMaxOcclusionCameraMove;
@@ -1179,7 +1178,7 @@ void ChunkRenderer::cullOnCpu(const Camera& cullCamera) {
     const CameraPosition camera = cullCamera.renderPosition();
     const bool frustumOn = m_frustumCulling.get();
     const bool faceOn = m_faceCulling.get();
-    const bool caveOn = m_caveCulling.get();
+    const bool caveOn = caveCullingOn();
     const f32 padding = m_frustumPadding.get();
     ChunkCullingCounts counts{.onGpu = false};
     // A chunk's face groups are mostly next to each other in the list (a
@@ -1313,7 +1312,7 @@ void ChunkRenderer::recordShadows(rhi::CommandList& commands) {
     const std::span<std::byte> casters = m_shadowCasters.next(m_device);
     const CameraPosition camera = m_camera.renderPosition();
     const Vec3 toLight = m_shadowFrame.toLight;
-    const bool caveOn = m_caveCulling.get() && !m_caveBits.empty();
+    const bool caveOn = caveCullingOn() && !m_caveBits.empty();
     // A chunk only matters if its shadow can fall into view: its box, swept
     // away from the light, must touch the camera's frustum. Most of a cascade
     // lies beside or behind the view, so this skips most of it.

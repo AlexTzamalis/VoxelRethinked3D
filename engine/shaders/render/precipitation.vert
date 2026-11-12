@@ -7,7 +7,7 @@
 #include "include/frame.glsl"
 
 VXE_BINDING_STD140(1, 0) uniform PrecipitationParams {
-    vec4 shape;   // x: amount 0 to 1, y: 1 for snow, z: seconds.
+    vec4 shape;   // x: amount 0 to 1, y: 1 for snow, z: seconds, w: where it falls from.
     vec4 light;   // rgb: the color of sky light.
     ivec4 corner; // x, z: the grid's corner block, relative to the camera's chunk.
 } params;
@@ -43,7 +43,7 @@ void splash(int column, uint hash, ivec2 block, float top) {
     const float seconds = params.shape.z;
     const float rate = 1.1 + float((hash >> 20u) & 15u) / 15.0;
     const float phase = fract(seconds * rate + float((hash >> 4u) & 255u) / 255.0);
-    if (phase > 0.22 || params.shape.y > 0.5 || top < -1.0e5) {
+    if (phase > 0.22 || params.shape.y > 0.5 || top < -1.0e5 || top + 1.0 > params.shape.w) {
         hide();
         return;
     }
@@ -84,7 +84,8 @@ void main() {
     const float distance = length(middle);
     const float eye = frame.cameraFraction.y;
     const float bottom = max(texelFetch(tops, cell, 0).r + 1.0, eye - kReach);
-    const float top = eye + kReach;
+    // Rain and snow come from the clouds: none above them.
+    const float top = min(eye + kReach, params.shape.w);
     if (distance > kReach || top <= bottom) {
         hide();
         return;
