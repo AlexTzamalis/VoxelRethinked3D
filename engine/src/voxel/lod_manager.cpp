@@ -304,6 +304,7 @@ void LodManager::finish(Slot& slot) {
     it->second.ready = true;
     std::shared_ptr<const LodTile> tile = std::move(slot.tile);
     m_ready.insert_or_assign(slot.key, Shown{.tile = tile, .hash = slot.hash});
+    ++m_shownVersion;
     if (m_sink != nullptr) {
         m_sink->addTile(tile);
     }
@@ -485,6 +486,15 @@ void LodManager::columnEdited(const VoxelWorld& world, ColumnPos column,
     m_edits.push_back(std::move(edit));
 }
 
+std::vector<std::shared_ptr<const LodTile>> LodManager::shownTileList() const {
+    std::vector<std::shared_ptr<const LodTile>> tiles;
+    tiles.reserve(m_ready.size());
+    for (const auto& [key, shown] : m_ready) {
+        tiles.push_back(shown.tile);
+    }
+    return tiles;
+}
+
 void LodManager::finishEdits() {
     VXE_PROFILE_FUNCTION();
     while (!m_edits.empty()) {
@@ -521,6 +531,7 @@ void LodManager::processEdits() {
                 wanted->second.ready = true;
             }
             m_ready.insert_or_assign(key, Shown{.tile = tile, .hash = edit.hash});
+            ++m_shownVersion;
             if (m_sink != nullptr) {
                 m_sink->addTile(std::move(tile));
             }

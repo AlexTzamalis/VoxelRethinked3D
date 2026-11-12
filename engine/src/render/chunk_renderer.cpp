@@ -1273,9 +1273,7 @@ void ChunkRenderer::record(rhi::CommandList& commands, ChunkPass pass) {
     commands.bindStorageBuffer(2, 3, m_animations, 0, kMaxTextureLayers * sizeof(u32));
     commands.bindStorageBuffer(2, 4, m_looks, 0, kMaxTextureLayers * sizeof(u32));
     // The shadow map, or the block textures as a stand in the shader never reads.
-    commands.bindUniformBuffer(1, 2, m_shadowParams.current(), 0, sizeof(ShadowParams));
-    commands.bindTexture(2, 5, m_shadowMap.isValid() ? m_shadowMap : m_textures,
-                         m_shadowMap.isValid() ? m_shadowSampler : m_sampler);
+    bindShadows(commands);
     commands.bindIndexBuffer(m_indices, rhi::IndexType::Uint16);
     const usize offset = usize{m_drawFirst.at(index)} * sizeof(IndirectDraw);
     switch (m_cullPath) {
@@ -1551,6 +1549,12 @@ Result<BlockTextures> createPlaceholderBlockTextures(rhi::Device& device, std::s
     }
     return BlockTextures{
         .texture = texture.value(), .sampler = sampler.value(), .averageColors = std::move(averages)};
+}
+
+void ChunkRenderer::bindShadows(rhi::CommandList& commands) const {
+    commands.bindUniformBuffer(1, 2, m_shadowParams.current(), 0, sizeof(ShadowParams));
+    commands.bindTexture(2, 5, m_shadowMap.isValid() ? m_shadowMap : m_textures,
+                         m_shadowMap.isValid() ? m_shadowSampler : m_sampler);
 }
 
 } // namespace vxe::render

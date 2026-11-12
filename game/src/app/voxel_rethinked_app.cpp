@@ -17,6 +17,7 @@
 #include <vxe/core/version.hpp>
 #include <vxe/debug/developer_console.hpp>
 #include <vxe/debug/overlay.hpp>
+#include <vxe/io/file_io.hpp>
 #include <vxe/platform/platform.hpp>
 #include <vxe/render/debug_draw.hpp>
 #include <vxe/render/renderer.hpp>
@@ -27,8 +28,10 @@
 #include <charconv>
 #include <chrono>
 #include <cstddef>
+#include <ctime>
 #include <filesystem>
 #include <format>
+#include <memory>
 #include <random>
 #include <string>
 #include <string_view>
@@ -419,6 +422,15 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                                           last->activate();
                                           return output;
                                       }});
+    // A picture of the next frame, for players (F2) and scripted runs.
+    context.commands.registerCommand({.name = "screenshot",
+                                      .usage = "screenshot [name]",
+                                      .description = "Saves the next frame in screenshots/ as a PNG.",
+                                      .handler = [this, &context](std::span<const std::string> arguments) {
+                                          takeScreenshot(context, arguments.empty() ? std::string()
+                                                                                    : arguments.front());
+                                          return vxe::config::CommandOutput{};
+                                      }});
     // Leaves the world like the pause menu's Quit to title does.
     context.commands.registerCommand({.name = "title",
                                       .usage = "title",
@@ -585,6 +597,7 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                  return output;
              }
              output.lines.push_back(std::format("{} at {} {} {}", wanted, found->x, found->y, found->z));
+             VXE_LOG_INFO(gameLog, "locate: {} at {} {} {}", wanted, found->x, found->y, found->z);
              static_cast<void>(
                  context.commands.execute(std::format("camera {} {} {}", found->x, found->y + 6, found->z)));
              return output;
@@ -952,8 +965,54 @@ void VoxelRethinkedApp::handleGlobalActions(vxe::EngineContext& context) {
         static_cast<void>(m_settings->windowMode.set(mode));
     }
     if (m_input->isPressed(m_actions->screenshot)) {
-        VXE_LOG_INFO(gameLog, "Screenshots are not implemented yet");
+        takeScreenshot(context, {});
     }
+}
+
+// The next frame as a PNG in screenshots/: the date and time as its name
+// unless one is given. Encoding and writing happen on an IO thread.
+void VoxelRethinkedApp::takeScreenshot(vxe::EngineContext& context, std::string name) {
+    const auto folder = context.vfs.resolveForWrite("screenshots:/");
+    if (context.renderer == nullptr || !folder) {
+        return;
+    }
+    if (name.empty()) {
+        const auto now = std::chrono::system_clock::now();
+        const std::time_t seconds = std::chrono::system_clock::to_time_t(now);
+        std::tm local{};
+#ifdef _WIN32
+        localtime_s(&local, &seconds);
+#else
+        localtime_r(&seconds, &local);
+#endif
+        const auto millis =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+        name = std::format("{}-{:02}-{:02}_{:02}.{:02}.{:02}.{:03}", local.tm_year + 1900, local.tm_mon + 1,
+                           local.tm_mday, local.tm_hour, local.tm_min, local.tm_sec, millis % 1000);
+    }
+    const std::filesystem::path path = folder.value() / (name + ".png");
+    context.renderer->requestScreenshot([&context, path](vxe::render::Screenshot shot) {
+        if (shot.width == 0) {
+            VXE_LOG_WARN(gameLog, "The screenshot could not be read from the window");
+            return;
+        }
+        // Jobs carry small captures: the picture and its path go behind one pointer.
+        auto taken = std::make_shared<std::pair<vxe::render::Screenshot, std::filesystem::path>>(
+            std::move(shot), path);
+        static_cast<void>(context.jobs.schedule(
+            [taken] {
+                const auto& [picture, file] = *taken;
+                const auto png = vxe::render::encodePng(picture);
+                const auto written =
+                    png ? vxe::io::writeFile(file, png.value()) : vxe::Result<void>(png.error());
+                if (written) {
+                    VXE_LOG_INFO(gameLog, "Screenshot saved as {}", file.string());
+                } else {
+                    VXE_LOG_WARN(gameLog, "Screenshot not saved: {}", written.error().describe());
+                }
+            },
+            {vxe::jobs::Priority::Normal, {}, vxe::jobs::Pool::Io}));
+    });
 }
 
 // What falls around the player and where it stops. The weather says how hard;
@@ -1141,6 +1200,7 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
          .chunks = context.renderer != nullptr ? &context.renderer->chunks() : nullptr,
          .lod = context.renderer != nullptr ? &context.renderer->lod() : nullptr,
          .debugDraw = context.renderer != nullptr ? &context.renderer->debugDraw() : nullptr,
+         .sunlight = context.renderer != nullptr ? &context.renderer->sunlight() : nullptr,
          .seed = m_world ? m_world->seed : DemoWorldDesc{}.seed,
          .lodCacheFolder =
              m_world ? menuServices(context).saves / m_world->folder / "lod" : demoLodFolder(context),

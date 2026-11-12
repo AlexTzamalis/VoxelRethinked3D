@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <utility>
 
 namespace vxe::render {
@@ -116,6 +117,20 @@ Result<std::unique_ptr<Renderer>> Renderer::create(const RendererDesc& desc) {
         return fail(godRays.error());
     }
     renderer->m_godRays = std::move(godRays.value());
+    auto sunlight =
+        SunlightShadows::create({.device = &device, .settings = desc.settings, .shaders = desc.shaders});
+    if (!sunlight) {
+        return fail(sunlight.error());
+    }
+    renderer->m_sunlight = std::move(sunlight.value());
+    auto entities = EntityRenderer::create({.device = &device,
+                                            .shaders = desc.shaders,
+                                            .colorFormat = kSceneFormat,
+                                            .depthFormat = kDepthFormat});
+    if (!entities) {
+        return fail(entities.error());
+    }
+    renderer->m_entities = std::move(entities.value());
     auto post = PostProcess::create({.device = &device, .settings = desc.settings, .shaders = desc.shaders});
     if (!post) {
         return fail(post.error());
@@ -151,6 +166,8 @@ Renderer::~Renderer() {
     m_debugDraw.reset();
     m_post.reset();
     m_godRays.reset();
+    m_entities.reset();
+    m_sunlight.reset();
     m_clouds.reset();
     m_precipitation.reset();
     m_sky.reset();
@@ -178,6 +195,13 @@ Result<void> Renderer::buildGraph() {
              m_chunks->recordCulling(context.commands);
          }}));
 
+    // Mountain shadows: how high the shade of the land reaches over each
+    // column, again only when the light turned or the terrain changed.
+    static_cast<void>(graph.addPass(
+        {.name = "LongShadows", .type = PassType::Compute, .record = [this](PassContext& context) {
+             m_sunlight->recordCompute(context.commands);
+         }}));
+
     // Sun and moon shadows: terrain from the light, before the chunks read it.
     auto shadows = graph.addPass({.name = "Shadows", .record = [this](PassContext& context) {
                                       m_constants.bind(context.commands);
@@ -190,10 +214,12 @@ Result<void> Renderer::buildGraph() {
 
     auto chunks = graph.addPass({.name = "Chunks", .record = [this, shadowMap](PassContext& context) {
                                      m_constants.bind(context.commands);
+                                     m_sunlight->bind(context.commands);
                                      m_chunks->setShadowMap(context.texture(shadowMap));
                                      m_chunks->record(context.commands, ChunkPass::Opaque);
                                      m_chunks->record(context.commands, ChunkPass::Cutout);
                                      m_chunks->record(context.commands, ChunkPass::Plants);
+                                     m_entities->record(context.commands, EntityLayer::World);
                                  }});
     const TextureRef color = chunks.createTexture("SceneColor", {.format = kSceneFormat});
     const TextureRef depth = chunks.createTexture("SceneDepth", {.format = kDepthFormat});
@@ -206,6 +232,7 @@ Result<void> Renderer::buildGraph() {
     // and the coverage map keeps it off columns they draw.
     auto lod = graph.addPass({.name = "Lod", .record = [this](PassContext& context) {
                                   m_constants.bind(context.commands);
+                                  m_sunlight->bind(context.commands);
                                   m_lod->record(context.commands);
                               }});
     lod.colorAttachment(color, rhi::LoadOp::Load);
@@ -235,13 +262,18 @@ Result<void> Renderer::buildGraph() {
 
     // Sun rays: shafts through the gaps between what stands before the sun.
     auto godRays = graph.addPass(
-        {.name = "GodRays", .record = [this, depth, cloudLayer](PassContext& context) {
+        {.name = "GodRays", .record = [this, depth, cloudLayer, shadowMap](PassContext& context) {
+             m_constants.bind(context.commands);
+             m_sunlight->bind(context.commands);
+             m_chunks->setShadowMap(context.texture(shadowMap));
+             m_chunks->bindShadows(context.commands);
              m_godRays->recordLayer(context.commands, context.texture(depth), context.texture(cloudLayer));
          }});
     const TextureRef rayLayer = godRays.createTexture("RayLayer", {.format = kSceneFormat, .scale = 0.5F});
     godRays.colorAttachment(rayLayer, rhi::LoadOp::Clear, {0.0F, 0.0F, 0.0F, 0.0F});
     godRays.sampleTexture(depth);
     godRays.sampleTexture(cloudLayer);
+    godRays.sampleTexture(shadowMap);
     auto godRayBlend =
         graph.addPass({.name = "GodRaysBlend", .record = [this, rayLayer](PassContext& context) {
                            m_godRays->recordBlend(context.commands, context.texture(rayLayer));
@@ -252,6 +284,7 @@ Result<void> Renderer::buildGraph() {
     auto translucent =
         graph.addPass({.name = "ChunksTranslucent", .record = [this, shadowMap](PassContext& context) {
                            m_constants.bind(context.commands);
+                           m_sunlight->bind(context.commands);
                            m_chunks->setShadowMap(context.texture(shadowMap));
                            m_sky->bindParams(context.commands, 1);
                            m_chunks->record(context.commands, ChunkPass::Translucent);
@@ -267,6 +300,14 @@ Result<void> Renderer::buildGraph() {
                                         }});
     precipitation.colorAttachment(color, rhi::LoadOp::Load);
     precipitation.depthAttachment(depth, rhi::LoadOp::Load);
+
+    // The hand and the item in it, over everything of the world.
+    auto hand = graph.addPass({.name = "FirstPerson", .record = [this](PassContext& context) {
+                                   m_constants.bind(context.commands);
+                                   m_entities->record(context.commands, EntityLayer::FirstPerson);
+                               }});
+    hand.colorAttachment(color, rhi::LoadOp::Load);
+    hand.depthAttachment(depth, rhi::LoadOp::Load);
 
     // The depth pyramid for next frame's occlusion culling. Translucent
     // chunks write no depth, so it holds what the opaque and cutout ones hid.
@@ -317,6 +358,32 @@ void Renderer::setWindowOverlay(std::function<void(rhi::CommandList&)> record) {
     m_windowOverlay = std::move(record);
 }
 
+void Renderer::requestScreenshot(std::function<void(Screenshot)> done) {
+    m_screenshots.push_back(std::move(done));
+}
+
+void Renderer::takeScreenshots() {
+    Screenshot shot{.width = m_device.backBufferWidth(), .height = m_device.backBufferHeight(), .rgba = {}};
+    std::vector<std::byte> bottomUp(usize{shot.width} * shot.height * 4);
+    const bool read = shot.width > 0 && m_device.readWindow(bottomUp).hasValue();
+    if (read) {
+        // The window reads bottom row first (ADR-016); pictures start at the top.
+        shot.rgba.resize(bottomUp.size());
+        const usize row = usize{shot.width} * 4;
+        for (u32 y = 0; y < shot.height; ++y) {
+            std::memcpy(shot.rgba.data() + (usize{y} * row),
+                        bottomUp.data() + (usize{shot.height - 1 - y} * row), row);
+        }
+    }
+    for (auto& done : std::exchange(m_screenshots, {})) {
+        done(read ? shot : Screenshot{});
+    }
+}
+
+f32 Renderer::daylight() const noexcept {
+    return daylightOf(m_sky->params());
+}
+
 void Renderer::setUi(std::function<void(rhi::CommandList&)> record) {
     m_ui = std::move(record);
 }
@@ -333,8 +400,10 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
     const Vec3 skyLight(m_sky->params().skyLight);
     m_chunks->setDaylight(daylight);
     m_chunks->setSkyLight(skyLight);
-    m_chunks->setShadowLight(
-        shadowLightOf(Vec3(m_sky->params().sunDirection), Vec3(m_sky->params().moonDirection)));
+    const ShadowLight light =
+        shadowLightOf(Vec3(m_sky->params().sunDirection), Vec3(m_sky->params().moonDirection));
+    m_chunks->setShadowLight(light);
+    m_sunlight->update(camera, light, m_clouds->shadowInfo());
     m_precipitation->update(camera, time.elapsedSeconds, skyLight);
     m_chunks->setWetness(m_precipitation->wetness());
     m_lod->setLight(skyLight, m_chunks->brightness(), m_chunks->faceShading(), m_precipitation->wetness());
@@ -346,10 +415,15 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
                                                              .frameIndex = m_frameIndex}));
     m_chunks->setViewSize(width, height);
     m_chunks->beginFrame(camera);
-    m_godRays->update(camera, m_chunks->viewAspect(), Vec3(m_sky->params().sunDirection),
-                      Vec3(m_sky->params().sunColor));
+    // The light in the air takes the color of whichever light casts: the
+    // sun's, or a faint moonlight.
+    const bool sunCasts = m_sky->params().sunDirection.y > -0.04F;
+    const Vec3 lightColor = sunCasts ? Vec3(m_sky->params().sunColor) : skyLight * 0.35F;
+    m_godRays->update(camera, m_chunks->viewAspect(), Vec3(m_sky->params().sunDirection), lightColor,
+                      light.strength);
     m_lod->setViewSize(width, height);
     m_lod->beginFrame(camera);
+    m_entities->beginFrame();
     m_debugDraw->handleInput();
     m_debugDraw->beginFrame(camera);
     m_lod->drawDebug(*m_debugDraw);
@@ -367,6 +441,7 @@ Result<void> Renderer::endFrame(const FrameTime& time) {
     m_frameBegun = false;
     ++m_frameIndex;
     m_commands.reset();
+    m_entities->upload();
     if (m_timerCreated) {
         m_timer.beginFrame(m_device, m_commands);
     }
@@ -376,6 +451,9 @@ Result<void> Renderer::endFrame(const FrameTime& time) {
     }
     m_device.beginFrame();
     m_device.submit(m_commands);
+    if (!m_screenshots.empty()) {
+        takeScreenshots();
+    }
     m_device.present();
     return executed;
 }

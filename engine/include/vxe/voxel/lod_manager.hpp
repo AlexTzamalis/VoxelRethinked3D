@@ -160,6 +160,10 @@ public:
     // Every tile the sink holds right now: the clipmap's ready tiles plus
     // retiring ones.
     [[nodiscard]] usize shownTiles() const noexcept { return m_ready.size(); }
+    // Those tiles, for work on a job that only reads them (fillLodHeights).
+    [[nodiscard]] std::vector<std::shared_ptr<const LodTile>> shownTileList() const;
+    // Goes up whenever a shown tile is added or replaced.
+    [[nodiscard]] u64 shownVersion() const noexcept { return m_shownVersion; }
     [[nodiscard]] const LodClipmap& clipmap() const noexcept { return m_clipmap; }
     // The clipmap shape and sampling options the settings ask for now (what a
     // LodPremapper should bake for this manager).
@@ -253,6 +257,7 @@ private:
 
     HashMap<LodTileKey, Wanted, KeyHash> m_wanted;
     HashMap<LodTileKey, Shown, KeyHash> m_ready; // What the sink holds: wanted and retiring tiles.
+    u64 m_shownVersion = 0;
     std::vector<LodTileKey> m_retiring;
     std::vector<LodTileKey> m_queue; // Wanted tiles without a job, in order (front first).
     bool m_queueDirty = false;

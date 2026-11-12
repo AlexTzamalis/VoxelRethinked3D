@@ -107,6 +107,12 @@ public:
     [[nodiscard]] virtual Result<void> readTexture(TextureHandle texture, u32 mipLevel, u32 layer,
                                                    std::span<std::byte> out) = 0;
 
+    // Copies what the window shows after this frame's commands (before
+    // present) back to the CPU: RGBA8, tightly packed, bottom row first, at
+    // backBufferWidth x backBufferHeight. Slow (waits for the GPU): for
+    // screenshots only. Unsupported without a window.
+    [[nodiscard]] virtual Result<void> readWindow(std::span<std::byte> out) = 0;
+
     // Uploads one mip level of one layer of a texture.
     [[nodiscard]] virtual Result<void> uploadTexture(TextureHandle texture, const TextureUpload& upload) = 0;
 

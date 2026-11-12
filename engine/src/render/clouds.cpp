@@ -305,6 +305,17 @@ void CloudRenderer::recordLayer(rhi::CommandList& commands, rhi::TextureHandle s
     commands.draw(3);
 }
 
+CloudShadowInfo CloudRenderer::shadowInfo() const noexcept {
+    return {.map = m_map,
+            .sampler = m_mapSampler,
+            .floorY = m_height.get(),
+            .thickness = m_thickness.get(),
+            .threshold = 1.0F - m_cover,
+            .windX = m_windX,
+            .windZ = m_windZ,
+            .visible = m_enabled.get() && m_cover > 0.0F};
+}
+
 void CloudRenderer::recordBlend(rhi::CommandList& commands, rhi::TextureHandle layer) const {
     if (!m_enabled.get() || m_cover <= 0.0F) {
         return;

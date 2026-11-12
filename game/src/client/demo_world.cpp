@@ -1,6 +1,7 @@
 #include "demo_world.hpp"
 
 #include <vxe/core/log.hpp>
+#include <vxe/voxel/lod_heights.hpp>
 
 #include <algorithm>
 #include <array>
@@ -47,7 +48,9 @@ DemoWorld::DemoWorld(const DemoWorldDesc& desc, const TerrainBlocks& blocks)
     , m_lodRenderer(desc.lod)
     , m_debugDraw(desc.debugDraw)
     , m_view(desc.blocks->current())
-    , m_lodSampler(m_terrain, *m_view, static_cast<vxe::u16>(desc.catalog->textureKeys().size()), desc.seed) {
+    , m_lodSampler(m_terrain, *m_view, static_cast<vxe::u16>(desc.catalog->textureKeys().size()), desc.seed)
+    , m_jobs(desc.jobs)
+    , m_sunlight(desc.sunlight) {
     if (!desc.saveFolder.empty()) {
         m_saver.emplace(WorldSaverDesc{.folder = desc.saveFolder,
                                        .jobs = desc.jobs,
@@ -154,6 +157,52 @@ bool DemoWorld::setBlock(const vxe::BlockPos& position, BlockStateId state) {
     return true;
 }
 
+void DemoWorld::updateShadowHeights(const vxe::DVec3& camera) {
+    using vxe::render::kTerrainShadowCellBlocks;
+    using vxe::render::kTerrainShadowCells;
+    if (m_sunlight == nullptr) {
+        return;
+    }
+    if (m_heightJob) {
+        if (!m_heightJob->done.load(std::memory_order_acquire)) {
+            return;
+        }
+        m_sunlight->setTerrainHeights(m_heightJob->grid);
+        m_heightJob.reset();
+    }
+    // A new grid once the camera is a quarter of the grid from the last
+    // center, or every few seconds while new far terrain keeps arriving.
+    constexpr vxe::f64 kHalf = static_cast<vxe::f64>(kTerrainShadowCells / 2 * kTerrainShadowCellBlocks);
+    const vxe::f64 now = m_loadClock.elapsedMilliseconds();
+    const bool moved =
+        std::max(std::abs(camera.x - m_heightCenterX), std::abs(camera.z - m_heightCenterZ)) > kHalf / 2.0;
+    const bool newTiles = m_lod->shownVersion() != m_heightVersion && now - m_heightTime > 3000.0;
+    if (!moved && !newTiles) {
+        return;
+    }
+    constexpr vxe::i64 kSnap = 64; // Whole cells, and the grid moves in steps.
+    const auto snapped = [](vxe::f64 value) {
+        return static_cast<vxe::i64>(std::floor((value - kHalf) / static_cast<vxe::f64>(kSnap))) * kSnap;
+    };
+    auto job = std::make_shared<HeightJob>();
+    job->grid.originX = snapped(camera.x);
+    job->grid.originZ = snapped(camera.z);
+    job->grid.heights.resize(vxe::usize{kTerrainShadowCells} * kTerrainShadowCells);
+    m_heightCenterX = camera.x;
+    m_heightCenterZ = camera.z;
+    m_heightVersion = m_lod->shownVersion();
+    m_heightTime = now;
+    m_heightJob = job;
+    m_jobs->schedule(m_heightCounter,
+                     [job, tiles = m_lod->shownTileList()] {
+                         vxe::voxel::fillLodHeights(tiles, job->grid.originX, job->grid.originZ,
+                                                    kTerrainShadowCells, kTerrainShadowCellBlocks,
+                                                    job->grid.heights);
+                         job->done.store(true, std::memory_order_release);
+                     },
+                     {vxe::jobs::Priority::Low, {}, vxe::jobs::Pool::Compute});
+}
+
 void DemoWorld::sendEditsToLod(vxe::f64 delayMs) {
     if (m_lodEdits.empty() || !m_lod) {
         return;
@@ -210,6 +259,11 @@ void DemoWorld::release() noexcept {
         return;
     }
     m_shutDown = true;
+    m_jobs->wait(m_heightCounter);
+    m_heightJob.reset();
+    if (m_sunlight != nullptr) {
+        m_sunlight->clearTerrain();
+    }
     m_streaming->unloadAll();
     m_premap.reset();
     m_lod.reset(); // Waits for its jobs; the renderer forgets the tiles below.
@@ -243,6 +297,7 @@ void DemoWorld::update(const vxe::render::Camera& camera) {
     if (!m_premap) {
         sendEditsToLod(kLodEditDelayMs);
         m_lod->update(camera.position);
+        updateShadowHeights(camera.position);
     }
     if (m_debugDraw != nullptr) {
         m_lod->drawDebug(*m_debugDraw);

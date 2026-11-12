@@ -1,0 +1,53 @@
+// The shadow height of every column of the terrain grid (render::SunlightShadows):
+// walking from the column towards the light, each cell further on hides the
+// light up to its height minus how far the line to the light has risen by
+// then. The highest such height is how far up this column lies in shadow. A
+// fragment below it is behind a mountain; one above it sees the light.
+//
+// The walk starts one cell on, so a column never shades itself, and stops
+// once the line to the light has risen above the highest land of the grid.
+#include "include/bindings.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+VXE_BINDING_STD140(1, 0) uniform TerrainShadowParams {
+    vec4 toLight; // xyz: towards the light (normalized).
+    vec4 grid;    // x: cells per side, y: blocks per cell, z: highest land, w: lowest known height.
+} params;
+
+VXE_BINDING(2, 0) uniform sampler2D heights; // Nearest: one texel per cell.
+VXE_IMAGE_BINDING(1, 1, r32f) writeonly uniform image2D shadowTops;
+
+const float kNoHeight = -1.0e8; // Below this a cell is unknown (voxel::kNoLodHeight).
+
+void main() {
+    const int cells = int(params.grid.x);
+    const ivec2 cell = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(cell, ivec2(cells)))) {
+        return;
+    }
+    const vec3 toLight = params.toLight.xyz;
+    const float across = length(toLight.xz);
+    float top = kNoHeight;
+    if (toLight.y > 0.0 && across > 1.0e-4) {
+        // Rise of the line to the light per cell walked, and the step in cells.
+        const vec2 step = toLight.xz / across;
+        const float rise = params.grid.y * toLight.y / across;
+        const float own = texelFetch(heights, cell, 0).r;
+        const float start = own > kNoHeight ? own : params.grid.w;
+        // At most 256 cells (2 km): longer shade is lost in the haze anyway,
+        // and a low sun would otherwise walk the whole grid from every cell.
+        const int steps = min(int(ceil(max(params.grid.z - start, 0.0) / max(rise, 1.0e-3))) + 1, min(cells, 256));
+        for (int k = 1; k <= steps; ++k) {
+            const ivec2 at = ivec2(floor(vec2(cell) + 0.5 + step * float(k)));
+            if (any(lessThan(at, ivec2(0))) || any(greaterThanEqual(at, ivec2(cells)))) {
+                break;
+            }
+            const float height = texelFetch(heights, at, 0).r;
+            if (height > kNoHeight) {
+                top = max(top, height - rise * float(k));
+            }
+        }
+    }
+    imageStore(shadowTops, cell, vec4(top));
+}

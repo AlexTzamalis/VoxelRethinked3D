@@ -17,6 +17,7 @@
 #include <vxe/render/chunk_renderer.hpp>
 #include <vxe/render/debug_draw.hpp>
 #include <vxe/render/lod_renderer.hpp>
+#include <vxe/render/sunlight.hpp>
 #include <vxe/rhi/device.hpp>
 #include <vxe/voxel/block_registry.hpp>
 #include <vxe/voxel/chunk_render_sink.hpp>
@@ -28,6 +29,7 @@
 #include <vxe/voxel/streaming.hpp>
 #include <vxe/voxel/voxel_world.hpp>
 
+#include <atomic>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -44,10 +46,11 @@ struct DemoWorldDesc {
     vxe::config::SettingsRegistry* settings = nullptr;
     const BlockCatalog* catalog = nullptr;
     const vxe::voxel::BlockRegistry* blocks = nullptr;
-    vxe::stats::StatRegistry* stats = nullptr;    // Optional.
-    vxe::render::ChunkRenderer* chunks = nullptr; // Optional, with the device.
-    vxe::render::LodRenderer* lod = nullptr;      // Optional, with the device: far terrain.
-    vxe::render::DebugDraw* debugDraw = nullptr;  // Optional: far terrain debug views.
+    vxe::stats::StatRegistry* stats = nullptr;        // Optional.
+    vxe::render::ChunkRenderer* chunks = nullptr;     // Optional, with the device.
+    vxe::render::LodRenderer* lod = nullptr;          // Optional, with the device: far terrain.
+    vxe::render::DebugDraw* debugDraw = nullptr;      // Optional: far terrain debug views.
+    vxe::render::SunlightShadows* sunlight = nullptr; // Optional: mountain shadows from far terrain heights.
     vxe::u64 seed = 12345;
     // Optional: where far terrain tiles are cached (saves:/demo/lod). With it,
     // the tiles around the spawn are premapped before the world shows, so the
@@ -168,6 +171,9 @@ private:
     void release() noexcept;
     // Hands columns edited at least `delayMs` ago to the far terrain.
     void sendEditsToLod(vxe::f64 delayMs);
+    // Rebuilds the mountain shadow heights on a job when the camera moved far
+    // or new far terrain arrived, and hands finished ones to the renderer.
+    void updateShadowHeights(const vxe::DVec3& camera);
 
     vxe::render::ChunkRenderer* m_chunks;
     const BlockCatalog& m_catalog;
@@ -196,6 +202,18 @@ private:
     // Edited chunk columns waiting for the far terrain, with their last edit
     // (m_loadClock milliseconds). Few at a time, so a vector does.
     std::vector<std::pair<vxe::voxel::ColumnPos, vxe::f64>> m_lodEdits;
+    vxe::jobs::JobSystem* m_jobs;
+    vxe::render::SunlightShadows* m_sunlight;
+    struct HeightJob {
+        std::atomic<bool> done{false};
+        vxe::render::TerrainHeightGrid grid;
+    };
+    std::shared_ptr<HeightJob> m_heightJob; // Running, or finished and not taken yet.
+    vxe::jobs::JobCounter m_heightCounter;
+    vxe::u64 m_heightVersion = ~vxe::u64{0}; // shownVersion() of the last grid.
+    vxe::f64 m_heightCenterX = 1.0e18;       // Center of the last grid.
+    vxe::f64 m_heightCenterZ = 1.0e18;
+    vxe::f64 m_heightTime = -1.0e9; // m_loadClock milliseconds of the last grid.
     bool m_loaded = false;
     bool m_shutDown = false;
 };

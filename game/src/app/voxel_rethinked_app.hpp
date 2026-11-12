@@ -122,6 +122,7 @@ private:
     std::vector<vxe::config::Subscription> m_windowSubscriptions;
     bool m_windowApplied = false; // The window settings were applied on the first frame.
     void applyWindowSettings(vxe::EngineContext& context);
+    void takeScreenshot(vxe::EngineContext& context, std::string name);
     std::unique_ptr<GameSettings> m_settings;
     std::unique_ptr<GameActions> m_actions;
     vxe::render::Camera m_camera;

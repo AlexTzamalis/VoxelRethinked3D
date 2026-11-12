@@ -191,6 +191,10 @@ public:
         return {};
     }
 
+    Result<void> readWindow(std::span<std::byte> /*out*/) override {
+        return Error(ErrorCode::Unsupported, "The Null device has no window");
+    }
+
     Result<void> uploadTexture(TextureHandle handle, const TextureUpload& upload) override {
         const NullTexture* texture = m_textures.get(handle);
         if (texture == nullptr) {

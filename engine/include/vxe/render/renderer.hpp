@@ -10,13 +10,16 @@
 #include <vxe/render/chunk_renderer.hpp>
 #include <vxe/render/clouds.hpp>
 #include <vxe/render/debug_draw.hpp>
+#include <vxe/render/entity_renderer.hpp>
 #include <vxe/render/frame_constants.hpp>
 #include <vxe/render/frame_graph.hpp>
 #include <vxe/render/god_rays.hpp>
 #include <vxe/render/lod_renderer.hpp>
 #include <vxe/render/post_process.hpp>
 #include <vxe/render/precipitation.hpp>
+#include <vxe/render/screenshot.hpp>
 #include <vxe/render/sky.hpp>
+#include <vxe/render/sunlight.hpp>
 #include <vxe/rhi/command_list.hpp>
 #include <vxe/rhi/device.hpp>
 #include <vxe/rhi/gpu_timer.hpp>
@@ -45,11 +48,14 @@ struct RendererDesc {
 //
 //   ChunkUpload        new chunk meshes into the vertex arena (transfer)
 //   Visibility         chunk culling: frustum, face direction, caves, occlusion (compute)
+//   LongShadows        how high mountain shade reaches over each column (compute, when needed)
+//   Shadows            the sun's or moon's shadow map of nearby terrain
 //   LodUpload          new far terrain tiles into their arena (transfer)
 //   Chunks             opaque and cutout chunks into the HDR scene
 //   Lod                far terrain, hidden over columns real chunks draw
 //   Sky                sky where nothing was drawn, height fog over the rest
 //   ChunksTranslucent  water and glass, blended
+//   FirstPerson        the hand and the item in it, over the world
 //   HiZ                depth pyramid for next frame's occlusion culling (compute)
 //   DebugDraw          debug lines (chunk borders, boxes, grids, a frozen culling frustum)
 //   Post               tonemapping into the window
@@ -86,6 +92,10 @@ public:
     // Recorded into the window after post processing, before the window
     // overlay: the game UI (ui::UiRenderer lives above render, ADR-015).
     void setUi(std::function<void(rhi::CommandList&)> record);
+    // Reads the next frame back from the window once it is drawn (UI
+    // included) and hands it over on the main thread, inside endFrame. Slow
+    // for that one frame: it waits for the GPU.
+    void requestScreenshot(std::function<void(Screenshot)> done);
     // The engine shader reader, for renderers built above this layer.
     [[nodiscard]] const rhi::ShaderFileReader& shaders() const noexcept { return m_shaders; }
 
@@ -96,6 +106,11 @@ public:
     [[nodiscard]] SkyRenderer& sky() noexcept { return *m_sky; }
     [[nodiscard]] CloudRenderer& clouds() noexcept { return *m_clouds; }
     [[nodiscard]] PrecipitationRenderer& precipitation() noexcept { return *m_precipitation; }
+    [[nodiscard]] SunlightShadows& sunlight() noexcept { return *m_sunlight; }
+    [[nodiscard]] EntityRenderer& entities() noexcept { return *m_entities; }
+    // How strong sky light is right now, 0.25 (moonlight) to 1 (day), as the
+    // chunks use it: for lighting entities the same way.
+    [[nodiscard]] f32 daylight() const noexcept;
     [[nodiscard]] rhi::Device& device() noexcept { return m_device; }
     // The GPU time of a recent frame (a few frames old, measured without stalls).
     [[nodiscard]] std::optional<f64> gpuMilliseconds() const noexcept {
@@ -106,6 +121,7 @@ private:
     explicit Renderer(rhi::Device& device) noexcept
         : m_device(device) {}
     [[nodiscard]] Result<void> buildGraph();
+    void takeScreenshots();
 
     rhi::Device& m_device;
     Camera m_camera;
@@ -116,6 +132,8 @@ private:
     std::unique_ptr<SkyRenderer> m_sky;
     std::unique_ptr<CloudRenderer> m_clouds;
     std::unique_ptr<GodRayRenderer> m_godRays;
+    std::unique_ptr<SunlightShadows> m_sunlight;
+    std::unique_ptr<EntityRenderer> m_entities;
     std::unique_ptr<PrecipitationRenderer> m_precipitation;
     std::unique_ptr<PostProcess> m_post;
     std::unique_ptr<DebugDraw> m_debugDraw;
@@ -124,6 +142,7 @@ private:
     rhi::CommandList m_commands;
     std::function<void(rhi::CommandList&)> m_windowOverlay;
     std::function<void(rhi::CommandList&)> m_ui;
+    std::vector<std::function<void(Screenshot)>> m_screenshots;
     rhi::ShaderFileReader m_shaders;
     bool m_frameBegun = false;
     u64 m_frameIndex = 0;

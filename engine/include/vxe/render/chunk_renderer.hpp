@@ -178,6 +178,9 @@ public:
     void recordShadows(rhi::CommandList& commands);
     // The shadow map the chunk passes read, set before record() each frame.
     void setShadowMap(rhi::TextureHandle map) noexcept { m_shadowMap = map; }
+    // Binds this frame's shadow parameters (set 1 slot 2) and the shadow map
+    // (set 2 slot 5), for other passes that read shadows (the light in the air).
+    void bindShadows(rhi::CommandList& commands) const;
     [[nodiscard]] const ShadowFrame& shadowFrame() const noexcept { return m_shadowFrame; }
     // Faces drawn into the shadow map last frame, all cascades.
     [[nodiscard]] u32 shadowDrawCount() const noexcept { return m_shadowDrawTotal; }

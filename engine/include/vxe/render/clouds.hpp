@@ -20,6 +20,19 @@ namespace vxe::render {
 
 class SkyRenderer;
 
+// What the ground needs to find the shade of the clouds above it
+// (render::SunlightShadows): the density map and where it stands this frame.
+struct CloudShadowInfo {
+    rhi::TextureHandle map;
+    rhi::SamplerHandle sampler;
+    f32 floorY = 0.0F; // The layer's floor, in blocks.
+    f32 thickness = 0.0F;
+    f32 threshold = 1.0F; // Map values above it are cloud.
+    f64 windX = 0.0;      // Wind offset in blocks, wrapped at the map size.
+    f64 windZ = 0.0;
+    bool visible = false; // Clouds on and some cover.
+};
+
 inline constexpr i32 kCloudMapSize = 512;  // Cells along each side; also in clouds.frag.
 inline constexpr i32 kCloudCellBlocks = 8; // Blocks across a cell; also in clouds.frag.
 inline constexpr u32 kCloudMapLevels = 5;  // Mip levels, the last of 32 x 32 cells.
@@ -77,6 +90,8 @@ public:
     void recordLayer(rhi::CommandList& commands, rhi::TextureHandle sceneDepth, const SkyRenderer& sky) const;
     // Lays that layer over the scene color (load).
     void recordBlend(rhi::CommandList& commands, rhi::TextureHandle layer) const;
+    // This frame's map and placement, for cloud shadows on the ground.
+    [[nodiscard]] CloudShadowInfo shadowInfo() const noexcept;
 
 private:
     explicit CloudRenderer(const CloudDesc& desc);

@@ -3,6 +3,8 @@
 // draw (the coverage map, Section 13.5).
 #include "include/bindings.glsl"
 #include "include/frame.glsl"
+// Mountain and cloud shadows (render::SunlightShadows).
+#include "include/sunlight.glsl"
 
 VXE_BINDING_STD140(1, 0) uniform LodParams {
     vec4 params; // x: daylight, y: darkest brightness, z: coverage (0 off, 1 discard, 2 show), w: flags (lod.vert).
@@ -62,5 +64,8 @@ void main() {
             discard;
         }
     }
-    outColor = vec4(vColor * textureDetail(), 1.0);
+    // vColor is lit by sky light mostly, so shade takes from all of it, as
+    // much as the chunks keep in shadow (chunk.frag's kShadowAmbient).
+    const float keep = 1.0 - ((1.0 - farSunlit(vRelative)) * 0.45);
+    outColor = vec4(vColor * textureDetail() * keep, 1.0);
 }

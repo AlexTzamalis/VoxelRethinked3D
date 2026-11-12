@@ -430,6 +430,20 @@ public:
         return {};
     }
 
+    Result<void> readWindow(std::span<std::byte> out) override {
+        const auto width = static_cast<GLsizei>(backBufferWidth());
+        const auto height = static_cast<GLsizei>(backBufferHeight());
+        if (out.size() != static_cast<usize>(width) * static_cast<usize>(height) * 4) {
+            return Error(ErrorCode::InvalidArgument, "readWindow needs width x height x 4 bytes");
+        }
+        // The back buffer of the default framebuffer, before the swap.
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        glReadBuffer(GL_BACK);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, out.data());
+        return {};
+    }
+
     Result<void> uploadTexture(TextureHandle handle, const TextureUpload& upload) override {
         const gl::Texture* texture = m_resources.textures.get(handle);
         if (texture == nullptr) {

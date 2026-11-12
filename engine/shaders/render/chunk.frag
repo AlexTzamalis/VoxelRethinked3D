@@ -26,6 +26,9 @@ layout(location = 10) in float vBase;
 layout(location = 11) flat in vec3 vNormal;
 
 #ifndef VXE_CHUNK_SHADOW
+// Mountain and cloud shadows beyond the shadow map (render::SunlightShadows).
+#include "include/sunlight.glsl"
+
 VXE_BINDING_STD140(1, 0) uniform ChunkParams {
     vec4 params; // z: darkest brightness (as chunk.vert).
     vec4 skyLight;
@@ -93,12 +96,16 @@ float sunlit() {
     return mix(lit / taps, 1.0, fade);
 }
 
-// vShade with the sky light shaded by the shadow map.
+// vShade with the sky light shaded by the shadow map near the camera, and by
+// mountains and clouds at any distance.
 vec3 shadedLight() {
-    if (shadow.toLight.w <= 0.0) {
+    const float farLit = farSunlit(vRelative);
+    if (shadow.toLight.w <= 0.0 && farLit >= 1.0) {
         return vShade;
     }
-    const float keep = 1.0 - (shadow.toLight.w * (1.0 - sunlit()) * (1.0 - kShadowAmbient));
+    const float nearLit = shadow.toLight.w > 0.0 ? sunlit() : 1.0;
+    const float keep = min(1.0 - (shadow.toLight.w * (1.0 - nearLit) * (1.0 - kShadowAmbient)),
+                           1.0 - ((1.0 - farLit) * (1.0 - kShadowAmbient)));
     const vec3 light = mix(vec3(chunkParams.params.z), vec3(1.0), max(vSky * keep, vBlock));
     return vBase * light;
 }

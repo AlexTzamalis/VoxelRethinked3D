@@ -9,9 +9,15 @@ namespace {
 
 // The layout must match GodRayParams in god_rays.frag (std140).
 struct GodRayParams {
-    Vec4 sun;   // xy: the sun on screen (0 to 1), z: strength.
-    Vec4 color; // rgb: the sun's color.
+    Vec4 sun;    // xy: the sun on screen (0 to 1), z: strength of the screen shafts.
+    Vec4 color;  // rgb: the light's color.
+    Vec4 volume; // x: strength of the light in the air, y: reach in blocks, z: steps.
 };
+
+// Blocks of air the light in the air is followed through, and the steps:
+// about two blocks each, so beams through gaps of a block or two stay sharp.
+constexpr f32 kAirReach = 96.0F;
+constexpr f32 kAirSteps = 40.0F;
 
 f32 smoothstep(f32 low, f32 high, f32 value) noexcept {
     const f32 t = std::clamp((value - low) / (high - low), 0.0F, 1.0F);
@@ -51,7 +57,17 @@ GodRayRenderer::GodRayRenderer(const GodRayDesc& desc)
                                                0.6F,
                                                0.0F,
                                                2.0F,
-                                               0.05F})) {}
+                                               0.05F}))
+    , m_airStrength(desc.settings->registerFloat(
+          {{.id = "Graphics.Sky.LightInAir",
+            .displayName = "Light in the air",
+            .description =
+                "Beams of sunlight in the air, seen from any side: through leaves, past ridges and "
+                "under clouds, down to where they land. 0 is off."},
+           1.5F,
+           0.0F,
+           3.0F,
+           0.1F})) {}
 
 Result<std::unique_ptr<GodRayRenderer>> GodRayRenderer::create(const GodRayDesc& desc) {
     std::unique_ptr<GodRayRenderer> rays(new GodRayRenderer(desc));
@@ -133,10 +149,14 @@ GodRayRenderer::~GodRayRenderer() {
     m_ring.destroy(m_device);
 }
 
-void GodRayRenderer::update(const Camera& camera, f32 aspect, const Vec3& toSun, const Vec3& sunColor) {
+void GodRayRenderer::update(const Camera& camera, f32 aspect, const Vec3& toSun, const Vec3& sunColor,
+                            f32 lightStrength) {
     m_view = godRayView(camera, aspect, toSun);
-    const GodRayParams params{.sun = Vec4(m_view.sunUv, m_view.strength * m_strength.get(), 0.0F),
-                              .color = Vec4(sunColor, 1.0F)};
+    m_air = m_enabled.get() ? m_airStrength.get() * lightStrength : 0.0F;
+    const GodRayParams params{
+        .sun = Vec4(m_view.sunUv, isShining() ? m_view.strength * m_strength.get() : 0.0F, 0.0F),
+        .color = Vec4(sunColor, 1.0F),
+        .volume = Vec4(m_air, kAirReach, kAirSteps, 0.0F)};
     const std::span<std::byte> memory = m_ring.next(m_device);
     std::memcpy(memory.data(), &params, sizeof(params));
 }
@@ -147,7 +167,7 @@ bool GodRayRenderer::isShining() const noexcept {
 
 void GodRayRenderer::recordLayer(rhi::CommandList& commands, rhi::TextureHandle sceneDepth,
                                  rhi::TextureHandle clouds) const {
-    if (!isShining()) {
+    if (!isDrawing()) {
         return;
     }
     commands.bindPipeline(m_pipeline);
@@ -158,7 +178,7 @@ void GodRayRenderer::recordLayer(rhi::CommandList& commands, rhi::TextureHandle 
 }
 
 void GodRayRenderer::recordBlend(rhi::CommandList& commands, rhi::TextureHandle layer) const {
-    if (!isShining()) {
+    if (!isDrawing()) {
         return;
     }
     commands.bindPipeline(m_blendPipeline);

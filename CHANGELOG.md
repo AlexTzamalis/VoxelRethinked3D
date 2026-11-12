@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#153] 2026-11-12, Mountain and cloud shadows, light in the air, screenshots
+### Added
+- Mountain shadows (Graphics.Shadows.Terrain): mountains and far terrain shade the land behind them from the sun or moon, as far as about 2 km, on chunks and far terrain alike. A height grid of 512 x 512 cells of 8 blocks comes from the far terrain tiles around the camera (voxel::fillLodHeights, on a job); a compute pass (render/terrain_shadow.comp) finds how high the shade reaches over each column, again only when the light turned or the terrain changed. render::SunlightShadows.
+- Cloud shadows (Graphics.Shadows.Clouds): each point follows the line to the light up to the cloud layer and reads the cloud map there, so the ground under clouds is shaded and the shade drifts with the wind.
+- Light in the air (Graphics.Sky.LightInAir): the sun ray pass also follows each view ray through the air and asks the shadow map, the mountain shadows and the cloud shadows which bits the light reaches, so beams through leaves and past ridges show from the side and from behind as well as towards the sun.
+- Screenshots: F2 (and the console command screenshot [name]) saves the next frame, UI included, as a PNG in screenshots/. rhi::Device::readWindow, render::Renderer::requestScreenshot, render::encodePng (stb_image_write).
+### Performance
+- On an RTX 4060 at 1280 x 720: long shadows 0.07 ms in the far terrain pass, the light in the air 0.07 ms (sun ray pass 0.26 to 0.33 ms). The compute pass runs about once a second while the sun moves.
 ## [#152] 2026-11-12, Statistics
 ### Added
 - Statistics in the pause menu, per world like Minecraft: General shows time played, distance walked, sprinted, crouched, swum, flown and fallen, jumps, long falls (over 3 blocks) and blocks placed and broken; Blocks lists every block placed or broken with both counts, most used first.

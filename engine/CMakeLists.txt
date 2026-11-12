@@ -222,6 +222,7 @@ vxe_add_module(render
         src/render/chunk_renderer.cpp
         src/render/cpu_write_ring.cpp
         src/render/debug_draw.cpp
+        src/render/entity_renderer.cpp
         src/render/frame_constants.cpp
         src/render/frame_graph.cpp
         src/render/frame_pacer.cpp
@@ -230,7 +231,9 @@ vxe_add_module(render
         src/render/lod_renderer.cpp
         src/render/post_process.cpp
         src/render/precipitation.cpp
+        src/render/screenshot.cpp
         src/render/shadows.cpp
+        src/render/sunlight.cpp
         src/render/renderer.cpp
         src/render/clouds.cpp
         src/render/sky.cpp
@@ -331,6 +334,7 @@ vxe_add_module(voxel
         src/voxel/lod_tile.cpp
         src/voxel/lod_cache.cpp
         src/voxel/lod_downsample.cpp
+        src/voxel/lod_heights.cpp
         src/voxel/lod_manager.cpp
         src/voxel/lod_mesher.cpp
         src/voxel/lod_premapper.cpp
