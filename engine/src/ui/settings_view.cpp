@@ -13,12 +13,8 @@ namespace {
 
 // Top level groups, roughly in the order a player looks for them.
 constexpr std::array<std::string_view, 11> kGroupOrder = {
-    "Video",         "Graphics", "World",       "Gameplay", "Controls", "Interface",
-    "Accessibility", "Audio",    "Performance", "Server",   "Debug"};
-
-std::string_view topGroup(std::string_view category) {
-    return category.substr(0, category.find('.'));
-}
+    "Video",     "Graphics",      "World",       "Gameplay", "Controls", "Audio",
+    "Interface", "Accessibility", "Performance", "Server",   "Debug"};
 
 std::string lowered(std::string_view text) {
     std::string result(text);
@@ -83,9 +79,9 @@ std::string spacedName(std::string_view name) {
 std::vector<std::string> orderedSettingGroups(const config::SettingsRegistry& settings) {
     std::vector<std::string> groups;
     for (const std::string& category : settings.categories()) {
-        const std::string group(topGroup(category));
+        std::string group = settings.groupOf(category);
         if (std::ranges::find(groups, group) == groups.end()) {
-            groups.push_back(group);
+            groups.push_back(std::move(group));
         }
     }
     const auto rank = [](const std::string& group) {
@@ -100,35 +96,44 @@ std::vector<std::string> orderedSettingGroups(const config::SettingsRegistry& se
 
 SettingsView::SettingsView(config::SettingsRegistry& settings, SettingsViewOptions options)
     : m_settings(settings)
-    , m_options(std::move(options))
-    , m_list(&add<Widget>()) {
-    style().direction = Direction::Row;
-    style().gap = 6.0F;
+    , m_options(std::move(options)) {
+    style().direction = Direction::Column;
+    style().gap = 4.0F;
     style().grow = 1.0F;
     for (const std::string& group : orderedSettingGroups(settings)) {
-        // A group whose settings are all hidden gets no button.
+        // A group whose settings are all hidden gets no tab.
         const bool anyShown = std::ranges::any_of(m_settings.all(), [&](const config::SettingInfo* info) {
-            return topGroup(info->category) == group && shows(*info);
+            return m_settings.groupOf(info->category) == group && shows(*info);
         });
         if (anyShown) {
             m_groups.push_back(group);
         }
     }
-    m_list->style().width = kGroupListWidth;
+    m_tabs = &add<Widget>();
+    m_tabs->style().direction = Direction::Row;
+    m_tabs->style().gap = 2.0F;
+    auto& body = add<Widget>();
+    body.style().direction = Direction::Row;
+    body.style().gap = 6.0F;
+    body.style().grow = 1.0F;
+    auto& pageScroll = body.add<ScrollView>();
+    pageScroll.style().width = kPageListWidth;
+    pageScroll.style().shrink = 0.0F;
+    m_list = &pageScroll.add<Widget>();
     m_list->style().gap = 2.0F;
-    auto& column = add<Widget>();
+    auto& column = body.add<Widget>();
     column.style().grow = 1.0F;
     column.style().shrink = 1.0F;
     column.style().minWidth = 0.0F;
     column.style().gap = 3.0F;
     if (m_options.searchBox) {
-        m_search = &column.add<TextField>(m_options.filter, "Search settings");
+        m_search = &column.add<TextField>(m_options.filter, "Search all settings");
         m_search->setOnChange([this](const std::string& text) { setFilter(text); });
     }
     m_scroll = &column.add<ScrollView>();
     m_scroll->style().grow = 1.0F;
     m_scroll->add<Widget>().style().gap = 3.0F;
-    buildGroupList();
+    buildTabs();
     selectGroup(m_groups.empty() ? std::string() : m_groups.front());
 }
 
@@ -136,15 +141,67 @@ bool SettingsView::shows(const config::SettingInfo& info) const {
     return m_options.showDeveloper || info.visibility != config::Visibility::Developer;
 }
 
-void SettingsView::buildGroupList() {
-    m_list->clearChildren();
+void SettingsView::buildTabs() {
+    m_tabs->clearChildren();
     m_groupButtons.clear();
     // The group names never change after construction, so buttons may hold them.
     for (const std::string& group : m_groups) {
         const std::string* name = &group;
-        auto& button = m_list->add<Button>(group, [this, name] { showGroup(*name); });
+        auto& button = m_tabs->add<Button>(group, [this, name] { showGroup(*name); });
+        button.style().grow = 1.0F;
         button.style().minWidth = 0.0F;
         m_groupButtons.emplace_back(group, &button);
+    }
+}
+
+// A setting's page: its category, or its group's General page when the
+// category is the group itself (Video.WindowMode lives on Video's first page).
+std::string SettingsView::pageOf(const config::SettingInfo& info) const {
+    return info.category;
+}
+
+std::string SettingsView::pageTitle(const std::string& page) const {
+    if (page == m_group && m_settings.groupOf(page) == page) {
+        return "General";
+    }
+    if (std::string name = m_settings.categoryName(page); !name.empty()) {
+        return name;
+    }
+    return spacedName(std::string_view(page).substr(page.rfind('.') + 1));
+}
+
+void SettingsView::buildPageList() {
+    m_pages.clear();
+    const std::vector<std::string> featured = m_settings.featuredSettings(m_group);
+    bool general = !featured.empty() || !m_settings.presetNames(m_group).empty();
+    std::vector<std::string> others;
+    for (const config::SettingInfo* info : m_settings.all()) {
+        if (!shows(*info) || m_settings.groupOf(info->category) != m_group) {
+            continue;
+        }
+        if (info->category == m_group) {
+            general = true;
+        } else if (std::ranges::find(others, info->category) == others.end()) {
+            others.push_back(info->category);
+        }
+    }
+    if (general) {
+        m_pages.emplace_back(m_group, "General");
+    }
+    std::vector<std::pair<std::string, std::string>> named;
+    for (const std::string& page : others) {
+        named.emplace_back(page, pageTitle(page));
+    }
+    std::ranges::sort(named, {}, &std::pair<std::string, std::string>::second);
+    m_pages.insert(m_pages.end(), named.begin(), named.end());
+
+    m_list->clearChildren();
+    m_pageButtons.clear();
+    for (usize index = 0; index < m_pages.size(); ++index) {
+        auto& button =
+            m_list->add<Button>(m_pages[index].second, [this, index] { showPage(m_pages[index].first); });
+        button.style().minWidth = 0.0F;
+        m_pageButtons.emplace_back(m_pages[index].first, &button);
     }
 }
 
@@ -156,10 +213,27 @@ void SettingsView::showGroup(std::string group) {
     selectGroup(std::move(group));
 }
 
+void SettingsView::showPage(std::string page) {
+    m_options.filter.clear();
+    if (m_search != nullptr) {
+        m_search->setText({});
+    }
+    selectPage(std::move(page));
+}
+
 void SettingsView::selectGroup(std::string group) {
     m_group = std::move(group);
     for (const auto& [name, button] : m_groupButtons) {
-        button->setSelected(name == m_group && m_options.filter.empty());
+        button->setSelected(name == m_group);
+    }
+    buildPageList();
+    selectPage(m_pages.empty() ? std::string() : m_pages.front().first);
+}
+
+void SettingsView::selectPage(std::string page) {
+    m_page = std::move(page);
+    for (const auto& [key, button] : m_pageButtons) {
+        button->setSelected(key == m_page && m_options.filter.empty());
     }
     m_scroll->scrollTo(0.0F);
     buildPage();
@@ -167,9 +241,8 @@ void SettingsView::selectGroup(std::string group) {
 
 void SettingsView::setFilter(std::string filter) {
     m_options.filter = std::move(filter);
-    selectGroup(m_group);
+    selectPage(m_page);
 }
-
 bool SettingsView::pageChanged() const {
     return std::ranges::any_of(m_rows,
                                [this](const Row& row) { return !m_settings.isDefault(row.info->id); });
@@ -189,62 +262,62 @@ void SettingsView::buildPage() {
     m_presetRows.clear();
     const std::string needle = lowered(m_options.filter);
     if (needle.empty()) {
-        addPresetRow(page, m_group);
+        const bool general = !m_pages.empty() && m_page == m_pages.front().first && m_page == m_group;
+        addPresetRow(page, m_page);
+        if (general) {
+            // The settings players look for most, wherever they live.
+            for (const std::string& id : m_settings.featuredSettings(m_group)) {
+                if (const config::SettingInfo* info = m_settings.find(id);
+                    info != nullptr && shows(*info) && info->category != m_page) {
+                    addRow(page, *info);
+                }
+            }
+        }
+        for (const config::SettingInfo* info : m_settings.all()) {
+            if (shows(*info) && info->category == m_page) {
+                addRow(page, *info);
+            }
+        }
+        if (m_rows.empty()) {
+            page.add<Label>("Nothing to set here.", TextRole::Muted);
+        }
+        refresh();
+        return;
     }
-    // Settings by category, in the order they were registered.
-    std::map<std::string, std::vector<const config::SettingInfo*>> byCategory;
-    std::vector<std::string> categoryOrder;
+    // A search: matches from every page, under a header naming where they live.
+    std::vector<std::string> pageOrder;
+    std::map<std::string, std::vector<const config::SettingInfo*>> byPage;
     for (const config::SettingInfo* info : m_settings.all()) {
-        if (!shows(*info)) {
+        if (!shows(*info) || (lowered(info->displayName).find(needle) == std::string::npos &&
+                              lowered(info->description).find(needle) == std::string::npos &&
+                              lowered(info->id).find(needle) == std::string::npos)) {
             continue;
         }
-        if (needle.empty()) {
-            if (topGroup(info->category) != m_group) {
-                continue;
-            }
-        } else if (lowered(info->displayName).find(needle) == std::string::npos &&
-                   lowered(info->description).find(needle) == std::string::npos &&
-                   lowered(info->id).find(needle) == std::string::npos) {
-            continue;
+        const std::string key = pageOf(*info);
+        if (!byPage.contains(key)) {
+            pageOrder.push_back(key);
         }
-        if (!byCategory.contains(info->category)) {
-            categoryOrder.push_back(info->category);
-        }
-        byCategory[info->category].push_back(info);
+        byPage[key].push_back(info);
     }
-    // The group's own settings first, then its sub categories by name.
-    std::ranges::stable_sort(categoryOrder, [](const std::string& a, const std::string& b) {
-        const bool aTop = a.find('.') == std::string::npos;
-        const bool bTop = b.find('.') == std::string::npos;
-        return aTop != bTop ? aTop : a < b;
-    });
-    for (const std::string& category : categoryOrder) {
-        const bool topLevel = category.find('.') == std::string::npos;
-        if (!topLevel || !needle.empty()) {
-            const std::string_view name = needle.empty()
-                                              ? std::string_view(category).substr(category.find('.') + 1)
-                                              : std::string_view(category);
-            std::string title;
-            for (const char c : name) {
-                title += c == '.' ? std::string(" / ") : std::string(1, c);
-            }
-            auto& header = page.add<Label>(spacedName(title), TextRole::Title);
-            header.style().padding = Edges{0.0F, 4.0F, 0.0F, 1.0F};
-            if (needle.empty()) {
-                addPresetRow(page, category);
-            }
+    for (const std::string& key : pageOrder) {
+        const std::string group = m_settings.groupOf(key);
+        std::string title = group;
+        if (key != group) {
+            std::string name = m_settings.categoryName(key);
+            title +=
+                " / " + (name.empty() ? spacedName(std::string_view(key).substr(key.rfind('.') + 1)) : name);
         }
-        for (const config::SettingInfo* info : byCategory[category]) {
+        auto& header = page.add<Label>(std::move(title), TextRole::Title);
+        header.style().padding = Edges{0.0F, 4.0F, 0.0F, 1.0F};
+        for (const config::SettingInfo* info : byPage[key]) {
             addRow(page, *info);
         }
     }
     if (m_rows.empty()) {
-        page.add<Label>(needle.empty() ? "Nothing to set here." : "No setting matches the search.",
-                        TextRole::Muted);
+        page.add<Label>("No setting matches the search.", TextRole::Muted);
     }
     refresh();
 }
-
 void SettingsView::addPresetRow(Widget& page, const std::string& group) {
     std::vector<std::string> names = m_settings.presetNames(group);
     if (names.empty()) {
@@ -255,6 +328,7 @@ void SettingsView::addPresetRow(Widget& page, const std::string& group) {
     row.style().align = Align::Center;
     row.style().gap = 4.0F;
     auto& name = row.add<Label>(group == m_group ? "Quality preset" : "Preset");
+    name.style().minWidth = 0.0F;
     name.style().grow = 1.0F;
     row.add<InfoBadge>("Sets the settings below together. Custom means they match no preset.");
     // The callback holds the row's index: rows live as long as the page.

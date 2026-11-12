@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#151] 2026-11-12, Settings reorganized into tabs and pages
+### Changed
+- The settings screen has the main groups as tabs along the top (Video, Graphics, World, Gameplay, Controls, Audio, Interface, plus Debug in debug builds) and the chosen group's pages on the left, so the 57 graphics settings are no longer one long list. Graphics has General, Blocks and Leaves, Clouds, Culling, Far Terrain, Image and Color, Lighting, Shadows, Sky and Weather, and Texture Packs.
+- A group's General page holds its own settings and its quality preset; Graphics' also shows render distance, far terrain, shadows, clouds, sun rays, smooth lighting, brightness and fancy leaves.
+- Accessibility moved under Interface, saving and ticks (Server) under World, Movement under Gameplay. Only the screen changed: setting ids and saved values stay.
+- Search covers every page and names the page of each match.
+### Added
+- SettingsRegistry::describeCategory (page names and placement) and featureSetting; SettingsView::showPage.
 ## [#150] 2026-11-12, World export and import
 ### Added
 - Export in Edit World packs a world into a .zip file (the save picker opens in Downloads), leaving out the far terrain cache, which rebuilds itself. A dialog offers to show the file.

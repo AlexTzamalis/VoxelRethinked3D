@@ -312,6 +312,22 @@ public:
     // The preset whose values all match the current ones, or "Custom".
     [[nodiscard]] std::string currentPreset(std::string_view group) const;
 
+    // How the settings UI shows a category: its page name, and the top group
+    // it appears under when that is not its first id part (Accessibility
+    // under Interface). Display only: ids and saved values never change.
+    // Applies to sub categories too ("Server" moves "Server.Save" along).
+    void describeCategory(std::string_view category, std::string displayName,
+                          std::string_view shownUnder = {});
+    // The page name of a category, or empty when it was never described.
+    [[nodiscard]] std::string categoryName(std::string_view category) const;
+    // The top group a category shows under: the nearest described ancestor's
+    // shownUnder, else the category's first id part.
+    [[nodiscard]] std::string groupOf(std::string_view category) const;
+    // A setting also shown on its group's first page, for the ones players
+    // look for most (render distance on the Graphics page). In call order.
+    void featureSetting(std::string_view group, std::string_view id);
+    [[nodiscard]] std::vector<std::string> featuredSettings(std::string_view group) const;
+
     // Keys found in a settings file that no setting claims (written by an
     // older or newer version, or a removed feature). They are kept verbatim,
     // as TOML value text, so saving the file never deletes them.
@@ -370,6 +386,12 @@ private:
         std::vector<std::pair<std::string, SettingValue>> values;
     };
     std::vector<Preset> m_presets;
+    struct CategoryLayout {
+        std::string name;
+        std::string shownUnder;
+    };
+    std::vector<std::pair<std::string, CategoryLayout>> m_categoryLayouts;
+    std::vector<std::pair<std::string, std::string>> m_featured; // Group, setting id.
     // Sorted by id per scope, so files keep a stable order.
     std::array<std::vector<std::pair<std::string, std::string>>, 2> m_unknown;
 

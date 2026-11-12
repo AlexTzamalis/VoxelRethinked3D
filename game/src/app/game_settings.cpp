@@ -44,6 +44,48 @@ vxe::config::Setting<vxe::platform::WindowMode> registerWindowMode(vxe::config::
     return settings.registerEnum(mode);
 }
 
+// How the settings screen names and places its pages (decided with Alex
+// 2026-11-12): tabs for the main groups, a page per part, and the settings
+// players look for most on the Graphics tab's first page. Display only; ids
+// and saved values stay as they are.
+void describeSettingsPages(vxe::config::SettingsRegistry& settings) {
+    struct Page {
+        std::string_view category;
+        std::string_view name;
+        std::string_view shownUnder = {};
+    };
+    constexpr std::array<Page, 14> kPages = {{
+        {.category = "Graphics.Clouds", .name = "Clouds"},
+        {.category = "Graphics.Culling", .name = "Culling"},
+        {.category = "Graphics.Lighting", .name = "Lighting"},
+        {.category = "Graphics.LOD", .name = "Far Terrain"},
+        {.category = "Graphics.Post", .name = "Image and Color"},
+        {.category = "Graphics.Shadows", .name = "Shadows"},
+        {.category = "Graphics.Sky", .name = "Sky and Weather"},
+        {.category = "Graphics.Terrain", .name = "Blocks and Leaves"},
+        {.category = "Graphics.Textures", .name = "Texture Packs"},
+        {.category = "World.Streaming", .name = "Chunk Loading"},
+        {.category = "Server", .name = "Saving and Ticks", .shownUnder = "World"},
+        {.category = "Server.Save", .name = "Save Files", .shownUnder = "World"},
+        {.category = "Accessibility", .name = "Accessibility", .shownUnder = "Interface"},
+        {.category = "Movement", .name = "Movement", .shownUnder = "Gameplay"},
+    }};
+    for (const Page& page : kPages) {
+        settings.describeCategory(page.category, std::string(page.name), page.shownUnder);
+    }
+    constexpr std::array<std::string_view, 9> kFeatured = {"World.Streaming.RenderDistance",
+                                                           "World.Streaming.VerticalRenderDistance",
+                                                           "Graphics.LOD.Enabled",
+                                                           "Graphics.Shadows.Enabled",
+                                                           "Graphics.Clouds.Enabled",
+                                                           "Graphics.Sky.GodRays",
+                                                           "Graphics.Lighting.SmoothLighting",
+                                                           "Graphics.Lighting.Brightness",
+                                                           "Graphics.Terrain.FancyLeaves"};
+    for (const std::string_view id : kFeatured) {
+        settings.featureSetting("Graphics", id);
+    }
+}
 } // namespace
 
 GameSettings::GameSettings(vxe::config::SettingsRegistry& settings)
@@ -185,6 +227,7 @@ GameSettings::GameSettings(vxe::config::SettingsRegistry& settings)
     static_cast<void>(vxe::voxel::LodSettings(settings));
     static_cast<void>(vxe::voxel::MesherSettings(settings));
     static_cast<void>(vxe::voxel::RegionStoreSettings(settings));
+    describeSettingsPages(settings);
     // The overall quality presets (Section 16.4); High is the defaults. G9.1
     // tunes them on the reference hardware.
     const auto quality = [&settings](std::string_view name, vxe::i32 renderDistance, vxe::i32 levels,

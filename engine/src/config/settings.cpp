@@ -362,6 +362,51 @@ void SettingsRegistry::unsubscribe(u64 id) noexcept {
     }
 }
 
+void SettingsRegistry::describeCategory(std::string_view category, std::string displayName,
+                                        std::string_view shownUnder) {
+    const auto found =
+        std::ranges::find(m_categoryLayouts, category, &decltype(m_categoryLayouts)::value_type::first);
+    CategoryLayout layout{.name = std::move(displayName), .shownUnder = std::string(shownUnder)};
+    if (found != m_categoryLayouts.end()) {
+        found->second = std::move(layout);
+    } else {
+        m_categoryLayouts.emplace_back(std::string(category), std::move(layout));
+    }
+}
+
+std::string SettingsRegistry::categoryName(std::string_view category) const {
+    const auto found =
+        std::ranges::find(m_categoryLayouts, category, &decltype(m_categoryLayouts)::value_type::first);
+    return found != m_categoryLayouts.end() ? found->second.name : std::string();
+}
+
+std::string SettingsRegistry::groupOf(std::string_view category) const {
+    for (std::string_view part = category; !part.empty();) {
+        const auto found =
+            std::ranges::find(m_categoryLayouts, part, &decltype(m_categoryLayouts)::value_type::first);
+        if (found != m_categoryLayouts.end() && !found->second.shownUnder.empty()) {
+            return found->second.shownUnder;
+        }
+        const usize dot = part.rfind('.');
+        part = dot == std::string_view::npos ? std::string_view() : part.substr(0, dot);
+    }
+    return std::string(category.substr(0, category.find('.')));
+}
+
+void SettingsRegistry::featureSetting(std::string_view group, std::string_view id) {
+    m_featured.emplace_back(std::string(group), std::string(id));
+}
+
+std::vector<std::string> SettingsRegistry::featuredSettings(std::string_view group) const {
+    std::vector<std::string> ids;
+    for (const auto& [owner, id] : m_featured) {
+        if (owner == group && std::ranges::find(ids, id) == ids.end()) {
+            ids.push_back(id);
+        }
+    }
+    return ids;
+}
+
 void SettingsRegistry::definePreset(std::string_view group, std::string_view presetName,
                                     std::vector<std::pair<std::string, SettingValue>> values) {
     assertOwnerThread();

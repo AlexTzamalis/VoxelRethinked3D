@@ -225,7 +225,12 @@ TEST_CASE("The settings view builds a row for every setting and keeps them in sy
 
     view.showGroup("Graphics");
     ui.frame();
-    CHECK(view.rowCount() == 2);
+    // No General page (Graphics has no settings of its own): a page per sub category.
+    REQUIRE(view.pages().size() == 2);
+    CHECK(view.pages()[0].second == "LOD");
+    CHECK(view.pages()[1].second == "Textures");
+    CHECK(view.page() == "Graphics.LOD");
+    CHECK(view.rowCount() == 1);
     // The row's slider writes the setting; Reset brings back the default.
     const Slider* slider = nullptr;
     const Button* reset = nullptr;
@@ -256,6 +261,8 @@ TEST_CASE("The settings view builds a row for every setting and keeps them in sy
     view.refresh();
     CHECK(slider->value() == 10.0);
     CHECK(name.get().empty());
+    view.showPage("Graphics.Textures");
+    CHECK(view.rowCount() == 1);
 
     // Searching goes through every group.
     view.setFilter("sync");
@@ -286,28 +293,38 @@ TEST_CASE("The settings view picks presets, searches and resets a page") {
     view.style().height = 400.0F;
     view.showGroup("Graphics");
     ui.frame();
-    CHECK(view.rowCount() == 2);
+    CHECK(view.rowCount() == 1);
 
-    // One preset row for the group and one for its sub category, in that order.
-    std::vector<CycleButton*> presets;
-    std::vector<Widget*> stack{&view};
-    while (!stack.empty()) {
-        Widget* widget = stack.back();
-        stack.pop_back();
-        if (auto* cycle = dynamic_cast<CycleButton*>(widget); cycle != nullptr) {
-            presets.push_back(cycle);
+    // The General page has the group's preset, the sub category's page its own.
+    const auto cycles = [&view] {
+        std::vector<CycleButton*> found;
+        std::vector<Widget*> stack{&view};
+        while (!stack.empty()) {
+            Widget* widget = stack.back();
+            stack.pop_back();
+            if (auto* cycle = dynamic_cast<CycleButton*>(widget); cycle != nullptr) {
+                found.push_back(cycle);
+            }
+            for (const auto& child : std::ranges::reverse_view(widget->children())) {
+                stack.push_back(child.get());
+            }
         }
-        for (const auto& child : std::ranges::reverse_view(widget->children())) {
-            stack.push_back(child.get());
-        }
-    }
-    REQUIRE(presets.size() == 2);
+        return found;
+    };
+    std::vector<CycleButton*> presets = cycles();
+    REQUIRE(presets.size() == 1);
     // No preset matches the defaults yet: a press still picks one.
     presets[0]->activate();
     CHECK(quality.get() == 3);
     CHECK(settings.currentPreset("Graphics") == "High");
     presets[0]->activate();
     CHECK(quality.get() == 0);
+    view.showPage("Graphics.Far");
+    ui.frame();
+    CHECK(view.rowCount() == 1);
+    const std::vector<CycleButton*> farPresets = cycles();
+    REQUIRE(farPresets.size() == 1);
+    presets = {presets[0], farPresets[0]};
     presets[1]->activate();
     CHECK(far.get() == 9);
 
@@ -319,8 +336,8 @@ TEST_CASE("The settings view picks presets, searches and resets a page") {
     CHECK((far.get() == 1 || far.get() == 9));
 
     CHECK(view.pageChanged());
-    view.resetPage();
-    CHECK(quality.get() == 1);
+    view.resetPage(); // Only this page's settings.
+    CHECK(quality.get() == 0);
     CHECK(far.get() == 2);
     CHECK_FALSE(view.pageChanged());
 
@@ -337,6 +354,47 @@ TEST_CASE("The settings view picks presets, searches and resets a page") {
     view.setFilter("nothing like this");
     ui.frame();
     CHECK(view.rowCount() == 0);
+}
+
+TEST_CASE("Settings pages follow the categories' names, places and featured settings") {
+    Fixture ui;
+    config::SettingsRegistry& settings = ui.settings;
+    static_cast<void>(settings.registerInt(
+        {{.id = "World.Streaming.RenderDistance", .displayName = "Render distance", .description = {}},
+         8,
+         2,
+         32,
+         1}));
+    static_cast<void>(settings.registerBool(
+        {{.id = "Graphics.LOD.Enabled", .displayName = "Far terrain", .description = {}}, true}));
+    static_cast<void>(settings.registerBool(
+        {{.id = "Graphics.Sky.Clouds", .displayName = "Clouds", .description = {}}, true}));
+    static_cast<void>(settings.registerBool(
+        {{.id = "Accessibility.ScreenShake", .displayName = "Screen shake", .description = {}}, true}));
+    settings.describeCategory("Graphics.LOD", "Far Terrain");
+    settings.describeCategory("Accessibility", "Accessibility", "Interface");
+    settings.featureSetting("Graphics", "World.Streaming.RenderDistance");
+    CHECK(settings.groupOf("Accessibility") == "Interface");
+    CHECK(settings.groupOf("Accessibility.Deep") == "Interface");
+    CHECK(settings.groupOf("Graphics.LOD") == "Graphics");
+
+    auto& view = ui.context->root().add<SettingsView>(settings);
+    view.style().width = 600.0F;
+    view.style().height = 400.0F;
+    CHECK(std::ranges::find(view.groups(), "Accessibility") == view.groups().end());
+    view.showGroup("Graphics");
+    ui.frame();
+    // General (render distance, featured), then pages sorted by their names.
+    REQUIRE(view.pages().size() == 3);
+    CHECK(view.pages()[0].second == "General");
+    CHECK(view.pages()[1].second == "Far Terrain");
+    CHECK(view.pages()[2].second == "Sky");
+    CHECK(view.rowCount() == 1);
+    view.showGroup("Interface");
+    ui.frame();
+    const auto& pages = view.pages();
+    CHECK(std::ranges::find(pages, std::string("Accessibility"),
+                            &std::pair<std::string, std::string>::first) != pages.end());
 }
 
 TEST_CASE("Names from ids read as words") {

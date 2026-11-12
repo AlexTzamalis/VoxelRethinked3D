@@ -18,7 +18,7 @@ void SettingsScreen::build(vxe::ui::Widget& root) {
     root.style().padding = Edges::all(8.0F);
     auto& panel = root.add<Panel>();
     panel.style().grow = 1.0F;
-    panel.style().maxWidth = 480.0F;
+    panel.style().maxWidth = 600.0F; // The group tabs need the width.
     panel.add<Label>("Settings", TextRole::Title).setAlign(TextAlign::Center);
 #ifdef NDEBUG
     constexpr bool kDeveloper = false;
