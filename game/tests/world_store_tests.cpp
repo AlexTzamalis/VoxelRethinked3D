@@ -87,6 +87,16 @@ TEST_CASE("world.toml keeps everything, even seeds beyond TOML integers") {
     CHECK(read.gameVersion == "0.1.0");
 }
 
+TEST_CASE("Worlds from before the Pre-map option keep the whole horizon") {
+    const fs::path saves = freshSaves("old_premap");
+    fs::create_directories(saves / "old");
+    std::ofstream(saves / "old" / "world.toml") << "name = \"Old\"\nseed = \"1\"\npremap_blocks = 0\n";
+    const auto loaded = loadWorldInfo(saves, "old");
+    REQUIRE(loaded.hasValue());
+    CHECK(loaded.value().premapBlocks == -1);
+    CHECK(loaded.value().lodQuality == "High");
+}
+
 TEST_CASE("The world list sorts by last played and skips what is not a world") {
     const fs::path saves = freshSaves("scan");
     REQUIRE(saveWorldInfo(saves, world("old", "Old", 100)).hasValue());

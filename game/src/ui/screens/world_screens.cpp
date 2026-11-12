@@ -2,6 +2,7 @@
 
 #include <vxe/core/log.hpp>
 #include <vxe/core/version.hpp>
+#include <vxe/platform/platform.hpp>
 #include <vxe/ui/dialog.hpp>
 
 #include <algorithm>
@@ -10,6 +11,7 @@
 #include <charconv>
 #include <chrono>
 #include <ctime>
+#include <filesystem>
 #include <format>
 #include <string_view>
 #include <utility>
@@ -31,15 +33,25 @@ constexpr usize kMaxSeedLength = 40;
 constexpr std::array<std::string_view, 5> kWorldTypes = {"Default", "Amplified", "Flat", "Islands",
                                                          "Debug Grid"};
 constexpr std::array<std::string_view, 3> kHeights = {"Tall", "Extreme", "Custom"};
-constexpr std::array<std::string_view, 5> kPremaps = {"Off", "4k blocks", "8k blocks", "16k blocks",
-                                                      "32k blocks"};
-constexpr std::array<i32, 5> kPremapBlocks = {0, 4096, 8192, 16384, 32768};
-constexpr std::array<std::string_view, 4> kQualities = {"Low", "Medium", "High", "Ultra"};
+constexpr std::array<std::string_view, 6> kPremaps = {"Off",        "4k blocks",  "8k blocks",
+                                                      "16k blocks", "32k blocks", "Whole horizon"};
+constexpr std::array<i32, 6> kPremapBlocks = {0, 4096, 8192, 16384, 32768, -1};
+constexpr usize kPremapWhole = 5;
+// The far terrain presets of Graphics.LOD, and Custom for hand made settings.
+constexpr std::array<std::string_view, 5> kQualities = {"Low", "Medium", "High", "Ultra", "Custom"};
+constexpr usize kQualityChoices = 4; // Custom only shows for worlds that already have it.
 constexpr std::array<std::string_view, 1> kPresets = {"Default"};
 
 template <usize Count>
-std::vector<std::string> names(const std::array<std::string_view, Count>& list) {
-    return {list.begin(), list.end()};
+std::vector<std::string> names(const std::array<std::string_view, Count>& list, usize count = Count) {
+    return {list.begin(), list.begin() + static_cast<std::ptrdiff_t>(std::min(count, Count))};
+}
+
+// Where a stored value sits in a list of choices, or `fallback`.
+template <typename T, usize Count, typename V>
+usize indexOf(const std::array<T, Count>& list, const V& value, usize fallback) {
+    const auto found = std::ranges::find(list, value);
+    return found == list.end() ? fallback : static_cast<usize>(found - list.begin());
 }
 
 i64 nowSeconds() {
@@ -142,6 +154,23 @@ void WorldSelectScreen::build(vxe::ui::Widget& root) {
         m_reloadOnReturn = true;
         manager()->push(std::make_unique<CreateWorldScreen>(m_services, m_play));
     });
+    auto& middle = buttonRow(panel);
+    m_recreateButton = &wideButton(middle, "Re-create", [this] {
+        if (const WorldInfo* world = selected(); world != nullptr) {
+            m_reloadOnReturn = true;
+            manager()->push(std::make_unique<CreateWorldScreen>(m_services, m_play, world));
+        }
+    });
+    m_recreateButton->setTooltip("A new world with this one's seed and options. This one stays.");
+    auto& folder = wideButton(middle, "Open Folder", [this] {
+        const WorldInfo* world = selected();
+        const std::filesystem::path path =
+            world != nullptr ? m_services.saves / world->folder : m_services.saves;
+        if (const auto opened = vxe::platform::Platform::openInFileBrowser(path); !opened) {
+            VXE_LOG_WARN(vxe::log::core, "{}", opened.error().describe());
+        }
+    });
+    folder.setTooltip("Shows the selected world's folder, or the folder of all worlds.");
     auto& bottom = buttonRow(panel);
     m_editButton = &wideButton(bottom, "Edit", [this] {
         if (const WorldInfo* world = selected(); world != nullptr) {
@@ -258,14 +287,43 @@ void WorldSelectScreen::updateButtons() {
     const bool any = selected() != nullptr;
     m_playButton->setEnabled(any);
     m_editButton->setEnabled(any);
+    m_recreateButton->setEnabled(any);
     m_deleteButton->setEnabled(any);
 }
 
 // Create World.
 
+CreateWorldScreen::CreateWorldScreen(const MenuServices& services, PlayWorld play, const WorldInfo* from)
+    : m_services(services)
+    , m_play(std::move(play)) {
+    if (from == nullptr) {
+        return;
+    }
+    m_recreating = true;
+    m_name = from->name;
+    m_seed = from->seedText;
+    m_type = indexOf(kWorldTypes, from->worldType, 0);
+    m_preset = indexOf(kPresets, from->preset, 0);
+    m_structures = from->structures;
+    m_premap = indexOf(kPremapBlocks, from->premapBlocks, kPremapWhole);
+    m_quality = indexOf(kQualities, from->lodQuality, 2);
+    if (m_quality >= kQualityChoices) {
+        m_quality = 2; // Custom settings belong to the old world, not to its options.
+    }
+    if (from->minY == -1024 && from->maxY == 3072) {
+        m_height = 0;
+    } else if (from->minY == -8192 && from->maxY == 16384) {
+        m_height = 1;
+    } else {
+        m_height = 2;
+        m_minY = std::to_string(from->minY);
+        m_maxY = std::to_string(from->maxY);
+    }
+}
+
 void CreateWorldScreen::build(vxe::ui::Widget& root) {
     using namespace vxe::ui;
-    auto& panel = centeredPanel(root, "Create New World");
+    auto& panel = centeredPanel(root, m_recreating ? "Re-create World" : "Create New World");
     panel.style().gap = 4.0F;
     auto& tabs = buttonRow(panel);
     const auto addTab = [&](std::string text, Tab tab) {
@@ -357,8 +415,12 @@ void CreateWorldScreen::buildPage() {
     }
     case Tab::Lod:
         addChoice("Pre-map distance", names(kPremaps), m_premap);
-        addChoice("Far terrain quality", names(kQualities), m_quality);
-        m_page->add<Label>("Pre-mapping bakes the horizon while the world is created.", TextRole::Muted)
+        addChoice("Far terrain quality", names(kQualities, kQualityChoices), m_quality);
+        m_page
+            ->add<Label>(
+                "Pre-mapping bakes far terrain before the world shows, so the horizon is there "
+                "from the first moment. Off enters soonest, and far terrain fills in while you play.",
+                TextRole::Muted)
             .setWrap(true);
         break;
     case Tab::More:
@@ -445,6 +507,20 @@ void EditWorldScreen::build(vxe::ui::Widget& root) {
     m_name->style().grow = 1.0F;
     m_name->style().minWidth = 0.0F;
     m_name->setMaxLength(kMaxWorldName);
+    // Far terrain options can change at any time: they only decide how the
+    // world loads and looks, never what it is.
+    const auto addChoice = [&panel](std::string name, std::vector<std::string> choices, usize& value) {
+        auto& cycle =
+            formRow(panel, std::move(name))
+                .add<CycleButton>(std::move(choices), value, [&value](usize index) { value = index; });
+        cycle.style().grow = 1.0F;
+    };
+    m_premap = indexOf(kPremapBlocks, m_info.premapBlocks, kPremapWhole);
+    m_quality = indexOf(kQualities, m_info.lodQuality, 2);
+    addChoice("Pre-map distance", names(kPremaps), m_premap);
+    addChoice("Far terrain quality",
+              names(kQualities, m_quality >= kQualityChoices ? kQualities.size() : kQualityChoices),
+              m_quality);
     const auto addInfo = [&panel](std::string name, std::string value) {
         formRow(panel, std::move(name)).add<Label>(std::move(value), TextRole::Muted);
     };
@@ -461,6 +537,8 @@ void EditWorldScreen::build(vxe::ui::Widget& root) {
             return;
         }
         m_info.name = m_name->text();
+        m_info.premapBlocks = kPremapBlocks.at(m_premap);
+        m_info.lodQuality = std::string(kQualities.at(m_quality));
         m_task.start(m_services.jobs, [info = m_info, saves = m_services.saves] {
             static_cast<void>(saveWorldInfo(saves, info));
         });

@@ -1,9 +1,13 @@
 #include "ui/screens/loading_screen.hpp"
 
+#include <vxe/ui/controls.hpp>
 #include <vxe/ui/widgets.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <random>
+#include <utility>
 
 namespace vr {
 namespace {
@@ -15,7 +19,26 @@ constexpr f32 kBarWidth = 200.0F;
 constexpr f32 kBarHeight = 4.0F;
 constexpr f32 kEaseRate = 4.0F; // Per second towards the estimate.
 
+// Short enough for one line at the smallest UI (320 pixels across).
+constexpr std::array<std::string_view, 10> kTips = {
+    "Tip: double tap Space to fly.",
+    "Tip: hold C to zoom, and scroll to zoom more.",
+    "Tip: press E to see every block.",
+    "Tip: middle click picks the block you aim at.",
+    "Tip: press F3 for the performance overlay.",
+    "Tip: F11 switches between window and fullscreen.",
+    "Tip: walking and flying speeds are in Settings.",
+    "Tip: rivers start as streams high in the hills.",
+    "Tip: snow piles up in layers, eight to a block.",
+    "Tip: far terrain quality is set per world.",
+};
+
 } // namespace
+
+std::string_view randomLoadingTip() {
+    std::random_device device;
+    return kTips.at(device() % kTips.size());
+}
 
 void LoadingWidget::sync(f32 fraction, std::string_view stage, f32 deltaSeconds) {
     const f32 target = std::clamp(fraction, 0.0F, 1.0F);
@@ -60,11 +83,24 @@ void LoadingWidget::draw(vxe::ui::DrawContext& context) const {
     context.fillRect({barX - 1.0F, barY - 1.0F, kBarWidth + 2.0F, kBarHeight + 2.0F},
                      vxe::ui::rgba(0, 0, 0, 200));
     context.fillRect({barX, barY, std::floor(kBarWidth * m_shown), kBarHeight}, vxe::ui::rgba(128, 255, 128));
+    const f32 tipWidth = std::ceil(context.font()->measure(m_tip).width);
+    context.text(m_tip, box.x + std::floor((box.width - tipWidth) / 2.0F), barY + 16.0F,
+                 context.theme().colors.textMuted, true, 1);
 }
 
 void LoadingScreen::build(vxe::ui::Widget& root) {
-    m_loading = &root.add<LoadingWidget>();
+    using namespace vxe::ui;
+    m_loading = &root.add<LoadingWidget>(std::string(randomLoadingTip()));
     m_loading->style().grow = 1.0F;
+    if (!m_cancel) {
+        return;
+    }
+    // The button sits low on the dark floor the widget draws behind it.
+    m_loading->style().justify = Justify::End;
+    m_loading->style().align = Align::Center;
+    m_loading->style().padding = Edges::all(24.0F);
+    auto& cancel = m_loading->add<Button>("Cancel", [this] { m_cancel(); });
+    cancel.setTooltip("Back to the title. Nothing is lost.");
 }
 
 } // namespace vr

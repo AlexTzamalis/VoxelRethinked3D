@@ -657,6 +657,15 @@ void VoxelRethinkedApp::saveWorld(vxe::EngineContext& context, bool waitForDisk)
         if (!saved) {
             VXE_LOG_WARN(gameLog, "Could not save the player: {}", saved.error().describe());
         }
+        // The far terrain quality changed while playing stays with the world.
+        if (const std::string quality = context.settings.currentPreset("Graphics.LOD");
+            quality != m_world->lodQuality) {
+            m_world->lodQuality = quality;
+            if (const auto info = saveWorldInfo(menuServices(context).saves, *m_world); !info) {
+                VXE_LOG_WARN(gameLog, "Could not save world '{}': {}", m_world->name,
+                             info.error().describe());
+            }
+        }
         return;
     }
     m_demo->saveEdits();
@@ -678,6 +687,13 @@ void VoxelRethinkedApp::playWorld(vxe::EngineContext& context, const WorldInfo& 
             .count();
     VXE_LOG_INFO(gameLog, "Playing world '{}' (folder {}, seed {})", m_world->name, m_world->folder,
                  m_world->seed);
+    // The world plays with its own far terrain quality (G8.2).
+    if (m_world->lodQuality != "Custom") {
+        if (const auto applied = context.settings.applyPreset("Graphics.LOD", m_world->lodQuality);
+            !applied) {
+            VXE_LOG_WARN(gameLog, "World '{}': {}", m_world->name, applied.error().describe());
+        }
+    }
     // A small write, but disk work stays off the main thread all the same.
     auto info = std::make_shared<WorldInfo>(*m_world);
     const auto saves = menuServices(context).saves;
@@ -715,7 +731,8 @@ void VoxelRethinkedApp::rebuildScreens(vxe::EngineContext& context) {
             [this, &context] { onQuitRequested(context); }));
     }
     if (m_states.current() == GameState::LoadingWorld) {
-        m_screens->push(std::make_unique<LoadingScreen>());
+        m_screens->push(
+            std::make_unique<LoadingScreen>([this] { m_states.request(GameState::SavingAndStopping); }));
     }
     if (m_states.current() == GameState::InGame) {
         m_screens->push(std::make_unique<HudScreen>(m_hotbar, m_blockIcons, *m_blocks));
@@ -1067,6 +1084,7 @@ void VoxelRethinkedApp::startDemoWorld(vxe::EngineContext& context) {
          .seed = m_world ? m_world->seed : DemoWorldDesc{}.seed,
          .lodCacheFolder =
              m_world ? menuServices(context).saves / m_world->folder / "lod" : demoLodFolder(context),
+         .premapBlocks = m_world ? vxe::i64{m_world->premapBlocks} : kPremapWholeHorizon,
          .saveFolder =
              m_world ? menuServices(context).saves / m_world->folder / "regions" : std::filesystem::path()});
     if (!demo) {

@@ -77,24 +77,26 @@ DemoWorld::DemoWorld(const DemoWorldDesc& desc, const TerrainBlocks& blocks)
                                    .cache = m_lodCache ? &*m_lodCache : nullptr,
                                    .sink = m_lodSink ? &*m_lodSink : nullptr,
                                    .stats = desc.stats});
-    if (m_lodCache) {
+    m_waitForLod = desc.premapBlocks < 0;
+    if (m_lodCache && desc.premapBlocks != 0) {
+        m_premapping = true;
         m_premapJobs = desc.jobs->workerCount();
         const vxe::DVec3 spawn = spawnPosition();
-        m_premap = std::make_unique<vxe::voxel::LodPremapper>(
-            vxe::voxel::LodPremapDesc{.jobs = desc.jobs,
-                                      .sampler = &m_lodSampler,
-                                      .cache = &*m_lodCache,
-                                      .stats = desc.stats,
-                                      .options = m_lod->sampleOptions(),
-                                      .clipmap = m_lod->clipmapDesc(),
-                                      .centerX = static_cast<vxe::i64>(spawn.x),
-                                      .centerZ = static_cast<vxe::i64>(spawn.z),
-                                      .radius = vxe::i64{1} << 30U,
-                                      // Beside the chunks, not ahead of them: a sampling
-                                      // job runs for milliseconds, and with every worker
-                                      // on one the ground under the player has to wait.
-                                      .maxJobsInFlight = std::max(desc.jobs->workerCount() / 3, 2U),
-                                      .priority = vxe::jobs::Priority::Low});
+        m_premap = std::make_unique<vxe::voxel::LodPremapper>(vxe::voxel::LodPremapDesc{
+            .jobs = desc.jobs,
+            .sampler = &m_lodSampler,
+            .cache = &*m_lodCache,
+            .stats = desc.stats,
+            .options = m_lod->sampleOptions(),
+            .clipmap = m_lod->clipmapDesc(),
+            .centerX = static_cast<vxe::i64>(spawn.x),
+            .centerZ = static_cast<vxe::i64>(spawn.z),
+            .radius = desc.premapBlocks < 0 ? vxe::i64{1} << 30U : desc.premapBlocks,
+            // Beside the chunks, not ahead of them: a sampling
+            // job runs for milliseconds, and with every worker
+            // on one the ground under the player has to wait.
+            .maxJobsInFlight = std::max(desc.jobs->workerCount() / 3, 2U),
+            .priority = vxe::jobs::Priority::Low});
     }
     m_streaming =
         std::make_unique<vxe::voxel::StreamingManager>(vxe::voxel::StreamingDesc{.world = &m_world,
@@ -225,7 +227,8 @@ void DemoWorld::update(const vxe::render::Camera& camera) {
                      m_loadClock.elapsedMilliseconds(), m_lod->counts().ready);
     }
     const vxe::i32 radius = std::min(kSpawnRadius, m_streaming->renderDistance());
-    if (m_streaming->isAreaReady(radius, kSpawnLayers) && (m_lodReady || m_lodRenderer == nullptr)) {
+    const bool farReady = !m_premap && (m_lodReady || !m_waitForLod || m_lodRenderer == nullptr);
+    if (m_streaming->isAreaReady(radius, kSpawnLayers) && farReady) {
         m_loaded = true;
         VXE_LOG_INFO(vxe::log::core, "Demo world playable after {:.0f} ms: {} chunks loaded, {} meshed",
                      m_loadClock.elapsedMilliseconds(), m_streaming->counts().loaded,
@@ -254,10 +257,13 @@ vxe::f32 DemoWorld::loadFraction() const {
     // Chunks around the spawn are most of the wait; far terrain the rest.
     const vxe::i32 radius = std::min(kSpawnRadius, m_streaming->renderDistance());
     const vxe::f32 chunks = m_streaming->areaReadiness(radius, kSpawnLayers);
+    if (!m_premapping && !m_waitForLod) {
+        return chunks; // Nothing far to wait for.
+    }
     vxe::f32 far = 1.0F;
     if (m_premap) {
-        far = m_premap->progress().fraction() * 0.8F;
-    } else if (!m_lodReady && m_lodRenderer != nullptr) {
+        far = m_premap->progress().fraction() * (m_waitForLod ? 0.8F : 1.0F);
+    } else if (m_waitForLod && !m_lodReady && m_lodRenderer != nullptr) {
         const vxe::voxel::LodManager::Counts counts = m_lod->counts();
         far =
             counts.wanted == 0

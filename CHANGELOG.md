@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#146] 2026-11-12, World loading options, Re-create and Open Folder
+### Added
+- Pre-map distance now works (G8.2): Off enters as soon as the ground around the spawn is ready and far terrain fills in while playing; 4k to 32k blocks bakes far terrain that far before the world shows; Whole horizon (the new default) bakes it all and waits for it, as before. Worlds from before keep the whole horizon.
+- Far terrain quality is per world: entering a world applies its Low to Ultra preset, and changes made while playing are stored with the world when leaving (Custom leaves the settings alone).
+- Edit World can change a world's Pre-map distance and far terrain quality.
+- Re-create (G5.5): a new world with the selected world's seed and options; the old one stays.
+- Open Folder (G5.5): shows the selected world's folder, or the saves folder, in the system's file browser (platform::Platform::openInFileBrowser).
+- The loading screen has a Cancel button back to the title and a tip under the bar (G5.3).
 ## [#145] 2026-11-05, Menu panoramas and window settings
 ### Added
 - Three 4096 by 2048 menu panoramas from the current world (autumn river forest, a summit view, snowy plains under a snowy range); the menu shows one at random each launch and decodes only that one.

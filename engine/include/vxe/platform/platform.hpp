@@ -61,6 +61,14 @@ public:
     // and textures/ live next to it (Section 5).
     [[nodiscard]] static std::filesystem::path executableFolder();
 
+    // Shows a folder in the system's file browser (Explorer on Windows), for
+    // buttons like "Open textures folder". Fails if the folder does not exist
+    // or the system refuses.
+    [[nodiscard]] static Result<void> openInFileBrowser(const std::filesystem::path& folder);
+    // A file:// URL of an absolute path, with every byte that is not plainly
+    // safe in a URL written as %XX (spaces, non English letters).
+    [[nodiscard]] static std::string fileUrl(const std::filesystem::path& absolutePath);
+
     [[nodiscard]] bool hasVideo() const noexcept { return m_video; }
 
 private:

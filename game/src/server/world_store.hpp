@@ -41,7 +41,12 @@ struct WorldInfo {
     vxe::i32 minY = -1024;          // Multiples of 16 (Section 9.2).
     vxe::i32 maxY = 3072;
     bool structures = true;
-    vxe::i32 premapBlocks = 0; // Far terrain baked at creation, 0 for off.
+    // Far terrain baked before the world shows: blocks from the spawn, 0 for
+    // none, -1 for the whole horizon (DemoWorldDesc::premapBlocks).
+    vxe::i32 premapBlocks = -1;
+    // The far terrain preset (Graphics.LOD) the world plays with: applied when
+    // it is entered, taken from the settings when it is left. "Custom" leaves
+    // the settings alone.
     std::string lodQuality = "High";
     vxe::i64 createdSeconds = 0; // Seconds since 1970.
     vxe::i64 lastPlayedSeconds = 0;

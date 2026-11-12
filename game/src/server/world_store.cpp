@@ -153,7 +153,9 @@ Result<WorldInfo> loadWorldInfo(const fs::path& saves, const std::string& folder
     info.minY = table["min_y"].value_or(info.minY);
     info.maxY = table["max_y"].value_or(info.maxY);
     info.structures = table["structures"].value_or(info.structures);
-    info.premapBlocks = table["premap_blocks"].value_or(info.premapBlocks);
+    // "premap_blocks" of worlds made before the option did anything is left
+    // unread: those worlds keep the whole horizon they always had.
+    info.premapBlocks = table["premap_distance"].value_or(info.premapBlocks);
     info.lodQuality = table["lod_quality"].value_or(info.lodQuality);
     info.createdSeconds = table["created"].value_or(i64{0});
     info.lastPlayedSeconds = table["last_played"].value_or(i64{0});
@@ -196,7 +198,7 @@ Result<void> saveWorldInfo(const fs::path& saves, const WorldInfo& info) {
     table.insert("min_y", info.minY);
     table.insert("max_y", info.maxY);
     table.insert("structures", info.structures);
-    table.insert("premap_blocks", info.premapBlocks);
+    table.insert("premap_distance", info.premapBlocks);
     table.insert("lod_quality", info.lodQuality);
     table.insert("created", info.createdSeconds);
     table.insert("last_played", info.lastPlayedSeconds);

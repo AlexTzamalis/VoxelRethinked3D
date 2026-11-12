@@ -35,6 +35,9 @@
 
 namespace vr {
 
+// A Pre-map distance that bakes the whole horizon.
+inline constexpr vxe::i64 kPremapWholeHorizon = -1;
+
 struct DemoWorldDesc {
     vxe::jobs::JobSystem* jobs = nullptr;
     vxe::config::SettingsRegistry* settings = nullptr;
@@ -49,6 +52,12 @@ struct DemoWorldDesc {
     // the tiles around the spawn are premapped before the world shows, so the
     // horizon is there on the first frame (Section 13.4).
     std::filesystem::path lodCacheFolder{};
+    // How much far terrain is baked before the world shows (the world's
+    // Pre-map distance, Section 13.4): kPremapWholeHorizon bakes every tile of
+    // the clipmap and waits for all far terrain, 0 waits for none (it fills in
+    // while playing), and a number of blocks bakes the tiles within that
+    // distance of the spawn and lets the rest fill in.
+    vxe::i64 premapBlocks = kPremapWholeHorizon;
     // Optional: where edited chunks are saved (saves/<world>/regions). Without
     // it edits last until the world closes.
     std::filesystem::path saveFolder{};
@@ -83,9 +92,10 @@ private:
 //
 // Far terrain (Section 13) comes from TerrainLodSampler through the engine's
 // LodManager, drawn by the renderer's LodRenderer and hidden over chunk
-// columns streaming has meshed. With a cache folder, the clipmap around the
-// spawn is premapped (LodPremapper) while loading, and entering also waits
-// for every far terrain tile, so the first frame shows the whole horizon.
+// columns streaming has meshed. With a cache folder, the far terrain around
+// the spawn is premapped (LodPremapper) while loading, as far as the world's
+// Pre-map distance says; with the whole horizon, entering also waits for
+// every far terrain tile, so the first frame shows all of it.
 //
 // Thread safety: main thread only. Call shutdown() before the job system
 // and the renderer go away.
@@ -168,6 +178,8 @@ private:
     std::unique_ptr<vxe::voxel::LodManager> m_lod;
     std::unique_ptr<vxe::voxel::LodPremapper> m_premap; // While loading, with a cache.
     bool m_lodReady = false;
+    bool m_waitForLod = true;  // Entering waits for all far terrain (the whole horizon premapped).
+    bool m_premapping = false; // A premap was started for this load (it may be done already).
     std::unique_ptr<vxe::voxel::StreamingManager> m_streaming; // Last: it waits for its jobs first.
     vxe::Stopwatch m_loadClock;
     bool m_loaded = false;

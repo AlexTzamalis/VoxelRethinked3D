@@ -53,16 +53,17 @@ private:
     vxe::ui::Button* m_playButton = nullptr;
     vxe::ui::Button* m_editButton = nullptr;
     vxe::ui::Button* m_deleteButton = nullptr;
+    vxe::ui::Button* m_recreateButton = nullptr;
     std::vector<std::pair<std::string, vxe::ui::Button*>> m_rows;
 };
 
 // Create World (Section 19.3, G5.2): tabs for the name, the seed and world,
-// far terrain, and more. Creating writes the world and starts it.
+// far terrain, and more. Creating writes the world and starts it. Given a
+// world (Re-create, G5.5), every field starts from that world's options; the
+// new world gets a folder of its own.
 class CreateWorldScreen final : public vxe::ui::Screen {
 public:
-    CreateWorldScreen(const MenuServices& services, PlayWorld play)
-        : m_services(services)
-        , m_play(std::move(play)) {}
+    CreateWorldScreen(const MenuServices& services, PlayWorld play, const WorldInfo* from = nullptr);
 
     [[nodiscard]] vxe::ui::ScreenOptions options() const override { return {.backdrop = true}; }
     void build(vxe::ui::Widget& root) override;
@@ -91,9 +92,10 @@ private:
     std::string m_minY = "-1024";
     std::string m_maxY = "3072";
     bool m_structures = true;
+    bool m_recreating = false;
     vxe::usize m_type = 0;
     vxe::usize m_height = 0;
-    vxe::usize m_premap = 0;
+    vxe::usize m_premap = 5; // The whole horizon.
     vxe::usize m_quality = 2;
     vxe::usize m_preset = 0;
     vxe::ui::Widget* m_page = nullptr;
@@ -101,8 +103,9 @@ private:
     std::vector<std::pair<Tab, vxe::ui::Button*>> m_tabs;
 };
 
-// Edit World: rename a world and read what it was made with. The folder and
-// seed do not change.
+// Edit World: rename a world, change how far its far terrain is premapped and
+// its far terrain quality, and read what it was made with. The folder and seed
+// do not change.
 class EditWorldScreen final : public vxe::ui::Screen {
 public:
     EditWorldScreen(const MenuServices& services, WorldInfo info)
@@ -118,6 +121,8 @@ private:
     WorldInfo m_info;
     BackgroundTask m_task;
     vxe::ui::TextField* m_name = nullptr;
+    vxe::usize m_premap = 0;
+    vxe::usize m_quality = 0;
 };
 
 } // namespace vr

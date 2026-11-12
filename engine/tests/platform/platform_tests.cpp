@@ -163,3 +163,17 @@ TEST_CASE("Window opens, resizes, toggles fullscreen and closes (VXE_GUI_TESTS=1
     window.value().reset(); // Closes the window before the platform shuts down.
     pump();
 }
+
+TEST_CASE("File URLs escape what a URL cannot hold") {
+    using vxe::platform::Platform;
+#ifdef _WIN32
+    CHECK(Platform::fileUrl(std::filesystem::path(L"C:\\Games\\My Pack")) == "file:///C:/Games/My%20Pack");
+#else
+    CHECK(Platform::fileUrl("/home/alex/My Pack") == "file:///home/alex/My%20Pack");
+#endif
+    CHECK(Platform::fileUrl(std::filesystem::path(u8"/a/\u00e9")) == "file:///a/%C3%A9");
+}
+
+TEST_CASE("Opening a missing folder fails without asking the system") {
+    CHECK_FALSE(vxe::platform::Platform::openInFileBrowser("no/such/folder/anywhere"));
+}

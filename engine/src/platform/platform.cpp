@@ -183,4 +183,41 @@ std::filesystem::path Platform::executableFolder() {
     return base != nullptr ? std::filesystem::path(base) : std::filesystem::current_path();
 }
 
+std::string Platform::fileUrl(const std::filesystem::path& absolutePath) {
+    const std::u8string utf8 = absolutePath.generic_u8string();
+    std::string url = "file://";
+    // Windows paths start with a drive letter, which a URL puts after a third slash.
+    if (utf8.empty() || utf8.front() != u8'/') {
+        url += '/';
+    }
+    constexpr std::string_view kHex = "0123456789ABCDEF";
+    for (const char8_t unit : utf8) {
+        const auto byte = static_cast<unsigned char>(unit);
+        const bool plain = (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') ||
+                           (byte >= '0' && byte <= '9') || byte == '/' || byte == ':' || byte == '-' ||
+                           byte == '_' || byte == '.' || byte == '~';
+        if (plain) {
+            url += static_cast<char>(byte);
+        } else {
+            url += '%';
+            url += kHex[byte >> 4U];
+            url += kHex[byte & 15U];
+        }
+    }
+    return url;
+}
+
+Result<void> Platform::openInFileBrowser(const std::filesystem::path& folder) {
+    std::error_code error;
+    const std::filesystem::path absolute = std::filesystem::absolute(folder, error);
+    if (error || !std::filesystem::is_directory(absolute, error)) {
+        return Error(ErrorCode::NotFound, std::format("No folder at '{}'", folder.string()));
+    }
+    if (!SDL_OpenURL(fileUrl(absolute).c_str())) {
+        return Error(ErrorCode::Unknown,
+                     std::format("Could not open '{}': {}", absolute.string(), SDL_GetError()));
+    }
+    return {};
+}
+
 } // namespace vxe::platform
