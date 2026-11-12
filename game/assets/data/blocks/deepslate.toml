@@ -1,0 +1,10 @@
+# The dark rock of the deep (below height 0, mixing into stone up to 8).
+name = "deepslate"
+display_name = "Deepslate"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+side = "deepslate"
+top = "deepslate_top"
+bottom = "deepslate_top"

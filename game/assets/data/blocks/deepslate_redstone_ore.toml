@@ -1,0 +1,7 @@
+name = "deepslate_redstone_ore"
+display_name = "Deepslate Redstone Ore"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "deepslate_redstone_ore"

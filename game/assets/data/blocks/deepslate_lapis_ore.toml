@@ -1,0 +1,7 @@
+name = "deepslate_lapis_ore"
+display_name = "Deepslate Lapis Ore"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "deepslate_lapis_ore"

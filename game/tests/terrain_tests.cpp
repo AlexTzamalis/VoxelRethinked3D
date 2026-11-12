@@ -306,58 +306,112 @@ TEST_CASE("Threads sharing columns get what one thread builds alone") {
     CHECK(wrong.load() == 0);
 }
 
-TEST_CASE("Underground holds tunnels, caverns and ore veins in their bands") {
+TEST_CASE("Underground holds tunnels, caverns, deepslate, lava and ore veins in their bands") {
     const Terrain terrain(blocks(), 12345, PlanetPreset{}, false);
     const TerrainBlocks& ids = blocks();
     const vxe::BlockPos land = terrain.spawnColumn();
     const vxe::ChunkPos middle = vxe::toChunk(land);
-    auto states = std::make_unique<std::array<vxe::voxel::BlockStateId, vxe::kChunkVolume>>();
     std::size_t solid = 0;
     std::size_t air = 0;
-    std::array<std::size_t, 6> ores{};
-    const std::array<vxe::voxel::BlockStateId, 6> kinds = {ids.coal, ids.copper,  ids.iron,
-                                                           ids.gold, ids.diamond, ids.emerald};
-    const std::array<vxe::i64, 6> lowest = {0, -16, -64, -160, -1000, 120};
-    const std::array<vxe::i64, 6> highest = {320, 128, 256, 32, -24, 480};
-    // A slab of chunks from well below the surface down to deep rock.
-    for (vxe::i32 cy = -8; cy <= 2; ++cy) {
-        for (vxe::i32 cz = middle.z - 3; cz <= middle.z + 3; ++cz) {
-            for (vxe::i32 cx = middle.x - 3; cx <= middle.x + 3; ++cx) {
+    std::size_t deepslate = 0;
+    std::size_t lava = 0;
+    std::array<std::size_t, 8> ores{};
+    // Each ore in stone and in deepslate; lapis and redstone only in deepslate.
+    const std::array<std::array<vxe::voxel::BlockStateId, 2>, 8> kinds = {
+        {{ids.coal, ids.deepCoal},
+         {ids.copper, ids.deepCopper},
+         {ids.iron, ids.deepIron},
+         {ids.gold, ids.deepGold},
+         {ids.diamond, ids.deepDiamond},
+         {ids.emerald, ids.deepEmerald},
+         {ids.deepLapis, ids.deepLapis},
+         {ids.deepRedstone, ids.deepRedstone}}};
+    const std::array<vxe::i64, 8> lowest = {0, -16, -64, -160, -1000, 120, -200, -400};
+    const std::array<vxe::i64, 8> highest = {320, 128, 256, 32, -24, 480, 32, 16};
+    // A slab of chunks from well below the surface down to deep rock, kept
+    // whole so that neighbors across chunk borders can be checked.
+    constexpr vxe::i32 kReach = 3;
+    constexpr vxe::i32 kLowest = -12;
+    constexpr vxe::i32 kHighest = 2;
+    constexpr vxe::i64 kSide = (2 * kReach + 1) * 16;
+    constexpr vxe::i64 kHeight = (kHighest - kLowest + 1) * 16;
+    std::vector<vxe::voxel::BlockStateId> slab(static_cast<std::size_t>(kSide * kSide * kHeight));
+    const vxe::i64 startX = (vxe::i64{middle.x} - kReach) * 16;
+    const vxe::i64 startZ = (vxe::i64{middle.z} - kReach) * 16;
+    const vxe::i64 startY = vxe::i64{kLowest} * 16;
+    const auto cell = [&](vxe::i64 x, vxe::i64 y, vxe::i64 z) -> vxe::voxel::BlockStateId& {
+        return slab[static_cast<std::size_t>((((y - startY) * kSide) + (z - startZ)) * kSide + (x - startX))];
+    };
+    auto states = std::make_unique<std::array<vxe::voxel::BlockStateId, vxe::kChunkVolume>>();
+    for (vxe::i32 cy = kLowest; cy <= kHighest; ++cy) {
+        for (vxe::i32 cz = middle.z - kReach; cz <= middle.z + kReach; ++cz) {
+            for (vxe::i32 cx = middle.x - kReach; cx <= middle.x + kReach; ++cx) {
                 const vxe::ChunkPos chunk{.x = cx, .y = cy, .z = cz};
                 terrain.generate(chunk, *states);
                 const vxe::BlockPos origin = vxe::chunkOrigin(chunk);
                 for (vxe::u32 i = 0; i < vxe::kChunkVolume; ++i) {
                     const vxe::LocalPos local = vxe::LocalPos::fromIndex(static_cast<vxe::u16>(i));
-                    const vxe::i64 y = origin.y + local.y;
-                    if (y > terrain.surfaceHeight(origin.x + local.x, origin.z + local.z) - 12) {
-                        continue; // Only rock well under the ground.
-                    }
-                    const vxe::voxel::BlockStateId state = (*states)[i];
-                    if (state == vxe::voxel::kAirState) {
-                        ++air;
-                        continue;
-                    }
-                    ++solid;
-                    for (std::size_t k = 0; k < kinds.size(); ++k) {
-                        if (state == kinds.at(k)) {
-                            ++ores.at(k);
-                            CHECK(y >= lowest.at(k));
-                            CHECK(y <= highest.at(k));
+                    cell(origin.x + local.x, origin.y + local.y, origin.z + local.z) = (*states)[i];
+                }
+            }
+        }
+    }
+    for (vxe::i64 y = startY; y < startY + kHeight; ++y) {
+        for (vxe::i64 z = startZ; z < startZ + kSide; ++z) {
+            for (vxe::i64 x = startX; x < startX + kSide; ++x) {
+                if (y > terrain.surfaceHeight(x, z) - 12) {
+                    continue; // Only rock well under the ground.
+                }
+                const vxe::voxel::BlockStateId state = cell(x, y, z);
+                if (state == vxe::voxel::kAirState) {
+                    ++air;
+                    continue;
+                }
+                if (state == ids.lava) {
+                    ++lava;
+                    // Lava lies flat in its basin: never beside or above open air.
+                    for (const auto& [dx, dy, dz] :
+                         {std::array<vxe::i64, 3>{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}, {0, -1, 0}}) {
+                        const vxe::i64 nx = x + dx;
+                        const vxe::i64 ny = y + dy;
+                        const vxe::i64 nz = z + dz;
+                        if (nx >= startX && nx < startX + kSide && nz >= startZ && nz < startZ + kSide &&
+                            ny >= startY) {
+                            CHECK(cell(nx, ny, nz) != vxe::voxel::kAirState);
                         }
+                    }
+                    continue;
+                }
+                ++solid;
+                if (state == ids.deepslate) {
+                    ++deepslate;
+                    CHECK(y < 8);
+                }
+                if (state == ids.stone) {
+                    CHECK(y >= 0);
+                }
+                for (std::size_t k = 0; k < kinds.size(); ++k) {
+                    if (state == kinds.at(k)[0] || state == kinds.at(k)[1]) {
+                        ++ores.at(k);
+                        CHECK(y >= lowest.at(k));
+                        CHECK(y <= highest.at(k));
                     }
                 }
             }
         }
     }
     const double caves = static_cast<double>(air) / static_cast<double>(air + solid);
-    MESSAGE("Cave share " << caves << ", ores: coal " << ores[0] << ", copper " << ores[1] << ", iron "
-                          << ores[2] << ", gold " << ores[3] << ", diamond " << ores[4]);
+    MESSAGE("Cave share " << caves << ", deepslate " << deepslate << ", lava " << lava << ", ores: coal "
+                          << ores[0] << ", copper " << ores[1] << ", iron " << ores[2] << ", gold " << ores[3]
+                          << ", diamond " << ores[4] << ", lapis " << ores[6] << ", redstone " << ores[7]);
     // Caves take a few percent of the rock, not most of it and not none.
     CHECK(caves > 0.01);
     CHECK(caves < 0.25);
-    CHECK(ores[0] > 0);
-    CHECK(ores[1] > 0);
-    CHECK(ores[2] > 0);
-    CHECK(ores[3] > 0);
-    CHECK(ores[4] > 0);
+    CHECK(deepslate > 0);
+    for (std::size_t k = 0; k < ores.size(); ++k) {
+        if (k != 5) { // Emeralds live high in mountains, above this slab.
+            INFO(k);
+            CHECK(ores.at(k) > 0);
+        }
+    }
 }

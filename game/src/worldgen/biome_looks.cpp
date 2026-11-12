@@ -588,6 +588,16 @@ vxe::Result<TerrainBlocks> TerrainBlocks::fromCatalog(const BlockCatalog& catalo
     blocks.copper = state("copper_ore");
     blocks.diamond = state("diamond_ore");
     blocks.emerald = state("emerald_ore");
+    blocks.deepslate = state("deepslate");
+    blocks.deepCoal = state("deepslate_coal_ore");
+    blocks.deepIron = state("deepslate_iron_ore");
+    blocks.deepGold = state("deepslate_gold_ore");
+    blocks.deepCopper = state("deepslate_copper_ore");
+    blocks.deepDiamond = state("deepslate_diamond_ore");
+    blocks.deepEmerald = state("deepslate_emerald_ore");
+    blocks.deepLapis = state("deepslate_lapis_ore");
+    blocks.deepRedstone = state("deepslate_redstone_ore");
+    blocks.lava = state("lava");
     blocks.floor = state("foundation_stone");
     blocks.soils = {
         state("grass_block"),       state("dirt"), state("coarse_dirt"), state("podzol"),

@@ -1,0 +1,7 @@
+name = "deepslate_tiles"
+display_name = "Deepslate Tiles"
+category = "Building"
+layer = "opaque"
+
+[textures]
+all = "deepslate_tiles"

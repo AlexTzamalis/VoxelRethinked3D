@@ -147,6 +147,19 @@ private:
                               vxe::f64 depth, vxe::f64 tunnelA, vxe::f64 tunnelB,
                               vxe::f64 cavern) const noexcept;
     void placeOres(vxe::ChunkPos chunk, std::span<vxe::voxel::BlockStateId, vxe::kChunkVolume> out) const;
+    // Lava in the deep caves, per column: cave air from `bottom` up to below
+    // `level` is lava, with rock under it down to `floor`; cave air from
+    // `wallLow` up to below `wallHigh` is rock (a wall that holds a
+    // neighbor's lake back). See kLavaRegion in terrain.cpp.
+    struct LavaColumn {
+        vxe::i64 level = 0;
+        vxe::i64 bottom = 0;
+        vxe::i64 floor = 0;
+        vxe::i64 wallLow = 0;
+        vxe::i64 wallHigh = 0;
+    };
+    [[nodiscard]] LavaColumn lavaAt(vxe::i64 x, vxe::i64 z) const noexcept;
+    [[nodiscard]] vxe::i64 lavaLevel(vxe::i64 regionX, vxe::i64 regionZ) const noexcept;
     struct SharedColumns;
 
     // The chunk column's heights, from this thread's cache. The reference

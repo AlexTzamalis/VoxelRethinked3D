@@ -1,0 +1,7 @@
+name = "deepslate_copper_ore"
+display_name = "Deepslate Copper Ore"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "deepslate_copper_ore"

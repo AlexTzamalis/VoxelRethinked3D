@@ -1,0 +1,12 @@
+# Still lava: lakes deep in the caves. It glows as bright as any light, and
+# the player wades through it (nothing burns yet). Format: see stone.toml.
+name = "lava"
+display_name = "Lava"
+category = "Nature"
+layer = "opaque"
+emitted_light = 15
+solid = false
+liquid = true
+
+[textures]
+all = "lava_still"

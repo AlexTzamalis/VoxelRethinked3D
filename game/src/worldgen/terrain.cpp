@@ -48,6 +48,26 @@ constexpr f64 kGreenDamp = 0.45;          // How damp ground must be to turn gre
 constexpr f64 kDryWatersidePlants = 0.16; // The same on dry land.
 constexpr f64 kWatersidePlants = 0.72;    // Share of the wettest ground under plants.
 constexpr i64 kBandHeight = 5;            // Blocks of one rock layer.
+// Deepslate below this height; between it and kDeepslateMix it mixes with
+// stone, more of it the lower, as in Minecraft.
+constexpr i64 kDeepslateTop = 0;
+constexpr i64 kDeepslateMix = 8;
+// Lava lakes: every square region of kLavaRegion blocks has one lake level or
+// none, so a lake's surface is flat. kLavaShare of regions (in hundredths)
+// hold one, at kLavaHighest down to kLavaSteps steps of kLavaStep lower. Cave
+// air up to kLavaDepth blocks below the level is lava, on kLavaFloor blocks of
+// rock; caves go on below that, so the deep is not flooded (the world reaches
+// a thousand blocks down, not Minecraft's sixty four). Within kLavaWall
+// blocks of a region whose lake stands where this one has open air, cave air
+// is rock, so lava never stands beside open air.
+constexpr i64 kLavaRegion = 192;
+constexpr u64 kLavaShare = 70;
+constexpr i64 kLavaHighest = -40;
+constexpr i64 kLavaStep = 8;
+constexpr u64 kLavaSteps = 40;
+constexpr i64 kLavaDepth = 16;
+constexpr i64 kLavaFloor = 4;
+constexpr i64 kLavaWall = 3;
 
 constexpr u64 mix(u64 value) noexcept {
     value += 0x9E3779B97F4A7C15ULL;
@@ -966,8 +986,17 @@ std::optional<vxe::BlockPos> Terrain::findBiome(Biome biome, i64 fromX, i64 from
 BlockStateId Terrain::stoneAt(i64 x, i64 y, i64 z, f64 a, f64 b) const noexcept {
     // Rock kinds in large blobs from two slow fields; ores come in veins
     // afterwards (placeOres).
-    static_cast<void>(x);
-    static_cast<void>(z);
+    // The deep: deepslate, with tuff and basalt in it, and none of the
+    // lighter rocks.
+    const bool deep = y < kDeepslateTop ||
+                      (y < kDeepslateMix &&
+                       static_cast<i64>(hash3(m_seed + 96, x, y, z) % static_cast<u64>(kDeepslateMix)) >= y);
+    if (deep) {
+        if (b > 0.33) {
+            return m_blocks.tuff;
+        }
+        return b < -0.36 ? m_blocks.basalt : m_blocks.deepslate;
+    }
     if (a > 0.3) {
         return m_blocks.granite;
     }
@@ -1063,6 +1092,16 @@ void Terrain::generate(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkV
             return vxe::noise::gradient3(m_seed + 6, x / 41.0, y / 26.0, z / 41.0);
         });
     }
+    // Lava levels only matter below the highest a lake can stand.
+    std::array<LavaColumn, static_cast<usize>(vxe::kChunkSize * vxe::kChunkSize)> lavaColumns{};
+    lavaColumns.fill(
+        LavaColumn{.level = kFloorY, .bottom = kFloorY, .floor = kFloorY, .wallLow = 0, .wallHigh = 0});
+    if (anyStone && origin.y < kLavaHighest) {
+        for (usize i = 0; i < lavaColumns.size(); ++i) {
+            lavaColumns.at(i) = lavaAt(origin.x + static_cast<i64>(i % vxe::kChunkSize),
+                                       origin.z + static_cast<i64>(i / vxe::kChunkSize));
+        }
+    }
     for (u32 index = 0; index < static_cast<u32>(vxe::kChunkVolume); ++index) {
         const vxe::LocalPos local = vxe::LocalPos::fromIndex(static_cast<vxe::u16>(index));
         const usize columnIndex = (usize{local.z} * vxe::kChunkSize) + local.x;
@@ -1086,8 +1125,17 @@ void Terrain::generate(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkV
         if (isCave(at, columnIndex, x, y, z, depth, caveFieldAt(tunnelA, local.x, local.y, local.z),
                    caveFieldAt(tunnelB, local.x, local.y, local.z),
                    caveFieldAt(cavern, local.x, local.y, local.z))) {
-            out[index] = vxe::voxel::kAirState;
-            continue;
+            const LavaColumn& lava = lavaColumns.at(columnIndex);
+            const bool walled = y >= lava.wallLow && y < lava.wallHigh;
+            if (!walled && y < lava.level && y >= lava.bottom) {
+                out[index] = m_blocks.lava;
+                continue;
+            }
+            if (!walled && (y >= lava.level || y < lava.floor)) {
+                out[index] = vxe::voxel::kAirState;
+                continue;
+            }
+            // The rock under a lake, or a wall holding a neighbor's lake back.
         }
         const BiomeLook& look = m_blocks.biomes[static_cast<usize>(at.biome[columnIndex])];
         const BlockStateId columnTop = at.top[columnIndex];
@@ -1172,31 +1220,69 @@ bool Terrain::isCave(const Column& at, usize columnIndex, i64 x, i64 y, i64 z, f
     return false;
 }
 
+i64 Terrain::lavaLevel(i64 regionX, i64 regionZ) const noexcept {
+    const u64 h = hash3(m_seed + 97, regionX, 0, regionZ);
+    if (h % 100 >= kLavaShare) {
+        return kFloorY; // No lava here.
+    }
+    return kLavaHighest - (static_cast<i64>((h >> 16U) % kLavaSteps) * kLavaStep);
+}
+
+Terrain::LavaColumn Terrain::lavaAt(i64 x, i64 z) const noexcept {
+    const i64 regionX = floorDiv(x, kLavaRegion);
+    const i64 regionZ = floorDiv(z, kLavaRegion);
+    const i64 level = lavaLevel(regionX, regionZ);
+    LavaColumn lava{.level = level,
+                    .bottom = level - kLavaDepth,
+                    .floor = level - kLavaDepth - kLavaFloor,
+                    .wallLow = 0,
+                    .wallHigh = 0};
+    const i64 localX = x - (regionX * kLavaRegion);
+    const i64 localZ = z - (regionZ * kLavaRegion);
+    const i64 stepX = localX < kLavaWall ? -1 : (localX >= kLavaRegion - kLavaWall ? 1 : 0);
+    const i64 stepZ = localZ < kLavaWall ? -1 : (localZ >= kLavaRegion - kLavaWall ? 1 : 0);
+    // Near an edge, the neighbors across it (and across a corner) count.
+    const std::array<std::array<i64, 2>, 3> neighbors = {{{stepX, 0}, {0, stepZ}, {stepX, stepZ}}};
+    for (const auto& [dx, dz] : neighbors) {
+        if (dx != 0 || dz != 0) {
+            const i64 other = lavaLevel(regionX + dx, regionZ + dz);
+            if (other != level && other != kFloorY) {
+                // The neighbor's lake and its floor, where this side may be open.
+                const i64 low = other - kLavaDepth - kLavaFloor;
+                lava.wallLow = lava.wallHigh > lava.wallLow ? std::min(lava.wallLow, low) : low;
+                lava.wallHigh = std::max(lava.wallHigh, other);
+            }
+        }
+    }
+    return lava;
+}
+
 void Terrain::placeOres(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkVolume> out) const {
     // Each ore in its band of heights, a number of veins per chunk (in
     // hundredths) and a vein size (blocks), as in modern Minecraft: coal high,
     // copper and iron in the middle, gold deep, diamonds deepest and emeralds
     // high in the mountains.
     struct Ore {
-        BlockStateId block;
+        BlockStateId block; // In stone and the other rocks; air for deepslate only ores.
+        BlockStateId deep;  // In deepslate.
         i64 lowest;
         i64 highest;
         u32 veins; // Per chunk, in hundredths.
         u32 smallest;
         u32 largest;
     };
-    const std::array<Ore, 6> ores = {{
-        {.block = m_blocks.coal, .lowest = 0, .highest = 320, .veins = 260, .smallest = 6, .largest = 15},
-        {.block = m_blocks.copper, .lowest = -16, .highest = 128, .veins = 170, .smallest = 5, .largest = 11},
-        {.block = m_blocks.iron, .lowest = -64, .highest = 256, .veins = 190, .smallest = 4, .largest = 9},
-        {.block = m_blocks.gold, .lowest = -160, .highest = 32, .veins = 70, .smallest = 4, .largest = 8},
-        {.block = m_blocks.diamond,
-         .lowest = -1000,
-         .highest = -24,
-         .veins = 45,
-         .smallest = 2,
-         .largest = 7},
-        {.block = m_blocks.emerald, .lowest = 120, .highest = 480, .veins = 40, .smallest = 1, .largest = 3},
+    // Lapis and redstone only come in deepslate (their stone kinds have no
+    // textures yet).
+    const BlockStateId none = vxe::voxel::kAirState;
+    const std::array<Ore, 8> ores = {{
+        {m_blocks.coal, m_blocks.deepCoal, 0, 320, 260, 6, 15},
+        {m_blocks.copper, m_blocks.deepCopper, -16, 128, 170, 5, 11},
+        {m_blocks.iron, m_blocks.deepIron, -64, 256, 190, 4, 9},
+        {m_blocks.gold, m_blocks.deepGold, -160, 32, 70, 4, 8},
+        {m_blocks.diamond, m_blocks.deepDiamond, -1000, -24, 45, 2, 7},
+        {m_blocks.emerald, m_blocks.deepEmerald, 120, 480, 40, 1, 3},
+        {none, m_blocks.deepLapis, -200, 32, 80, 3, 8},
+        {none, m_blocks.deepRedstone, -400, 16, 220, 4, 9},
     }};
     const vxe::BlockPos origin = vxe::chunkOrigin(chunk);
     const auto host = [this](BlockStateId state) {
@@ -1210,7 +1296,7 @@ void Terrain::placeOres(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunk
     };
     for (usize kind = 0; kind < ores.size(); ++kind) {
         const Ore& ore = ores.at(kind);
-        if (ore.block == vxe::voxel::kAirState || origin.y + vxe::kChunkSize <= ore.lowest ||
+        if ((ore.block == none && ore.deep == none) || origin.y + vxe::kChunkSize <= ore.lowest ||
             origin.y > ore.highest) {
             continue;
         }
@@ -1235,7 +1321,10 @@ void Terrain::placeOres(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunk
                                                       .y = static_cast<vxe::u8>(y),
                                                       .z = static_cast<vxe::u8>(z)}
                                             .index();
-                    if (host(out[index])) {
+                    const BlockStateId rock = out[index];
+                    if (rock == m_blocks.deepslate && ore.deep != none) {
+                        out[index] = ore.deep;
+                    } else if (host(rock) && ore.block != none) {
                         out[index] = ore.block;
                     }
                 }

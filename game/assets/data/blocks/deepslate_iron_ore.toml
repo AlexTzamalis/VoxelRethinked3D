@@ -1,0 +1,7 @@
+name = "deepslate_iron_ore"
+display_name = "Deepslate Iron Ore"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "deepslate_iron_ore"

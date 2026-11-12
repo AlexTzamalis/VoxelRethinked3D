@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#158] 2026-11-12, Deepslate, deepslate ores and lava lakes
+### Added
+- Deepslate below height 0, mixing into stone between 0 and 8 like Minecraft, with tuff and basalt in it. Deepslate Tiles as a building block.
+- Deepslate kinds of every ore (Alex's textures): an ore vein in deepslate uses them. Lapis (-200 to 32) and redstone (-400 to 16) come only in deepslate.
+- Lava (glows at 15, animated, the player wades through it) in lakes deep in the caves: every region of 192 blocks has one flat lake level or none (70 of 100), from -40 down to -352. Cave air up to 16 blocks under the level is lava on 4 blocks of rock, and caves go on below, so the thousand blocks of deep are not flooded. Near a region whose lake stands where this one is open, cave air is rock, so lava never stands beside or over open air (checked block by block in the test slab).
+### Changed
+- Unedited deep chunks of existing worlds come out in deepslate with the new ores and lakes.
 ## [#157] 2026-11-12, First person arm, no flicker through face seams
 ### Added
 - First person shows the right arm, reaching into the view from the lower right like Bedrock's, with the held item resting on the hand: a block shows its corner, two sides and its top; a plant is held up facing the eye. The swing of breaking and placing pushes the arm in towards the crosshair.

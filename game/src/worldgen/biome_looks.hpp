@@ -125,6 +125,18 @@ struct TerrainBlocks {
     vxe::voxel::BlockStateId copper = 0;
     vxe::voxel::BlockStateId diamond = 0;
     vxe::voxel::BlockStateId emerald = 0;
+    // The deep: deepslate below height 0, its ores (lapis and redstone only
+    // come in deepslate), and lava in the deep caves.
+    vxe::voxel::BlockStateId deepslate = 0;
+    vxe::voxel::BlockStateId deepCoal = 0;
+    vxe::voxel::BlockStateId deepIron = 0;
+    vxe::voxel::BlockStateId deepGold = 0;
+    vxe::voxel::BlockStateId deepCopper = 0;
+    vxe::voxel::BlockStateId deepDiamond = 0;
+    vxe::voxel::BlockStateId deepEmerald = 0;
+    vxe::voxel::BlockStateId deepLapis = 0;
+    vxe::voxel::BlockStateId deepRedstone = 0;
+    vxe::voxel::BlockStateId lava = 0;
     vxe::voxel::BlockStateId floor = 0;
     std::array<vxe::voxel::BlockStateId, 9> soils{}; // What plants and trees root in.
     std::array<TreeBlocks, kTreeKindCount> trees{};

@@ -1,0 +1,7 @@
+name = "deepslate_diamond_ore"
+display_name = "Deepslate Diamond Ore"
+category = "Nature"
+layer = "opaque"
+
+[textures]
+all = "deepslate_diamond_ore"
