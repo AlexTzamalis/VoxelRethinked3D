@@ -1163,6 +1163,7 @@ void Terrain::generate(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkV
         placeFeatures(chunk, out);
         placeTrees(chunk, out);
         placePlants(chunk, out);
+        placeReefs(chunk, out);
     }
     coverSnow(chunk, out);
 }
@@ -1689,6 +1690,70 @@ void Terrain::placePlants(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChu
                 read(x, y + 1, z) == vxe::voxel::kAirState) {
                 write(x, y + 1, z, plant->upper);
             }
+        }
+    }
+}
+
+void Terrain::placeReefs(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkVolume> out) const {
+    // Warm seas grow reefs: colonies of one color each (a few blocks across),
+    // with mounds of coral blocks, and corals and fans on them and on the
+    // sand between. Lukewarm seas have smaller, scattered colonies. Corals
+    // stand in water (waterlogged), so they only go where water is on every
+    // side but the floor, a block under the surface at least.
+    const Column& at = column(chunk.x, chunk.z);
+    const vxe::BlockPos origin = vxe::chunkOrigin(chunk);
+    const auto index = [](i64 x, i64 y, i64 z) {
+        return vxe::LocalPos{.x = static_cast<u8>(x), .y = static_cast<u8>(y), .z = static_cast<u8>(z)}
+            .index();
+    };
+    for (i64 z = 0; z < vxe::kChunkSize; ++z) {
+        for (i64 x = 0; x < vxe::kChunkSize; ++x) {
+            const auto column = static_cast<usize>((z * vxe::kChunkSize) + x);
+            const Biome biome = at.biome[column];
+            const bool warm = biome == Biome::WarmOcean;
+            if (!warm && biome != Biome::LukewarmOcean) {
+                continue;
+            }
+            const i64 floor = at.heights[column];
+            const i64 surface = at.water[column];
+            if (surface - floor < 4 || floor + 1 > origin.y + vxe::kChunkSize || surface < origin.y) {
+                continue;
+            }
+            const i64 wx = origin.x + x;
+            const i64 wz = origin.z + z;
+            const auto fx = static_cast<f64>(wx);
+            const auto fz = static_cast<f64>(wz);
+            // Colonies: patches of reef, each one color.
+            if (!inPatch(m_seed + 98, fx, fz, warm ? 0.5 : 0.18)) {
+                continue;
+            }
+            const u64 colony = hash3(m_seed + 99, floorDiv(wx, 7), 0, floorDiv(wz, 7));
+            const usize color = colony % 5U;
+            const u64 h = hash3(m_seed + 100, wx, 0, wz);
+            // A mound of coral blocks, up to 3 high, never within 2 of the surface.
+            i64 mound = 0;
+            if (h % 100U < (warm ? 22U : 8U)) {
+                mound = std::min<i64>(1 + static_cast<i64>((h >> 8U) % 3U), surface - floor - 3);
+            }
+            for (i64 y = floor + 1; y <= floor + mound; ++y) {
+                if (y >= origin.y && y < origin.y + vxe::kChunkSize) {
+                    out[index(x, y - origin.y, z)] = m_blocks.coralBlocks.at(color);
+                }
+            }
+            // A coral or a fan on top.
+            const u64 grow = (h >> 16U) % 100U;
+            if (grow >= (warm ? 55U : 30U)) {
+                continue;
+            }
+            const i64 y = floor + mound + 1;
+            if (y < origin.y || y >= origin.y + vxe::kChunkSize || y > surface - 1) {
+                continue;
+            }
+            const usize cell = index(x, y - origin.y, z);
+            if (out[cell] != m_blocks.water) {
+                continue;
+            }
+            out[cell] = (h >> 24U) % 3U == 0U ? m_blocks.coralFans.at(color) : m_blocks.corals.at(color);
         }
     }
 }

@@ -1211,7 +1211,7 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
                                               .y = static_cast<vxe::i64>(std::floor(middle.y)),
                                               .z = static_cast<vxe::i64>(std::floor(middle.z))},
                                              vxe::voxel::kAirState);
-                m_statsTracker.step(m_stats, m_player->state(), m_blocks->isLiquid(around),
+                m_statsTracker.step(m_stats, m_player->state(), m_blocks->isWet(around),
                                     m_player->isSprinting(), time.deltaSeconds);
             } else {
                 m_statsTracker.reset(); // The free camera is not the player travelling.
@@ -1699,7 +1699,7 @@ SoundScene VoxelRethinkedApp::soundScene(const vxe::EngineContext& context) cons
     scene.altitude = static_cast<vxe::f32>(y - Terrain::kSeaLevel);
     scene.cover =
         static_cast<vxe::f32>(std::max(terrain.roughGround(wx0, wz0).height - m_camera.position.y, 0.0));
-    scene.underWater = m_blocks->isLiquid(world.getBlock({.x = x, .y = y, .z = z}, vxe::voxel::kAirState));
+    scene.underWater = m_blocks->isWet(world.getBlock({.x = x, .y = y, .z = z}, vxe::voxel::kAirState));
     if (m_player && !m_freeCamera) {
         const PlayerState& player = m_player->state();
         const vxe::f64 speed = std::hypot(player.velocity.x, player.velocity.z);

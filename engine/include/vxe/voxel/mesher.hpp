@@ -285,6 +285,9 @@ private:
     // against its own state. Sized for every id so lookups need no check.
     std::vector<u8> m_classes;
     std::vector<u8> m_heights; // BlockRenderInfo::height per state, for slabs.
+    // Per state, what it counts as when see through faces hide against their
+    // own type: itself, or the liquid a waterlogged block stands in.
+    std::vector<BlockStateId> m_cullKeys;
     usize m_preparedSize = 0;
     const BlockRegistryView* m_preparedView = nullptr;
     u64 m_preparedGeneration = 0;

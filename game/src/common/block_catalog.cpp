@@ -121,6 +121,22 @@ Result<BlockCatalog> BlockCatalogLoader::run(std::span<const BlockSource> source
         loadFile(*source);
     }
     linkTallPlants();
+    // Waterlogged blocks stand in water: the cell is water around them.
+    const auto water = m_catalog.m_stateIds.find("water");
+    for (usize state = 0; state < m_catalog.m_stateFlags.size(); ++state) {
+        if ((m_catalog.m_stateFlags[state] & 16U) == 0) {
+            continue;
+        }
+        if (water == m_catalog.m_stateIds.end()) {
+            m_problems.push_back(
+                std::format("{}: waterlogged needs a block named water", m_catalog.m_stateNames[state]));
+            break;
+        }
+        vxe::voxel::BlockRenderInfo& info = m_catalog.m_renderInfos[state];
+        info.fluid = water->second;
+        info.lightOpacity =
+            std::max(info.lightOpacity, m_catalog.m_renderInfos.at(water->second).lightOpacity);
+    }
     if (m_catalog.m_blocks.empty() && m_problems.empty()) {
         m_problems.emplace_back("no block definitions found");
     }
@@ -148,7 +164,7 @@ void BlockCatalogLoader::loadFile(const BlockSource& source) {
         return;
     }
     for (const auto& [key, node] : root) {
-        static constexpr std::array<std::string_view, 25> kKnown = {"name",
+        static constexpr std::array<std::string_view, 26> kKnown = {"name",
                                                                     "display_name",
                                                                     "layer",
                                                                     "emitted_light",
@@ -172,7 +188,8 @@ void BlockCatalogLoader::loadFile(const BlockSource& source) {
                                                                     "tall_top",
                                                                     "hidden",
                                                                     "height",
-                                                                    "aim_box"};
+                                                                    "aim_box",
+                                                                    "waterlogged"};
         if (std::ranges::find(kKnown, key.str()) == kKnown.end()) {
             problem(source.file, std::format("unknown field '{}'", key.str()));
         }
@@ -334,8 +351,9 @@ bool BlockCatalogLoader::readCommon(const BlockSource& source, const toml::table
     const bool liquid = flag("liquid", false);
     const bool replaceable = flag("replaceable", plant);
     const bool needsSupport = flag("needs_support", plant);
+    const bool waterlogged = flag("waterlogged", false);
     m_flags = static_cast<vxe::u8>((solid ? 1U : 0U) | (liquid ? 2U : 0U) | (replaceable ? 4U : 0U) |
-                                   (needsSupport ? 8U : 0U));
+                                   (needsSupport ? 8U : 0U) | (waterlogged ? 16U : 0U));
     m_overlayTinted = flag("overlay_tint", true);
     m_aimBox.reset();
     if (const toml::node* boxNode = root.get("aim_box"); boxNode != nullptr) {

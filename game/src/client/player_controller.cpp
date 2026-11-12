@@ -143,7 +143,7 @@ void PlayerController::update(vxe::render::Camera& camera, const vxe::voxel::Vox
             return false;
         }
         const BlockStateId state = world.getBlock(block, kAirState);
-        return m_catalog.isLiquid(state);
+        return m_catalog.isWet(state);
     };
     m_accumulator += std::min(deltaSeconds, kMaxFrameSeconds);
     while (m_accumulator >= kPlayerStep) {
@@ -174,14 +174,20 @@ void PlayerController::update(vxe::render::Camera& camera, const vxe::voxel::Vox
 // plant, and a plant standing on it.
 void BlockInteraction::removeBlock(const vxe::voxel::VoxelWorld& world, const BlockPos& block,
                                    const SetBlock& setBlock) const {
+    // A block standing in water leaves the water behind.
     const BlockStateId state = world.getBlock(block, kAirState);
-    if (m_catalog.tallLower(state) != kAirState) {
-        static_cast<void>(setBlock({.x = block.x, .y = block.y - 1, .z = block.z}, kAirState));
+    if (const BlockStateId lower = m_catalog.tallLower(state); lower != kAirState) {
+        const BlockPos below{.x = block.x, .y = block.y - 1, .z = block.z};
+        static_cast<void>(setBlock(below, m_catalog.emptied(world.getBlock(below, kAirState))));
     }
-    static_cast<void>(setBlock(block, kAirState));
+    static_cast<void>(setBlock(block, m_catalog.emptied(state)));
     BlockPos above{.x = block.x, .y = block.y + 1, .z = block.z};
-    while (m_catalog.needsSupport(world.getBlock(above, kAirState))) {
-        static_cast<void>(setBlock(above, kAirState));
+    while (true) {
+        const BlockStateId resting = world.getBlock(above, kAirState);
+        if (!m_catalog.needsSupport(resting)) {
+            break;
+        }
+        static_cast<void>(setBlock(above, m_catalog.emptied(resting)));
         ++above.y;
     }
 }
@@ -199,7 +205,7 @@ void BlockInteraction::update(const vxe::render::Camera& camera, const PlayerSta
     const auto targetable = [&](const BlockPos& block) {
         const BlockStateId state = world.getBlock(block, kAirState);
         if (state == kAirState || m_catalog.isLiquid(state)) {
-            return false;
+            return false; // Waterlogged blocks are targets: their water is not.
         }
         const BlockCatalog::AimBox& box = m_catalog.aimBox(state);
         const vxe::DVec3 corner(static_cast<f64>(block.x), static_cast<f64>(block.y),
@@ -312,10 +318,10 @@ void BlockInteraction::update(const vxe::render::Camera& camera, const PlayerSta
         const BlockPos below{.x = place.x, .y = place.y - 1, .z = place.z};
         const BlockPos above{.x = place.x, .y = place.y + 1, .z = place.z};
         const BlockStateId upper = m_catalog.tallUpper(state);
-        // Plants do not grow under water: nothing here keeps the water around them.
+        // Plants grow out of water, and waterlogged ones (corals) only in it.
         const bool grounded =
-            !m_catalog.needsSupport(state) ||
-            (m_catalog.isSolid(world.getBlock(below, kAirState)) && !m_catalog.isLiquid(there));
+            !m_catalog.needsSupport(state) || (m_catalog.isSolid(world.getBlock(below, kAirState)) &&
+                                               m_catalog.isLiquid(there) == m_catalog.isWaterlogged(state));
         const bool roomy = upper == kAirState || world.getBlock(above, kUnloaded) == kAirState;
         if (state != kAirState && free && grounded && roomy &&
             (!m_catalog.isSolid(state) || !overlapsPlayer(player, place))) {

@@ -79,6 +79,20 @@ public:
     [[nodiscard]] bool isLiquid(vxe::voxel::BlockStateId state) const {
         return (m_stateFlags.at(state) & 2U) != 0;
     }
+    // Standing in water (waterlogged in the block file): corals, kelp.
+    [[nodiscard]] bool isWaterlogged(vxe::voxel::BlockStateId state) const {
+        return m_renderInfos.at(state).fluid != 0;
+    }
+    // Liquid fills the cell: a liquid, or a block standing in one. The player
+    // swims there.
+    [[nodiscard]] bool isWet(vxe::voxel::BlockStateId state) const {
+        return isLiquid(state) || isWaterlogged(state);
+    }
+    // What is left when the block goes: the water a waterlogged block stood
+    // in, or air.
+    [[nodiscard]] vxe::voxel::BlockStateId emptied(vxe::voxel::BlockStateId state) const {
+        return m_renderInfos.at(state).fluid;
+    }
     // Placing a block replaces it (plants). A slab only while it is one snow
     // layer thin (2 sixteenths), as a deeper one is worth keeping.
     [[nodiscard]] bool isReplaceable(vxe::voxel::BlockStateId state) const {

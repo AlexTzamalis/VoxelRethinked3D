@@ -137,6 +137,11 @@ struct TerrainBlocks {
     vxe::voxel::BlockStateId deepLapis = 0;
     vxe::voxel::BlockStateId deepRedstone = 0;
     vxe::voxel::BlockStateId lava = 0;
+    // Reefs in warm seas: coral blocks, corals and fans, one of each color
+    // (blue, pink, purple, red, yellow).
+    std::array<vxe::voxel::BlockStateId, 5> coralBlocks{};
+    std::array<vxe::voxel::BlockStateId, 5> corals{};
+    std::array<vxe::voxel::BlockStateId, 5> coralFans{};
     vxe::voxel::BlockStateId floor = 0;
     std::array<vxe::voxel::BlockStateId, 9> soils{}; // What plants and trees root in.
     std::array<TreeBlocks, kTreeKindCount> trees{};

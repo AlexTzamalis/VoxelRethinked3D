@@ -17,6 +17,9 @@
 #   tint_faces       Which faces the tint colors, like ["top", "side"]. Default all.
 #   solid            The player collides with it. Default true, false for invisible.
 #   liquid           Slows the player, and blocks can be placed into it. Default false.
+#   waterlogged      Stands in water (corals): the cell is water around it, the player
+#                    swims there, breaking it leaves the water, and it is only placed
+#                    in water. Default false.
 #   [textures]       Texture keys from the texture pack (G2): all, side, top, bottom,
 #                    or one face: east (+X), west (-X), up, down, south (+Z),
 #                    north (-Z). The most specific one wins.

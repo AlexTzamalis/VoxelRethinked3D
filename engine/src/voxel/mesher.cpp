@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <numeric>
 #include <utility>
 
 namespace vxe::voxel {
@@ -136,7 +137,9 @@ MeshOptions MesherSettings::options() const {
 Mesher::Mesher(stats::StatRegistry* stats)
     : m_classes(kMaxBlockStates, u8{0})
     , m_heights(kMaxBlockStates, u8{0})
+    , m_cullKeys(kMaxBlockStates)
     , m_stats(stats) {
+    std::iota(m_cullKeys.begin(), m_cullKeys.end(), BlockStateId{0});
     m_floodStack.reserve(1024);
     if (m_stats != nullptr) {
         const auto add = [this](const stats::StatDesc& desc) {
@@ -165,6 +168,8 @@ void Mesher::prepare(const BlockRegistryView& blocks, const MeshOptions& options
     // the bytes the last view set need clearing.
     std::fill_n(m_classes.begin(), static_cast<std::ptrdiff_t>(m_preparedSize), u8{0});
     std::fill_n(m_heights.begin(), static_cast<std::ptrdiff_t>(m_preparedSize), u8{0});
+    std::iota(m_cullKeys.begin(), m_cullKeys.begin() + static_cast<std::ptrdiff_t>(m_preparedSize),
+              BlockStateId{0});
     m_preparedSize = std::min(blocks.size(), m_classes.size());
     for (usize state = 0; state < m_preparedSize; ++state) {
         const BlockRenderInfo& info = blocks.info(static_cast<BlockStateId>(state));
@@ -183,12 +188,20 @@ void Mesher::prepare(const BlockRegistryView& blocks, const MeshOptions& options
         case RenderLayer::Invisible:
             break;
         }
+        // A waterlogged plant is the liquid as far as faces go, plus its planes.
+        const BlockRenderInfo* fluid =
+            info.fluid != 0 && info.fluid < blocks.size() ? &blocks.info(info.fluid) : nullptr;
+        if (fluid != nullptr && fluid->layer == RenderLayer::Translucent) {
+            kind = Kind::Translucent;
+        }
+        m_cullKeys[state] = fluid != nullptr ? info.fluid : static_cast<BlockStateId>(state);
         u8 value = static_cast<u8>(kind);
         if (info.layer == RenderLayer::Plant || (options.advancedLeaves && info.bushyLayer != 0)) {
             value = static_cast<u8>(value | kPlantBit);
         }
         if (kind == Kind::Cutout || kind == Kind::Translucent) {
-            value = static_cast<u8>(value | (info.cullsSameType ? kCullsSameBit : 0U));
+            const bool culls = fluid != nullptr ? fluid->cullsSameType : info.cullsSameType;
+            value = static_cast<u8>(value | (culls ? kCullsSameBit : 0U));
         }
         if (info.height != 0 && info.isVisible() && info.layer != RenderLayer::Plant) {
             // A slab is in no mask: it hides nothing, and its faces come from addShapes.
@@ -257,11 +270,14 @@ void Mesher::buildSameStateMasks(const ChunkSnapshot& snapshot) {
     // equal their neighbor after them along X (bit x: x and x + 1), above
     // them (y + 1) and behind them (z + 1). Only rows near see through
     // blocks are compared; the rest stay zero.
+    // States compare by their cull key, so water and a coral standing in
+    // water count as the same.
     const BlockStateId* states = snapshot.states.data();
-    const auto equalMask = [](const BlockStateId* a, const BlockStateId* b) {
+    const BlockStateId* keys = m_cullKeys.data();
+    const auto equalMask = [keys](const BlockStateId* a, const BlockStateId* b) {
         u32 mask = 0;
         for (u32 x = 0; x < kSnapshotSize; ++x) {
-            mask |= static_cast<u32>(a[x] == b[x]) << x;
+            mask |= static_cast<u32>(keys[a[x]] == keys[b[x]]) << x;
         }
         return mask;
     };
@@ -400,7 +416,10 @@ Mesher::FaceKey Mesher::faceKey(const ChunkSnapshot& snapshot, const BlockRegist
     };
     const u32 ao = cornerAo(left, down, opaqueAt(-1, -1)) | (cornerAo(right, down, opaqueAt(1, -1)) << 2U) |
                    (cornerAo(right, up, opaqueAt(1, 1)) << 4U) | (cornerAo(left, up, opaqueAt(-1, 1)) << 6U);
-    const u32 layer = std::min<u32>(blocks.info(state).textureLayer(face), 0x3FFFU);
+    // A waterlogged block's faces are its liquid's.
+    const BlockRenderInfo& info = blocks.info(state);
+    const BlockRenderInfo& look = info.fluid != 0 ? blocks.info(info.fluid) : info;
+    const u32 layer = std::min<u32>(look.textureLayer(face), 0x3FFFU);
     // A face is lit by the open cell in front of it (Section 14): its sky
     // light in bits 22 to 25, its block light in 26 to 29.
     const usize front = (static_cast<usize>(frontRow) * kRow) + static_cast<usize>(frontBit);

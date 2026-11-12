@@ -116,7 +116,7 @@ TEST_CASE("The world holds every biome, and none takes over") {
         MESSAGE(kBiomeNames[i] << ": " << 100.0 * static_cast<f64>(counts[i]) / static_cast<f64>(total)
                                << "%");
         CHECK(counts[i] > 0);
-        if (i > static_cast<usize>(Biome::FrozenOcean)) {
+        if (i > static_cast<usize>(Biome::FrozenOcean) && i != static_cast<usize>(Biome::LukewarmOcean)) {
             CHECK(static_cast<f64>(counts[i]) < static_cast<f64>(land) * 0.4);
         }
     }

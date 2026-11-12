@@ -415,3 +415,50 @@ TEST_CASE("Underground holds tunnels, caverns, deepslate, lava and ore veins in 
         }
     }
 }
+
+TEST_CASE("Warm seas grow coral reefs that stand in water") {
+    const TerrainBlocks& ids = blocks();
+    const Terrain terrain(ids, 12345, PlanetPreset{}, false);
+    const auto sea = terrain.findBiome(vr::Biome::WarmOcean, 0, 0);
+    REQUIRE(sea.has_value());
+    const vxe::ChunkPos middle = vxe::toChunk(sea.value_or(vxe::BlockPos{}));
+    auto states = std::make_unique<std::array<vxe::voxel::BlockStateId, vxe::kChunkVolume>>();
+    const auto isCoral = [&](vxe::voxel::BlockStateId state) {
+        return std::ranges::find(ids.corals, state) != ids.corals.end() ||
+               std::ranges::find(ids.coralFans, state) != ids.coralFans.end();
+    };
+    std::size_t corals = 0;
+    std::size_t blocksOfCoral = 0;
+    for (vxe::i32 cz = middle.z - 2; cz <= middle.z + 2; ++cz) {
+        for (vxe::i32 cx = middle.x - 2; cx <= middle.x + 2; ++cx) {
+            for (vxe::i32 cy = 0; cy <= 4; ++cy) {
+                terrain.generate({.x = cx, .y = cy, .z = cz}, *states);
+                for (vxe::u32 i = 0; i < vxe::kChunkVolume; ++i) {
+                    const vxe::voxel::BlockStateId state = (*states)[i];
+                    blocksOfCoral +=
+                        std::ranges::find(ids.coralBlocks, state) != ids.coralBlocks.end() ? 1U : 0U;
+                    if (!isCoral(state)) {
+                        continue;
+                    }
+                    ++corals;
+                    const vxe::LocalPos l = vxe::LocalPos::fromIndex(static_cast<vxe::u16>(i));
+                    // On something solid, under water.
+                    if (l.y > 0) {
+                        const auto below =
+                            (*states)[vxe::LocalPos{.x = l.x, .y = static_cast<vxe::u8>(l.y - 1), .z = l.z}
+                                          .index()];
+                        CHECK(below != vxe::voxel::kAirState);
+                        CHECK(below != ids.water);
+                    }
+                    if (l.y < 15) {
+                        CHECK((*states)[vxe::LocalPos{.x = l.x, .y = static_cast<vxe::u8>(l.y + 1), .z = l.z}
+                                            .index()] == ids.water);
+                    }
+                }
+            }
+        }
+    }
+    MESSAGE("Corals " << corals << ", coral blocks " << blocksOfCoral);
+    CHECK(corals > 20);
+    CHECK(blocksOfCoral > 10);
+}

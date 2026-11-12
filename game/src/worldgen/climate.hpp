@@ -40,8 +40,9 @@ enum class Biome : vxe::u8 {
     Jungle,
     DeepSpruceForest,
     MapleForest,
+    LukewarmOcean, // Last, so the numbers of the others stay.
 };
-inline constexpr vxe::usize kBiomeCount = 29;
+inline constexpr vxe::usize kBiomeCount = 30;
 
 // Biome names for tools and logs.
 inline constexpr std::array<std::string_view, kBiomeCount> kBiomeNames = {
@@ -49,7 +50,7 @@ inline constexpr std::array<std::string_view, kBiomeCount> kBiomeNames = {
     "Stony Shore",  "Swamp",        "Snowy Peaks",   "Rocky Peaks",        "Wooded Slopes", "Meadow",
     "Snowy Plains", "Snowy Taiga",  "Taiga",         "Shrubland",          "Plains",        "Flower Plains",
     "Forest",       "Birch Forest", "Flower Forest", "Dark Forest",        "Pale Forest",   "Savanna",
-    "Desert",       "Badlands",     "Jungle",        "Deep Spruce Forest", "Maple Forest",
+    "Desert",       "Badlands",     "Jungle",        "Deep Spruce Forest", "Maple Forest",  "Lukewarm Ocean",
 };
 
 // The weather of one position.

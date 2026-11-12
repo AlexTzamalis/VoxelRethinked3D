@@ -34,6 +34,7 @@ constexpr BlockStateId kPlant = 6;    // Crossed planes, 4 variations from layer
 constexpr BlockStateId kBushy = 7;    // Leaves with a bushy plane at layer 70.
 constexpr BlockStateId kSnow = 8;     // A slab 4 sixteenths tall, texture 80.
 constexpr BlockStateId kDeepSnow = 9; // 8 sixteenths.
+constexpr BlockStateId kCoral = 10;   // A plant standing in water (waterlogged), texture 90.
 
 std::shared_ptr<voxel::BlockRegistryView> testBlocks() {
     voxel::BlockRegistryBuilder builder;
@@ -59,6 +60,9 @@ std::shared_ptr<voxel::BlockRegistryView> testBlocks() {
         snow.faceTextureLayer.fill(80);
         REQUIRE(builder.add(snow));
     }
+    BlockRenderInfo coral{.layer = RenderLayer::Plant, .lightOpacity = 0, .fluid = kWater};
+    coral.faceTextureLayer.fill(90);
+    REQUIRE(builder.add(coral));
     return builder.build();
 }
 
@@ -315,6 +319,43 @@ TEST_CASE("Translucent and cutout blocks follow their culling rules") {
     const ChunkMesh fast = meshOf(leaves, {.fancyLeaves = false});
     CHECK(fast.layer(MeshLayer::Cutout).empty());
     CHECK(fast.layer(MeshLayer::Opaque).size() == 6); // Solid leaves merge like stone.
+}
+
+TEST_CASE("A waterlogged plant counts as water around it, with its planes inside") {
+    TestSnapshot pool;
+    for (i32 y = 0; y < 8; ++y) {
+        for (i32 z = 0; z < 16; ++z) {
+            for (i32 x = 0; x < 16; ++x) {
+                pool.set(x, y, z, kWater);
+            }
+        }
+    }
+    pool.set(5, 3, 5, kCoral); // Deep in the water.
+    pool.set(9, 7, 9, kCoral); // At the surface, open to the air above.
+    const ChunkMesh mesh = meshOf(pool);
+    // No faces between the water and the corals: the pool's sides and bottom
+    // stay one quad each, and the surface above the upper coral is water (it
+    // merges apart from its neighbors, which only costs a few quads).
+    for (const BlockFace face :
+         {BlockFace::PosX, BlockFace::NegX, BlockFace::NegY, BlockFace::PosZ, BlockFace::NegZ}) {
+        CHECK(mesh.group(MeshLayer::Translucent, face).size() == 1);
+    }
+    usize top = 0;
+    for (const PackedQuad& quad : mesh.group(MeshLayer::Translucent, BlockFace::PosY)) {
+        top += usize{quad.width()} * quad.height();
+    }
+    CHECK(top == 256);
+    for (const PackedQuad& quad : mesh.layer(MeshLayer::Translucent)) {
+        CHECK(quad.textureLayer() == 30);
+    }
+    CHECK(mesh.group(MeshLayer::Plants, BlockFace::PosX).size() == 4); // Two planes per coral.
+
+    // In open air the coral's cell still shows its water.
+    TestSnapshot alone;
+    alone.set(5, 5, 5, kCoral);
+    alone.set(5, 4, 5, kStone);
+    const ChunkMesh lone = meshOf(alone);
+    CHECK(lone.layer(MeshLayer::Translucent).size() == 5); // The bottom rests on the stone.
 }
 
 TEST_CASE("Ambient occlusion darkens corners next to blocks and flips the diagonal") {

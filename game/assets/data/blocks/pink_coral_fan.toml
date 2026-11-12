@@ -2,4 +2,5 @@ name = "pink_coral_fan"
 display_name = "Pink Coral Fan"
 category = "Underwater"
 layer = "plant"
+waterlogged = true
 variations = ["underwater/pink_coral_fan"]

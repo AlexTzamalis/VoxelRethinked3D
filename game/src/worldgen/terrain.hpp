@@ -194,6 +194,8 @@ private:
     void placeFeatures(vxe::ChunkPos chunk, std::span<vxe::voxel::BlockStateId, vxe::kChunkVolume> out) const;
     void placeTrees(vxe::ChunkPos chunk, std::span<vxe::voxel::BlockStateId, vxe::kChunkVolume> out) const;
     void placePlants(vxe::ChunkPos chunk, std::span<vxe::voxel::BlockStateId, vxe::kChunkVolume> out) const;
+    // Coral reefs on the floor of warm and lukewarm seas.
+    void placeReefs(vxe::ChunkPos chunk, std::span<vxe::voxel::BlockStateId, vxe::kChunkVolume> out) const;
     // Snow on the highest blocks of snowy biomes, ice on their still water.
     void coverSnow(vxe::ChunkPos chunk, std::span<vxe::voxel::BlockStateId, vxe::kChunkVolume> out) const;
     [[nodiscard]] vxe::voxel::BlockStateId snowLayerAt(vxe::i64 x, vxe::i64 z, vxe::u8 depth) const noexcept;

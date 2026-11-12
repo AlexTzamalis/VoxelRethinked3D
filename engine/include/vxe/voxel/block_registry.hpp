@@ -77,6 +77,11 @@ struct BlockRenderInfo {
     // standing on the floor of its cell (snow layers). Slabs hide no neighbor
     // faces and get their own quads, with the height in the spare quad bits.
     u8 height = 0;
+    // A block standing in liquid (a coral in the sea): the liquid's state, 0
+    // for none. The cell meshes as that liquid too, so the liquid around it
+    // shows no faces against it, and its own faces where it meets air take
+    // the liquid's textures.
+    u16 fluid = 0;
 
     [[nodiscard]] constexpr bool isOpaque() const noexcept { return layer == RenderLayer::Opaque; }
     [[nodiscard]] constexpr bool isVisible() const noexcept { return layer != RenderLayer::Invisible; }

@@ -2,6 +2,11 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#159] 2026-11-12, Coral reefs, waterlogged blocks, Lukewarm Ocean
+### Added
+- Waterlogged blocks (waterlogged = true in a block file, BlockRenderInfo::fluid in the engine): the block stands in water. The mesher counts the cell as that water, so the water around shows no faces against it, and where it meets air the faces are water's. The player swims there, breaking it leaves the water, and it can only be placed in water. Corals and coral fans are waterlogged.
+- Coral reefs: in Warm Oceans colonies of one color each (blue, pink, purple, red, yellow) cover about half the floor, with mounds of coral blocks up to 3 high and corals and fans on them; Lukewarm Oceans have smaller, scattered colonies.
+- Lukewarm Ocean biome (sea between 15 and 23 degrees), added last so the other biome numbers stay.
 ## [#158] 2026-11-12, Deepslate, deepslate ores and lava lakes
 ### Added
 - Deepslate below height 0, mixing into stone between 0 and 8 like Minecraft, with tuff and basalt in it. Deepslate Tiles as a building block.

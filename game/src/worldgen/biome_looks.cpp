@@ -100,6 +100,12 @@ constexpr std::array<Recipe, kBiomeCount> kRecipes = {{
      .patch = "clay",
      .patchShare = 0.08F},
     {.biome = Biome::FrozenOcean, .top = "snow_block", .under = "gravel", .floor = "gravel", .snowDepth = 1},
+    {.biome = Biome::LukewarmOcean,
+     .top = "sand",
+     .under = "sand",
+     .floor = "sand",
+     .patch = "gravel",
+     .patchShare = 0.12F},
     {.biome = Biome::Beach,
      .top = "sand",
      .under = "sand",
@@ -598,6 +604,12 @@ vxe::Result<TerrainBlocks> TerrainBlocks::fromCatalog(const BlockCatalog& catalo
     blocks.deepLapis = state("deepslate_lapis_ore");
     blocks.deepRedstone = state("deepslate_redstone_ore");
     blocks.lava = state("lava");
+    constexpr std::array<std::string_view, 5> kCoralColors = {"blue", "pink", "purple", "red", "yellow"};
+    for (std::size_t i = 0; i < kCoralColors.size(); ++i) {
+        blocks.coralBlocks.at(i) = state(std::format("{}_coral_block", kCoralColors.at(i)));
+        blocks.corals.at(i) = state(std::format("{}_coral", kCoralColors.at(i)));
+        blocks.coralFans.at(i) = state(std::format("{}_coral_fan", kCoralColors.at(i)));
+    }
     blocks.floor = state("foundation_stone");
     blocks.soils = {
         state("grass_block"),       state("dirt"), state("coarse_dirt"), state("podzol"),
