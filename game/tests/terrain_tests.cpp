@@ -305,3 +305,59 @@ TEST_CASE("Threads sharing columns get what one thread builds alone") {
     }
     CHECK(wrong.load() == 0);
 }
+
+TEST_CASE("Underground holds tunnels, caverns and ore veins in their bands") {
+    const Terrain terrain(blocks(), 12345, PlanetPreset{}, false);
+    const TerrainBlocks& ids = blocks();
+    const vxe::BlockPos land = terrain.spawnColumn();
+    const vxe::ChunkPos middle = vxe::toChunk(land);
+    auto states = std::make_unique<std::array<vxe::voxel::BlockStateId, vxe::kChunkVolume>>();
+    std::size_t solid = 0;
+    std::size_t air = 0;
+    std::array<std::size_t, 6> ores{};
+    const std::array<vxe::voxel::BlockStateId, 6> kinds = {ids.coal, ids.copper,  ids.iron,
+                                                           ids.gold, ids.diamond, ids.emerald};
+    const std::array<vxe::i64, 6> lowest = {0, -16, -64, -160, -1000, 120};
+    const std::array<vxe::i64, 6> highest = {320, 128, 256, 32, -24, 480};
+    // A slab of chunks from well below the surface down to deep rock.
+    for (vxe::i32 cy = -8; cy <= 2; ++cy) {
+        for (vxe::i32 cz = middle.z - 3; cz <= middle.z + 3; ++cz) {
+            for (vxe::i32 cx = middle.x - 3; cx <= middle.x + 3; ++cx) {
+                const vxe::ChunkPos chunk{.x = cx, .y = cy, .z = cz};
+                terrain.generate(chunk, *states);
+                const vxe::BlockPos origin = vxe::chunkOrigin(chunk);
+                for (vxe::u32 i = 0; i < vxe::kChunkVolume; ++i) {
+                    const vxe::LocalPos local = vxe::LocalPos::fromIndex(static_cast<vxe::u16>(i));
+                    const vxe::i64 y = origin.y + local.y;
+                    if (y > terrain.surfaceHeight(origin.x + local.x, origin.z + local.z) - 12) {
+                        continue; // Only rock well under the ground.
+                    }
+                    const vxe::voxel::BlockStateId state = (*states)[i];
+                    if (state == vxe::voxel::kAirState) {
+                        ++air;
+                        continue;
+                    }
+                    ++solid;
+                    for (std::size_t k = 0; k < kinds.size(); ++k) {
+                        if (state == kinds.at(k)) {
+                            ++ores.at(k);
+                            CHECK(y >= lowest.at(k));
+                            CHECK(y <= highest.at(k));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    const double caves = static_cast<double>(air) / static_cast<double>(air + solid);
+    MESSAGE("Cave share " << caves << ", ores: coal " << ores[0] << ", copper " << ores[1] << ", iron "
+                          << ores[2] << ", gold " << ores[3] << ", diamond " << ores[4]);
+    // Caves take a few percent of the rock, not most of it and not none.
+    CHECK(caves > 0.01);
+    CHECK(caves < 0.25);
+    CHECK(ores[0] > 0);
+    CHECK(ores[1] > 0);
+    CHECK(ores[2] > 0);
+    CHECK(ores[3] > 0);
+    CHECK(ores[4] > 0);
+}

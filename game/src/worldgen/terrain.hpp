@@ -142,6 +142,11 @@ public:
 
 private:
     struct Column;
+    // Caves and ores (G3.4).
+    [[nodiscard]] bool isCave(const Column& at, vxe::usize columnIndex, vxe::i64 x, vxe::i64 y, vxe::i64 z,
+                              vxe::f64 depth, vxe::f64 tunnelA, vxe::f64 tunnelB,
+                              vxe::f64 cavern) const noexcept;
+    void placeOres(vxe::ChunkPos chunk, std::span<vxe::voxel::BlockStateId, vxe::kChunkVolume> out) const;
     struct SharedColumns;
 
     // The chunk column's heights, from this thread's cache. The reference

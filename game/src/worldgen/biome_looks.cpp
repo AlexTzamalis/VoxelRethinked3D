@@ -585,6 +585,9 @@ vxe::Result<TerrainBlocks> TerrainBlocks::fromCatalog(const BlockCatalog& catalo
     blocks.coal = state("coal_ore");
     blocks.iron = state("iron_ore");
     blocks.gold = state("gold_ore");
+    blocks.copper = state("copper_ore");
+    blocks.diamond = state("diamond_ore");
+    blocks.emerald = state("emerald_ore");
     blocks.floor = state("foundation_stone");
     blocks.soils = {
         state("grass_block"),       state("dirt"), state("coarse_dirt"), state("podzol"),

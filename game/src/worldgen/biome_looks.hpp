@@ -122,6 +122,9 @@ struct TerrainBlocks {
     vxe::voxel::BlockStateId coal = 0;
     vxe::voxel::BlockStateId iron = 0;
     vxe::voxel::BlockStateId gold = 0;
+    vxe::voxel::BlockStateId copper = 0;
+    vxe::voxel::BlockStateId diamond = 0;
+    vxe::voxel::BlockStateId emerald = 0;
     vxe::voxel::BlockStateId floor = 0;
     std::array<vxe::voxel::BlockStateId, 9> soils{}; // What plants and trees root in.
     std::array<TreeBlocks, kTreeKindCount> trees{};

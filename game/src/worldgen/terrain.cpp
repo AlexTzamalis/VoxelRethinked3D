@@ -119,6 +119,42 @@ f64 fieldAt(const ChunkField& field, u32 x, u32 y, u32 z) noexcept {
     return below + ((layer(gy + 1) - below) * ty);
 }
 
+// A 3D field on a grid of 4 blocks in every direction, 5 x 5 x 5 points for a
+// chunk: caves need finer steps upwards than rock does, and still far fewer
+// noise samples than one per block.
+using CaveField = std::array<f64, usize{5} * 5 * 5>;
+
+template <typename Noise>
+void fillCaveField(CaveField& field, const vxe::BlockPos& origin, Noise&& noise) noexcept {
+    for (usize y = 0; y < 5; ++y) {
+        for (usize z = 0; z < 5; ++z) {
+            for (usize x = 0; x < 5; ++x) {
+                field[(y * 25) + (z * 5) + x] =
+                    noise(static_cast<f64>(origin.x) + (static_cast<f64>(x) * 4.0),
+                          static_cast<f64>(origin.y) + (static_cast<f64>(y) * 4.0),
+                          static_cast<f64>(origin.z) + (static_cast<f64>(z) * 4.0));
+            }
+        }
+    }
+}
+
+f64 caveFieldAt(const CaveField& field, u32 x, u32 y, u32 z) noexcept {
+    const usize gx = x / 4;
+    const usize gy = y / 4;
+    const usize gz = z / 4;
+    const f64 tx = static_cast<f64>(x % 4) / 4.0;
+    const f64 ty = static_cast<f64>(y % 4) / 4.0;
+    const f64 tz = static_cast<f64>(z % 4) / 4.0;
+    const auto layer = [&](usize at) {
+        const f64* row = &field[(at * 25) + (gz * 5) + gx];
+        const f64 near = row[0] + ((row[1] - row[0]) * tx);
+        const f64 far = row[5] + ((row[6] - row[5]) * tx);
+        return near + ((far - near) * tz);
+    };
+    const f64 below = layer(gy);
+    return below + ((layer(gy + 1) - below) * ty);
+}
+
 // A number from noise-like patches: above `1 - 2 * share` for about that share
 // of the ground. Two scales, so patch edges are ragged instead of round blobs.
 bool inPatch(u64 seed, f64 x, f64 z, f64 share) noexcept {
@@ -928,17 +964,10 @@ std::optional<vxe::BlockPos> Terrain::findBiome(Biome biome, i64 fromX, i64 from
 }
 
 BlockStateId Terrain::stoneAt(i64 x, i64 y, i64 z, f64 a, f64 b) const noexcept {
-    // Ores by depth, then rock kinds in large blobs from two slow fields.
-    const f64 roll = unit(hash3(m_seed + 3, x, y, z));
-    if (roll < 0.012) {
-        return m_blocks.coal;
-    }
-    if (roll < 0.018 && y < 48) {
-        return m_blocks.iron;
-    }
-    if (roll < 0.0205 && y < 24) {
-        return m_blocks.gold;
-    }
+    // Rock kinds in large blobs from two slow fields; ores come in veins
+    // afterwards (placeOres).
+    static_cast<void>(x);
+    static_cast<void>(z);
     if (a > 0.3) {
         return m_blocks.granite;
     }
@@ -1009,6 +1038,23 @@ void Terrain::generate(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkV
                   [&](f64 x, f64 y, f64 z) { return vxe::noise::fbm3(m_seed + 43, x, y, z, shape) * 1.8; });
     }
     const bool anyStone = origin.y <= at.highest + leanReach;
+    // Caves (G3.4): long round tunnels where two noise fields both pass zero,
+    // and wide caverns deep down where a slow field runs high.
+    thread_local CaveField tunnelA;
+    thread_local CaveField tunnelB;
+    thread_local CaveField cavern;
+    if (anyStone) {
+        fillCaveField(tunnelA, origin, [&](f64 x, f64 y, f64 z) {
+            return vxe::noise::gradient3(m_seed + 71, x / 52.0, y / 30.0, z / 52.0);
+        });
+        fillCaveField(tunnelB, origin, [&](f64 x, f64 y, f64 z) {
+            return vxe::noise::gradient3(m_seed + 72, x / 52.0, y / 30.0, z / 52.0);
+        });
+        fillCaveField(cavern, origin, [&](f64 x, f64 y, f64 z) {
+            return vxe::noise::gradient3(m_seed + 74, x / 96.0, y / 52.0, z / 96.0) +
+                   (vxe::noise::gradient3(m_seed + 75, x / 37.0, y / 25.0, z / 37.0) * 0.45);
+        });
+    }
     if (anyStone) {
         fillField(rockA, origin, [&](f64 x, f64 y, f64 z) {
             return vxe::noise::gradient3(m_seed + 5, x / 34.0, y / 22.0, z / 34.0);
@@ -1037,15 +1083,11 @@ void Terrain::generate(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkV
             continue;
         }
         const f64 depth = top - height;
-        // Caves: winding tunnels where 3D noise is near zero, kept away from
-        // the surface so lakes do not drain into them.
-        if (depth > 6.0) {
-            const f64 cave = vxe::noise::gradient3(m_seed + 11, static_cast<f64>(x) / 18.0,
-                                                   static_cast<f64>(y) / 12.0, static_cast<f64>(z) / 18.0);
-            if (std::abs(cave) < 0.05) {
-                out[index] = vxe::voxel::kAirState;
-                continue;
-            }
+        if (isCave(at, columnIndex, x, y, z, depth, caveFieldAt(tunnelA, local.x, local.y, local.z),
+                   caveFieldAt(tunnelB, local.x, local.y, local.z),
+                   caveFieldAt(cavern, local.x, local.y, local.z))) {
+            out[index] = vxe::voxel::kAirState;
+            continue;
         }
         const BiomeLook& look = m_blocks.biomes[static_cast<usize>(at.biome[columnIndex])];
         const BlockStateId columnTop = at.top[columnIndex];
@@ -1063,6 +1105,9 @@ void Terrain::generate(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkV
                                  fieldAt(rockB, local.x, local.y, local.z));
         }
     }
+    if (anyStone) {
+        placeOres(chunk, out);
+    }
     // Things that stand on the ground only reach chunks near it.
     const i64 highest = at.highest;
     const i64 lowest = at.lowest;
@@ -1072,6 +1117,147 @@ void Terrain::generate(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkV
         placePlants(chunk, out);
     }
     coverSnow(chunk, out);
+}
+
+bool Terrain::isCave(const Column& at, usize columnIndex, i64 x, i64 y, i64 z, f64 depth, f64 tunnelA,
+                     f64 tunnelB, f64 cavern) const noexcept {
+    if (depth <= 1.5) {
+        return false;
+    }
+    // Under lakes, rivers and the sea the roof stays thick, or the water would
+    // stand over open air.
+    const bool wet = at.water[columnIndex] > at.heights[columnIndex];
+    if (wet && depth < 10.0) {
+        return false;
+    }
+    // Tunnels: round, from two fields that are near zero together. They wind
+    // on for hundreds of blocks and cross each other.
+    const f64 radius = 0.085;
+    const bool tunnel = (tunnelA * tunnelA) + (tunnelB * tunnelB) < radius * radius;
+    if (tunnel) {
+        if (depth > 6.0) {
+            return true;
+        }
+        // Near the surface only where the ground opens up: cave mouths.
+        const f64 mouth =
+            vxe::noise::gradient2(m_seed + 78, static_cast<f64>(x) / 70.0, static_cast<f64>(z) / 70.0).value;
+        if (!wet && mouth > 0.45) {
+            return true;
+        }
+    }
+    // Caverns: only deep down, wider the deeper they lie.
+    if (depth > 40.0) {
+        const f64 deeper = std::clamp((depth - 40.0) / 400.0, 0.0, 1.0);
+        if (cavern > 0.62 - (deeper * 0.22)) {
+            return true;
+        }
+    }
+    // Ravines: rare long cracks from the surface down, narrowing towards
+    // their floor.
+    if (!wet && depth < 48.0) {
+        const f64 where =
+            vxe::noise::gradient2(m_seed + 77, static_cast<f64>(x) / 900.0, static_cast<f64>(z) / 900.0)
+                .value;
+        if (where > 0.42) {
+            const f64 crack = std::abs(
+                vxe::noise::gradient2(m_seed + 76, static_cast<f64>(x) / 260.0, static_cast<f64>(z) / 260.0)
+                    .value);
+            const f64 width = 0.016 * (1.0 - (depth / 52.0)) * std::min((where - 0.42) * 8.0, 1.0);
+            if (crack < width) {
+                return true;
+            }
+        }
+    }
+    static_cast<void>(y);
+    return false;
+}
+
+void Terrain::placeOres(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkVolume> out) const {
+    // Each ore in its band of heights, a number of veins per chunk (in
+    // hundredths) and a vein size (blocks), as in modern Minecraft: coal high,
+    // copper and iron in the middle, gold deep, diamonds deepest and emeralds
+    // high in the mountains.
+    struct Ore {
+        BlockStateId block;
+        i64 lowest;
+        i64 highest;
+        u32 veins; // Per chunk, in hundredths.
+        u32 smallest;
+        u32 largest;
+    };
+    const std::array<Ore, 6> ores = {{
+        {.block = m_blocks.coal, .lowest = 0, .highest = 320, .veins = 260, .smallest = 6, .largest = 15},
+        {.block = m_blocks.copper, .lowest = -16, .highest = 128, .veins = 170, .smallest = 5, .largest = 11},
+        {.block = m_blocks.iron, .lowest = -64, .highest = 256, .veins = 190, .smallest = 4, .largest = 9},
+        {.block = m_blocks.gold, .lowest = -160, .highest = 32, .veins = 70, .smallest = 4, .largest = 8},
+        {.block = m_blocks.diamond,
+         .lowest = -1000,
+         .highest = -24,
+         .veins = 45,
+         .smallest = 2,
+         .largest = 7},
+        {.block = m_blocks.emerald, .lowest = 120, .highest = 480, .veins = 40, .smallest = 1, .largest = 3},
+    }};
+    const vxe::BlockPos origin = vxe::chunkOrigin(chunk);
+    const auto host = [this](BlockStateId state) {
+        return state == m_blocks.stone || state == m_blocks.granite || state == m_blocks.andesite ||
+               state == m_blocks.tuff || state == m_blocks.basalt || state == m_blocks.calcite;
+    };
+    u64 rng = hash3(m_seed + 90, chunk.x, chunk.y, chunk.z);
+    const auto next = [&rng] {
+        rng = mix(rng + 0x9E3779B97F4A7C15ULL);
+        return rng;
+    };
+    for (usize kind = 0; kind < ores.size(); ++kind) {
+        const Ore& ore = ores.at(kind);
+        if (ore.block == vxe::voxel::kAirState || origin.y + vxe::kChunkSize <= ore.lowest ||
+            origin.y > ore.highest) {
+            continue;
+        }
+        u32 veins = ore.veins / 100;
+        if (next() % 100 < ore.veins % 100) {
+            ++veins;
+        }
+        for (u32 vein = 0; vein < veins; ++vein) {
+            i64 x = static_cast<i64>(next() % vxe::kChunkSize);
+            i64 y = static_cast<i64>(next() % vxe::kChunkSize);
+            i64 z = static_cast<i64>(next() % vxe::kChunkSize);
+            if (origin.y + y < ore.lowest || origin.y + y > ore.highest) {
+                continue;
+            }
+            const u32 size = ore.smallest + static_cast<u32>(next() % (ore.largest - ore.smallest + 1));
+            // A short random walk: veins come out as lumps and strands.
+            for (u32 step = 0; step < size * 2 && step < 40; ++step) {
+                const i64 worldY = origin.y + y;
+                if (x >= 0 && y >= 0 && z >= 0 && x < vxe::kChunkSize && y < vxe::kChunkSize &&
+                    z < vxe::kChunkSize && worldY >= ore.lowest && worldY <= ore.highest) {
+                    const usize index = vxe::LocalPos{.x = static_cast<vxe::u8>(x),
+                                                      .y = static_cast<vxe::u8>(y),
+                                                      .z = static_cast<vxe::u8>(z)}
+                                            .index();
+                    if (host(out[index])) {
+                        out[index] = ore.block;
+                    }
+                }
+                const u64 move = next();
+                const i64 delta = (move & 1U) != 0U ? 1 : -1;
+                switch ((move >> 1U) % 3U) {
+                case 0:
+                    x += delta;
+                    break;
+                case 1:
+                    y += delta;
+                    break;
+                default:
+                    z += delta;
+                    break;
+                }
+                if (step + 1 >= size && (move >> 8U) % 3U == 0U) {
+                    break;
+                }
+            }
+        }
+    }
 }
 
 void Terrain::placeFeatures(vxe::ChunkPos chunk, std::span<BlockStateId, vxe::kChunkVolume> out) const {

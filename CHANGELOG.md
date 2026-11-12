@@ -2,6 +2,14 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#155] 2026-11-12, Caves and ore veins
+### Added
+- Caves (G3.4): long round tunnels where two noise fields both pass zero, winding for hundreds of blocks and crossing each other; caverns deep under the ground that grow wider with depth; rare ravines that crack the surface open, narrowing towards their floor; and cave mouths where tunnels reach the surface. Under lakes, rivers and the sea the roof stays at least 10 blocks thick. All read from a field of 4 block steps per chunk, so they cost fewer noise samples than the old single tunnel field did per block.
+- Ore veins, grown by a short random walk in stone, granite, andesite, tuff, basalt and calcite, each ore in its band like modern Minecraft: coal (0 to 320), copper (-16 to 128), iron (-64 to 256), gold (-160 to 32), diamond (-1000 to -24) and emerald (120 to 480, the mountains). Copper, diamond and emerald appear in the world for the first time.
+### Removed
+- The old ores scattered as single blocks, and the old thin tunnel field.
+### Changed
+- Unedited chunks of existing worlds come out with the new caves and ores; edited ones stay as they were saved.
 ## [#154] 2026-11-12, F5 views and the player model
 ### Added
 - F5 (rebindable, "Change view") cycles first person, behind the player and in front of the face, four blocks away; the camera is pulled in where a solid block stands in between. Aiming still starts at the eyes. Console command view first|behind|front.
