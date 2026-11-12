@@ -5,12 +5,37 @@
 #include <vxe/platform/events.hpp>
 
 #include <filesystem>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace vxe::platform {
+
+class Window;
+
+// One choice in a file picker's type list, like {"World", "zip"}. `pattern`
+// lists extensions without dots, separated by semicolons ("png;jpg"), or "*".
+struct FileDialogFilter {
+    std::string name;
+    std::string pattern;
+};
+
+struct FileDialogDesc {
+    bool save = false; // A "save as" picker; else one to open an existing file.
+    std::vector<FileDialogFilter> filters;
+    std::filesystem::path defaultLocation; // A folder, or a file name for save pickers.
+};
+
+// Called with the chosen file, or nothing when the player cancelled or the
+// system has no picker.
+using FileDialogDone = std::function<void(std::optional<std::filesystem::path>)>;
+
+namespace detail {
+struct FileDialogResults;
+} // namespace detail
 
 struct PlatformConfig {
     // Start the video subsystem (windows, displays). Off for headless tools,
@@ -65,6 +90,8 @@ public:
     // folder elsewhere. Empty when the system does not say. Works without a
     // Platform.
     [[nodiscard]] static std::filesystem::path roamingDataFolder();
+    // The user's Downloads folder, or empty when the system has none.
+    [[nodiscard]] static std::filesystem::path downloadsFolder();
 
     // Shows a folder in the system's file browser (Explorer on Windows), for
     // buttons like "Open textures folder". Fails if the folder does not exist
@@ -76,11 +103,21 @@ public:
 
     [[nodiscard]] bool hasVideo() const noexcept { return m_video; }
 
+    // Opens the system's file picker over `parent` (may be null) without
+    // waiting for it. `done` runs on the main thread inside a later
+    // pollEvents. Without video, `done` gets nothing in the next pollEvents.
+    void showFileDialog(Window* parent, FileDialogDesc desc, FileDialogDone done);
+
 private:
-    explicit Platform(bool video) noexcept
-        : m_video(video) {}
+    explicit Platform(bool video);
+    void deliverFileDialogs();
+
     bool m_video = false;
     std::vector<PlatformEvent> m_injected;
+    // Filled by the picker's thread, emptied on the main thread.
+    std::shared_ptr<detail::FileDialogResults> m_dialogResults;
+    std::vector<std::pair<u64, FileDialogDone>> m_dialogsOpen;
+    u64 m_nextDialog = 1;
 };
 
 } // namespace vxe::platform

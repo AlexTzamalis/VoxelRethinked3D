@@ -4,6 +4,7 @@
 #include <vxe/core/hash.hpp>
 #include <vxe/io/binary.hpp>
 #include <vxe/io/file_io.hpp>
+#include <vxe/io/zip.hpp>
 
 #include <toml++/toml.hpp>
 
@@ -278,4 +279,55 @@ Result<void> deleteWorld(const fs::path& saves, const std::string& folder) {
     return {};
 }
 
+Result<vxe::usize> exportWorld(const fs::path& saves, const std::string& folder, const fs::path& zipPath) {
+    if (!isPlainFolder(folder)) {
+        return Error(ErrorCode::InvalidArgument, std::format("'{}' is not a world folder", folder));
+    }
+    // The far terrain cache rebuilds itself and can be most of a world's size.
+    constexpr std::array<std::string_view, 1> kCaches = {"lod"};
+    return vxe::io::zipFolder(saves / folder, zipPath, folder, kCaches);
+}
+
+Result<WorldInfo> importWorld(const fs::path& saves, const fs::path& zipPath) {
+    std::error_code error;
+    std::mt19937_64 random(std::random_device{}());
+    // A hidden folder without a world.toml of its own, so the world list
+    // never shows it, even if the game stops halfway.
+    const fs::path unpacked = saves / std::format(".importing_{:x}", random());
+    const auto cleanUp = [&] { fs::remove_all(unpacked, error); };
+    if (const auto files = vxe::io::unzipTo(zipPath, unpacked); !files) {
+        cleanUp();
+        return files.error();
+    }
+    // The world is the zip's root, or one folder in it (how exports pack it).
+    fs::path found;
+    if (fs::exists(unpacked / kInfoFile, error)) {
+        found = unpacked;
+    } else {
+        for (const auto& entry : fs::directory_iterator(unpacked, error)) {
+            if (entry.is_directory(error) && fs::exists(entry.path() / kInfoFile, error)) {
+                found = entry.path();
+                break;
+            }
+        }
+    }
+    if (found.empty()) {
+        cleanUp();
+        return Error(ErrorCode::NotFound,
+                     std::format("{} holds no world (no world.toml)", zipPath.filename().string()));
+    }
+    const std::u8string name = (found == unpacked ? zipPath.stem() : found.filename()).u8string();
+    const std::string folder = uniqueWorldFolder(saves, std::string(name.begin(), name.end()));
+    fs::rename(found, saves / folder, error);
+    cleanUp();
+    if (error) {
+        return Error(ErrorCode::IoError,
+                     std::format("Could not move the world into place: {}", error.message()));
+    }
+    auto info = loadWorldInfo(saves, folder);
+    if (!info) {
+        fs::remove_all(saves / folder, error);
+    }
+    return info;
+}
 } // namespace vr

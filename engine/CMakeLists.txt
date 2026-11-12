@@ -86,6 +86,7 @@ vxe_add_module(jobs
 find_package(zstd CONFIG REQUIRED)
 find_package(lz4 CONFIG REQUIRED)
 find_package(efsw CONFIG REQUIRED)
+find_package(miniz CONFIG REQUIRED) # Zip files: world export and import.
 
 vxe_add_module(io
     SOURCES
@@ -95,6 +96,7 @@ vxe_add_module(io
         src/io/file_watcher.cpp
         src/io/random_access_file.cpp
         src/io/vfs.cpp
+        src/io/zip.cpp
     DEPENDS
         core
         jobs
@@ -102,6 +104,7 @@ vxe_add_module(io
         zstd::libzstd
         lz4::lz4
         efsw::efsw
+        miniz::miniz
 )
 
 # Platform: SDL3 window, OpenGL context creation, OS events, paths (E4.4, ADR-004).

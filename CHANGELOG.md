@@ -2,6 +2,12 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#150] 2026-11-12, World export and import
+### Added
+- Export in Edit World packs a world into a .zip file (the save picker opens in Downloads), leaving out the far terrain cache, which rebuilds itself. A dialog offers to show the file.
+- Import World in the world list adds a world from a .zip file: world.toml at the zip's root or in one folder of it. The world gets a folder of its own, is selected, and a zip without a world leaves nothing behind.
+- io::zipFolder and io::unzipTo on miniz (MIT, new in vcpkg.json): wide file names on Windows, and an archive entry that would land outside the target folder fails the whole unpack.
+- platform::Platform::showFileDialog: the system's open and save pickers without blocking, answered on the main thread; Platform::downloadsFolder.
 ## [#149] 2026-11-12, Player files in %APPDATA%\.voxelrethinked
 ### Added
 - Worlds, settings, logs, overlay captures, screenshots, texture packs the player adds (resourcepacks/) and shader packs (shaderpacks/, empty for now) live in %APPDATA%\.voxelrethinked on Windows (~/.voxelrethinked elsewhere), shared by every build, like .minecraft. What ships with the program (assets, sounds, the default pack in textures/) stays beside it. EngineConfig::userFolder, platform::Platform::roamingDataFolder.

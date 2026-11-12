@@ -3,6 +3,8 @@
 #include <vxe/config/settings.hpp>
 #include <vxe/input/input.hpp>
 #include <vxe/jobs/job_system.hpp>
+#include <vxe/platform/platform.hpp>
+#include <vxe/platform/window.hpp>
 #include <vxe/render/texture_pack_manager.hpp>
 #include <vxe/ui/ui_context.hpp>
 
@@ -19,6 +21,8 @@ struct MenuServices {
     vxe::jobs::JobSystem& jobs;
     std::filesystem::path saves;                      // The worlds' folder (saves:/).
     vxe::render::TexturePackManager* packs = nullptr; // Nothing without a renderer.
+    vxe::platform::Platform* platform = nullptr;      // File pickers.
+    vxe::platform::Window* window = nullptr;          // Parent of file pickers; may be null.
 };
 
 } // namespace vr

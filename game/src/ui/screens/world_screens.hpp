@@ -8,6 +8,7 @@
 #include <vxe/ui/screen.hpp>
 #include <vxe/ui/widgets.hpp>
 
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -34,6 +35,7 @@ public:
 
 private:
     void load();
+    void importFrom(const std::filesystem::path& zip);
     void removeWorld(const std::string& folder);
     void rebuildList();
     void select(const std::string& folder);
@@ -55,6 +57,8 @@ private:
     vxe::ui::Button* m_deleteButton = nullptr;
     vxe::ui::Button* m_recreateButton = nullptr;
     std::vector<std::pair<std::string, vxe::ui::Button*>> m_rows;
+    std::shared_ptr<std::pair<std::string, std::string>> m_imported; // Folder or error of a running import.
+    std::shared_ptr<int> m_life = std::make_shared<int>(0); // Expires with the screen (file pickers).
 };
 
 // Create World (Section 19.3, G5.2): tabs for the name, the seed and world,
@@ -123,6 +127,9 @@ private:
     vxe::ui::TextField* m_name = nullptr;
     vxe::usize m_premap = 0;
     vxe::usize m_quality = 0;
+    std::shared_ptr<std::string> m_exported; // Error of a running export, empty when it worked.
+    std::filesystem::path m_exportPath;
+    std::shared_ptr<int> m_life = std::make_shared<int>(0);
 };
 
 } // namespace vr

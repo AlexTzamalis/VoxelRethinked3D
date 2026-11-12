@@ -85,4 +85,18 @@ struct WorldInfo {
 // `saves` that holds a world.toml, so a bad name can never reach other files.
 [[nodiscard]] vxe::Result<void> deleteWorld(const std::filesystem::path& saves, const std::string& folder);
 
+// Packs a world into a zip file (G5.5): the world's folder as the zip's one
+// top folder, without the far terrain cache, which rebuilds itself. Blocking:
+// call from an IO job. Returns the files packed.
+[[nodiscard]] vxe::Result<vxe::usize> exportWorld(const std::filesystem::path& saves,
+                                                  const std::string& folder,
+                                                  const std::filesystem::path& zipPath);
+
+// Unpacks a world from a zip file into a new folder of `saves` and reads it:
+// the zip may hold world.toml at its root or in one folder (as exports do).
+// The folder name comes from that folder or the zip's name, made unique.
+// Nothing is left behind when the zip holds no readable world. Blocking: call
+// from an IO job.
+[[nodiscard]] vxe::Result<WorldInfo> importWorld(const std::filesystem::path& saves,
+                                                 const std::filesystem::path& zipPath);
 } // namespace vr

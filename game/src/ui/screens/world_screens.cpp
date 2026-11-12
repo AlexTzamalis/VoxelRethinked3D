@@ -171,6 +171,22 @@ void WorldSelectScreen::build(vxe::ui::Widget& root) {
         }
     });
     folder.setTooltip("Shows the selected world's folder, or the folder of all worlds.");
+    auto& import = wideButton(middle, "Import World", [this] {
+        if (m_services.platform == nullptr || m_task.running()) {
+            return;
+        }
+        // The screen may close before the player picks a file.
+        m_services.platform->showFileDialog(
+            m_services.window,
+            {.filters = {{.name = "World (zip)", .pattern = "zip"}},
+             .defaultLocation = vxe::platform::Platform::downloadsFolder()},
+            [this, life = std::weak_ptr<int>(m_life)](std::optional<std::filesystem::path> chosen) {
+                if (!life.expired() && chosen) {
+                    importFrom(*chosen);
+                }
+            });
+    });
+    import.setTooltip("Adds a world from a .zip file, such as one made with Export in Edit World.");
     auto& bottom = buttonRow(panel);
     m_editButton = &wideButton(bottom, "Edit", [this] {
         if (const WorldInfo* world = selected(); world != nullptr) {
@@ -199,6 +215,25 @@ void WorldSelectScreen::load() {
     auto loaded = std::make_shared<std::vector<WorldInfo>>();
     m_loaded = loaded;
     m_task.start(m_services.jobs, [loaded, saves = m_services.saves] { *loaded = scanWorlds(saves); });
+}
+
+void WorldSelectScreen::importFrom(const std::filesystem::path& zip) {
+    if (m_task.running()) {
+        return;
+    }
+    auto loaded = std::make_shared<std::vector<WorldInfo>>();
+    m_loaded = loaded;
+    auto result = std::make_shared<std::pair<std::string, std::string>>(); // Folder, or an error.
+    m_imported = result;
+    VXE_LOG_INFO(vxe::log::core, "Importing a world from {}", zip.string());
+    m_task.start(m_services.jobs, [loaded, result, zip, saves = m_services.saves] {
+        if (auto imported = importWorld(saves, zip); imported) {
+            result->first = imported.value().folder;
+        } else {
+            result->second = imported.error().message();
+        }
+        *loaded = scanWorlds(saves);
+    });
 }
 
 // The dialog names one world, so it hands over that world's folder: the
@@ -230,6 +265,15 @@ void WorldSelectScreen::update(f32 deltaSeconds) {
     if (m_task.finished()) {
         m_worlds = std::move(*m_loaded);
         rebuildList();
+        if (const auto imported = std::exchange(m_imported, nullptr); imported != nullptr) {
+            if (!imported->second.empty()) {
+                showDialog(m_services.ui, {.title = "Cannot import this world",
+                                           .message = imported->second,
+                                           .buttons = {{.text = "OK", .cancel = true}}});
+            } else {
+                select(imported->first);
+            }
+        }
     }
     if (m_reloadOnReturn && manager()->top() == this) {
         m_reloadOnReturn = false;
@@ -544,12 +588,63 @@ void EditWorldScreen::build(vxe::ui::Widget& root) {
         });
     });
     wideButton(buttons, "Cancel", [this] { manager()->pop(); });
+    auto& exportButton = wideButton(buttons, "Export", [this] {
+        if (m_services.platform == nullptr || m_task.running()) {
+            return;
+        }
+        m_services.platform->showFileDialog(
+            m_services.window,
+            {.save = true,
+             .filters = {{.name = "World (zip)", .pattern = "zip"}},
+             .defaultLocation = vxe::platform::Platform::downloadsFolder() / (m_info.folder + ".zip")},
+            [this, life = std::weak_ptr<int>(m_life)](std::optional<std::filesystem::path> chosen) {
+                if (life.expired() || !chosen) {
+                    return;
+                }
+                if (chosen->extension() != ".zip") {
+                    chosen->replace_extension(".zip");
+                }
+                auto result = std::make_shared<std::string>();
+                m_exported = result;
+                m_exportPath = *chosen;
+                m_task.start(m_services.jobs,
+                             [result, path = *chosen, folder = m_info.folder, saves = m_services.saves] {
+                                 if (const auto packed = exportWorld(saves, folder, path); !packed) {
+                                     *result = packed.error().message();
+                                 }
+                             });
+            });
+    });
+    exportButton.setTooltip(
+        "Packs this world into a .zip file to keep or share. The far terrain is left out; "
+        "it rebuilds when the world is played.");
 }
 
 void EditWorldScreen::update(f32 /*deltaSeconds*/) {
-    if (m_task.finished()) {
-        manager()->pop();
+    if (!m_task.finished()) {
+        return;
     }
+    const auto exported = std::exchange(m_exported, nullptr);
+    if (exported == nullptr) {
+        manager()->pop(); // Saved.
+        return;
+    }
+    if (!exported->empty()) {
+        showDialog(m_services.ui, {.title = "Cannot export this world",
+                                   .message = *exported,
+                                   .buttons = {{.text = "OK", .cancel = true}}});
+        return;
+    }
+    showDialog(m_services.ui,
+               {.title = "World exported",
+                .message = std::format("Saved as {}", m_exportPath.filename().string()),
+                .buttons = {{.text = "Show in folder",
+                             .onClick =
+                                 [path = m_exportPath] {
+                                     static_cast<void>(
+                                         vxe::platform::Platform::openInFileBrowser(path.parent_path()));
+                                 }},
+                            {.text = "OK", .cancel = true}}});
 }
 
 } // namespace vr

@@ -4,6 +4,7 @@
 #include "server/world_store.hpp"
 
 #include <vxe/config/settings.hpp>
+#include <vxe/io/zip.hpp>
 #include <vxe/jobs/job_system.hpp>
 #include <vxe/voxel/chunk_source.hpp>
 #include <vxe/voxel/voxel_world.hpp>
@@ -229,4 +230,46 @@ TEST_CASE("Edited chunks come back from memory at once and from disk after a sav
     vxe::voxel::ChunkProduct product;
     REQUIRE(saver.load(position, product));
     CHECK(product.blocks.get(vxe::toLocal(block)) == dirt);
+}
+
+TEST_CASE("A world exported to a zip imports as a new world, without its far terrain cache") {
+    const fs::path saves = freshSaves("zip_round_trip");
+    WorldInfo info = world("my_world", "My World", 100);
+    info.seedText = "42";
+    info.seed = 42;
+    REQUIRE(saveWorldInfo(saves, info).hasValue());
+    fs::create_directories(saves / "my_world" / "regions");
+    std::ofstream(saves / "my_world" / "regions" / "r.0.0.0.vxr") << "region";
+    fs::create_directories(saves / "my_world" / "lod");
+    std::ofstream(saves / "my_world" / "lod" / "tile.vxl") << "cache";
+
+    const fs::path zip = saves.parent_path() / "zip_round_trip_export" / "My World.zip";
+    const auto exported = exportWorld(saves, "my_world", zip);
+    REQUIRE(exported.hasValue());
+    CHECK(exported.value() == 2);
+
+    const auto imported = importWorld(saves, zip);
+    REQUIRE(imported.hasValue());
+    CHECK(imported.value().folder == "my_world_2");
+    CHECK(imported.value().name == "My World");
+    CHECK(imported.value().seed == 42);
+    CHECK(fs::exists(saves / "my_world_2" / "regions" / "r.0.0.0.vxr"));
+    CHECK_FALSE(fs::exists(saves / "my_world_2" / "lod"));
+    // Nothing half unpacked is left, and the list shows both worlds.
+    CHECK(scanWorlds(saves).size() == 2);
+    for (const auto& entry : fs::directory_iterator(saves)) {
+        CHECK(entry.path().filename().string().rfind(".importing", 0) != 0);
+    }
+}
+
+TEST_CASE("A zip without a world imports nothing and leaves nothing") {
+    const fs::path saves = freshSaves("zip_no_world");
+    const fs::path source = saves.parent_path() / "zip_no_world_source";
+    fs::remove_all(source);
+    fs::create_directories(source);
+    std::ofstream(source / "readme.txt") << "not a world";
+    const fs::path zip = saves.parent_path() / "zip_no_world.zip";
+    REQUIRE(vxe::io::zipFolder(source, zip, "stuff").hasValue());
+    CHECK_FALSE(importWorld(saves, zip).hasValue());
+    CHECK(fs::is_empty(saves));
 }

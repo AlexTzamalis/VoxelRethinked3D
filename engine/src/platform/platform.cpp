@@ -2,6 +2,7 @@
 
 #include <vxe/core/log.hpp>
 #include <vxe/core/profile.hpp>
+#include <vxe/platform/window.hpp>
 
 #include <SDL3/SDL.h>
 // Only for SDL_SetMainReady. SDL_MAIN_HANDLED stops the header from replacing
@@ -9,8 +10,10 @@
 #define SDL_MAIN_HANDLED
 #include <SDL3/SDL_main.h>
 
+#include <algorithm>
 #include <atomic>
 #include <format>
+#include <mutex>
 
 namespace vxe::platform {
 namespace {
@@ -116,9 +119,103 @@ Result<std::unique_ptr<Platform>> Platform::create(const PlatformConfig& config)
     return std::unique_ptr<Platform>(new Platform(config.video));
 }
 
+namespace detail {
+
+// What a picker hands back from its own thread: the request number and the
+// chosen file. Shared with every open picker, so a picker that answers after
+// the Platform is gone writes into memory that still exists.
+struct FileDialogResults {
+    std::mutex mutex;
+    std::vector<std::pair<u64, std::optional<std::filesystem::path>>> done;
+};
+
+} // namespace detail
+
+namespace {
+
+// One open picker: SDL wants the filter strings to live until it answers.
+struct FileDialogRequest {
+    std::shared_ptr<detail::FileDialogResults> results;
+    u64 id = 0;
+    std::vector<std::string> names;
+    std::vector<std::string> patterns;
+    std::vector<SDL_DialogFileFilter> filters;
+    std::string location;
+};
+
+void SDLCALL fileDialogAnswered(void* userdata, const char* const* files, int /*filter*/) {
+    std::unique_ptr<FileDialogRequest> request(static_cast<FileDialogRequest*>(userdata));
+    std::optional<std::filesystem::path> chosen;
+    if (files != nullptr && files[0] != nullptr) {
+        const std::string_view text(files[0]);
+        chosen = std::filesystem::path(std::u8string(text.begin(), text.end()));
+    }
+    const std::scoped_lock lock(request->results->mutex);
+    request->results->done.emplace_back(request->id, std::move(chosen));
+}
+
+} // namespace
+
+Platform::Platform(bool video)
+    : m_video(video)
+    , m_dialogResults(std::make_shared<detail::FileDialogResults>()) {}
+
 Platform::~Platform() {
     SDL_Quit();
     platformExists.store(false);
+}
+
+void Platform::showFileDialog(Window* parent, FileDialogDesc desc, FileDialogDone done) {
+    const u64 id = m_nextDialog++;
+    m_dialogsOpen.emplace_back(id, std::move(done));
+    if (!m_video) {
+        const std::scoped_lock lock(m_dialogResults->mutex);
+        m_dialogResults->done.emplace_back(id, std::nullopt);
+        return;
+    }
+    auto request = std::make_unique<FileDialogRequest>();
+    request->results = m_dialogResults;
+    request->id = id;
+    for (FileDialogFilter& filter : desc.filters) {
+        request->names.push_back(std::move(filter.name));
+        request->patterns.push_back(std::move(filter.pattern));
+    }
+    for (usize i = 0; i < request->names.size(); ++i) {
+        request->filters.push_back(
+            {.name = request->names[i].c_str(), .pattern = request->patterns[i].c_str()});
+    }
+    const std::u8string location = desc.defaultLocation.u8string();
+    request->location.assign(location.begin(), location.end());
+    SDL_Window* window = parent != nullptr ? parent->nativeHandle() : nullptr;
+    const char* where = request->location.empty() ? nullptr : request->location.c_str();
+    const SDL_DialogFileFilter* filters = request->filters.empty() ? nullptr : request->filters.data();
+    const int count = static_cast<int>(request->filters.size());
+    // SDL owns the request until it answers (fileDialogAnswered deletes it).
+    FileDialogRequest* owned = request.release();
+    if (desc.save) {
+        SDL_ShowSaveFileDialog(fileDialogAnswered, owned, window, filters, count, where);
+    } else {
+        SDL_ShowOpenFileDialog(fileDialogAnswered, owned, window, filters, count, where, false);
+    }
+}
+
+void Platform::deliverFileDialogs() {
+    std::vector<std::pair<u64, std::optional<std::filesystem::path>>> done;
+    {
+        const std::scoped_lock lock(m_dialogResults->mutex);
+        done.swap(m_dialogResults->done);
+    }
+    for (auto& [id, chosen] : done) {
+        const auto open = std::ranges::find(m_dialogsOpen, id, &std::pair<u64, FileDialogDone>::first);
+        if (open == m_dialogsOpen.end()) {
+            continue;
+        }
+        FileDialogDone callback = std::move(open->second);
+        m_dialogsOpen.erase(open);
+        if (callback) {
+            callback(std::move(chosen));
+        }
+    }
 }
 
 // A member on purpose: it needs SDL started, which a live Platform guarantees.
@@ -133,6 +230,9 @@ usize Platform::pollEvents(std::vector<PlatformEvent>& out) {
         if (translate(event, out)) {
             ++count;
         }
+    }
+    if (!m_dialogsOpen.empty()) {
+        deliverFileDialogs();
     }
     return count;
 }
@@ -193,6 +293,15 @@ std::filesystem::path Platform::roamingDataFolder() {
         return {};
     }
     // The variable holds UTF-8 (SDL converts it), so the path is built from UTF-8.
+    const std::string_view text(folder);
+    return std::filesystem::path(std::u8string(text.begin(), text.end()));
+}
+
+std::filesystem::path Platform::downloadsFolder() {
+    const char* folder = SDL_GetUserFolder(SDL_FOLDER_DOWNLOADS); // Owned by SDL.
+    if (folder == nullptr) {
+        return {};
+    }
     const std::string_view text(folder);
     return std::filesystem::path(std::u8string(text.begin(), text.end()));
 }

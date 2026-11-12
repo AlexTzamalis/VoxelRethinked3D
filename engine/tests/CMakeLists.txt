@@ -29,6 +29,7 @@ add_executable(vxe_tests
     io/file_io_tests.cpp
     io/file_watcher_tests.cpp
     io/vfs_tests.cpp
+    io/zip_tests.cpp
     jobs/job_dependency_tests.cpp
     jobs/job_stats_tests.cpp
     jobs/job_system_tests.cpp

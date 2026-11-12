@@ -26,6 +26,7 @@
       "default-features": false
     },
     "miniaudio",
+    "miniz",
     "stb",
     "unordered-dense",
     "xxhash",

@@ -732,7 +732,9 @@ MenuServices VoxelRethinkedApp::menuServices(vxe::EngineContext& context) {
             .ui = *m_uiContext,
             .jobs = context.jobs,
             .saves = saves ? saves.value() : std::filesystem::path(),
-            .packs = m_texturePacks.get()};
+            .packs = m_texturePacks.get(),
+            .platform = &context.platform,
+            .window = context.window};
 }
 
 void VoxelRethinkedApp::rebuildScreens(vxe::EngineContext& context) {
