@@ -24,6 +24,8 @@ set(vrGameSources
     src/common/block_catalog.cpp
     src/common/block_catalog.hpp
     src/common/player_physics.hpp
+    src/common/player_stats.cpp
+    src/common/player_stats.hpp
     src/server/world_saver.cpp
     src/server/world_saver.hpp
     src/server/world_store.cpp
@@ -44,6 +46,8 @@ set(vrGameSources
     src/ui/screens/pause_screen.hpp
     src/ui/screens/resource_packs_screen.cpp
     src/ui/screens/resource_packs_screen.hpp
+    src/ui/screens/statistics_screen.cpp
+    src/ui/screens/statistics_screen.hpp
     src/ui/screens/settings_screen.cpp
     src/ui/screens/settings_screen.hpp
     src/ui/screens/widget_sample.cpp

@@ -5,6 +5,7 @@
 #include "client/player_controller.hpp"
 #include "client/sound_director.hpp"
 #include "common/block_catalog.hpp"
+#include "common/player_stats.hpp"
 #include "game_settings.hpp"
 #include "game_state.hpp"
 #include "server/world_store.hpp"
@@ -88,6 +89,8 @@ private:
     // The world being played, with its own seed, edits and far terrain cache.
     // Empty for the play console command, which saves nothing.
     std::optional<WorldInfo> m_world;
+    PlayerStats m_stats; // The current world's statistics, saved with the player.
+    StatsTracker m_statsTracker;
     std::unique_ptr<PlayerController> m_player;
     std::unique_ptr<vxe::audio::AudioSystem> m_audio;
     std::unique_ptr<SoundDirector> m_sounds;

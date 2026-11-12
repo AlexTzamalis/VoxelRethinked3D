@@ -162,7 +162,12 @@ Result<WorldInfo> loadWorldInfo(const fs::path& saves, const std::string& folder
     info.lastPlayedSeconds = table["last_played"].value_or(i64{0});
     info.gameVersion = table["game_version"].value_or(std::string());
     info.player = loadPlayerData(saves / folder / kPlayerFile);
+    info.stats = loadPlayerStats(statsFile(saves, folder));
     return info;
+}
+
+fs::path statsFile(const fs::path& saves, const std::string& folder) {
+    return saves / folder / "stats.toml";
 }
 
 Result<void> savePlayerData(const fs::path& saves, const std::string& folder, const PlayerData& player) {

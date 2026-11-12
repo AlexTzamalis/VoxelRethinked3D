@@ -2,6 +2,10 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#152] 2026-11-12, Statistics
+### Added
+- Statistics in the pause menu, per world like Minecraft: General shows time played, distance walked, sprinted, crouched, swum, flown and fallen, jumps, long falls (over 3 blocks) and blocks placed and broken; Blocks lists every block placed or broken with both counts, most used first.
+- Counted while playing (not paused, not with the free camera; teleports add no distance) and saved as stats.toml in the world folder with the player, at autosave and when leaving. Worlds from before start at zero.
 ## [#151] 2026-11-12, Settings reorganized into tabs and pages
 ### Changed
 - The settings screen has the main groups as tabs along the top (Video, Graphics, World, Gameplay, Controls, Audio, Interface, plus Debug in debug builds) and the chosen group's pages on the left, so the 57 graphics settings are no longer one long list. Graphics has General, Blocks and Leaves, Clouds, Culling, Far Terrain, Image and Color, Lighting, Shadows, Sky and Weather, and Texture Packs.

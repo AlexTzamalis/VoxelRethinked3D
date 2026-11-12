@@ -102,6 +102,7 @@ void PlayerController::update(vxe::render::Camera& camera, const vxe::voxel::Vox
         .walkScale = static_cast<f64>(m_settings.walkSpeed.get()),
         .flyScale = static_cast<f64>(m_settings.flySpeed.get()),
         .momentum = m_settings.momentum.get()};
+    m_sprinting = input.sprint && input.forward > 0.0;
 
     m_sinceJumpPress += deltaSeconds;
     if (m_input.isPressed(m_actions.jump)) {

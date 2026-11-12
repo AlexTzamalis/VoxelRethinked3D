@@ -1,5 +1,7 @@
 #pragma once
 
+#include "common/player_stats.hpp"
+
 #include <vxe/core/result.hpp>
 #include <vxe/core/types.hpp>
 #include <vxe/math/vector.hpp>
@@ -53,6 +55,7 @@ struct WorldInfo {
     std::string gameVersion;
     vxe::u64 sizeBytes = 0;           // Not stored; measured when scanning.
     std::optional<PlayerData> player; // Nothing in a world not played yet.
+    PlayerStats stats;                // stats.toml, empty in a world not played yet.
 };
 
 // The seed of what a player typed: whole numbers are used as they are, any
@@ -72,6 +75,9 @@ struct WorldInfo {
                                                    const std::string& folder);
 // Writes world.toml atomically, so a crash leaves the old file or the new one.
 [[nodiscard]] vxe::Result<void> saveWorldInfo(const std::filesystem::path& saves, const WorldInfo& info);
+
+// The statistics file of a world folder.
+[[nodiscard]] std::filesystem::path statsFile(const std::filesystem::path& saves, const std::string& folder);
 
 // Writes player.dat atomically.
 [[nodiscard]] vxe::Result<void> savePlayerData(const std::filesystem::path& saves, const std::string& folder,

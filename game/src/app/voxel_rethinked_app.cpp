@@ -8,6 +8,7 @@
 #include "ui/screens/main_menu_screen.hpp"
 #include "ui/screens/pause_screen.hpp"
 #include "ui/screens/settings_screen.hpp"
+#include "ui/screens/statistics_screen.hpp"
 #include "ui/screens/widget_sample.hpp"
 #include "ui/screens/world_screens.hpp"
 #include "user_folder.hpp"
@@ -189,6 +190,8 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                                               return output;
                                           }
                                           m_world.reset();
+                                          m_stats = {};
+                                          m_statsTracker.reset();
                                           m_states.request(GameState::StartingIntegratedServer);
                                           return output;
                                       }});
@@ -676,6 +679,12 @@ void VoxelRethinkedApp::saveWorld(vxe::EngineContext& context, bool waitForDisk)
         if (!saved) {
             VXE_LOG_WARN(gameLog, "Could not save the player: {}", saved.error().describe());
         }
+        m_world->stats = m_stats;
+        if (const auto stats =
+                savePlayerStats(statsFile(menuServices(context).saves, m_world->folder), m_stats);
+            !stats) {
+            VXE_LOG_WARN(gameLog, "Could not save the statistics: {}", stats.error().describe());
+        }
         // The far terrain quality changed while playing stays with the world.
         if (const std::string quality = context.settings.currentPreset("Graphics.LOD");
             quality != m_world->lodQuality) {
@@ -688,6 +697,7 @@ void VoxelRethinkedApp::saveWorld(vxe::EngineContext& context, bool waitForDisk)
         return;
     }
     m_demo->saveEdits();
+    m_world->stats = m_stats;
     auto save =
         std::make_shared<std::pair<std::filesystem::path, WorldInfo>>(menuServices(context).saves, *m_world);
     const auto write = [save] {
@@ -695,12 +705,19 @@ void VoxelRethinkedApp::saveWorld(vxe::EngineContext& context, bool waitForDisk)
             !saved) {
             VXE_LOG_WARN(gameLog, "Could not save the player: {}", saved.error().describe());
         }
+        if (const auto stats =
+                savePlayerStats(statsFile(save->first, save->second.folder), save->second.stats);
+            !stats) {
+            VXE_LOG_WARN(gameLog, "Could not save the statistics: {}", stats.error().describe());
+        }
     };
     static_cast<void>(context.jobs.schedule(write, {vxe::jobs::Priority::Normal, {}, vxe::jobs::Pool::Io}));
 }
 
 void VoxelRethinkedApp::playWorld(vxe::EngineContext& context, const WorldInfo& world) {
     m_world = world;
+    m_stats = world.stats;
+    m_statsTracker.reset();
     m_world->lastPlayedSeconds =
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
             .count();
@@ -765,7 +782,8 @@ void VoxelRethinkedApp::rebuildScreens(vxe::EngineContext& context) {
     if (m_states.current() == GameState::Paused) {
         m_screens->push(std::make_unique<PauseScreen>(
             menuServices(context), [this] { m_states.request(GameState::InGame); },
-            [this] { m_states.request(GameState::SavingAndStopping); }));
+            [this] { m_states.request(GameState::SavingAndStopping); },
+            [this] { m_screens->push(std::make_unique<StatisticsScreen>(m_stats, *m_blocks)); }));
     }
 }
 
@@ -1022,6 +1040,16 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
                 m_player->update(m_camera, m_demo->world(), time.deltaSeconds,
                                  vxe::i64{DemoWorld::kMinChunkY} * vxe::kChunkSize,
                                  (vxe::i64{DemoWorld::kMaxChunkY} + 1) * vxe::kChunkSize, !m_inventoryOpen);
+                const vxe::DVec3 middle = m_player->state().position + vxe::DVec3(0.0, 0.5, 0.0);
+                const vxe::voxel::BlockStateId around =
+                    m_demo->world().getBlock({.x = static_cast<vxe::i64>(std::floor(middle.x)),
+                                              .y = static_cast<vxe::i64>(std::floor(middle.y)),
+                                              .z = static_cast<vxe::i64>(std::floor(middle.z))},
+                                             vxe::voxel::kAirState);
+                m_statsTracker.step(m_stats, m_player->state(), m_blocks->isLiquid(around),
+                                    m_player->isSprinting(), time.deltaSeconds);
+            } else {
+                m_statsTracker.reset(); // The free camera is not the player travelling.
             }
             if (m_autoFlySpeed > 0.0) {
                 // Level flight in the view direction, so looking down does
@@ -1062,6 +1090,13 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
                     const vxe::voxel::BlockStateId before =
                         m_demo->world().getBlock(position, vxe::voxel::kAirState);
                     const bool changed = m_demo->setBlock(position, state);
+                    if (changed) {
+                        if (state == vxe::voxel::kAirState && before != vxe::voxel::kAirState) {
+                            ++m_stats.broken[std::string(blockOfState(m_blocks->stateName(before)))];
+                        } else if (state != vxe::voxel::kAirState) {
+                            ++m_stats.placed[std::string(blockOfState(m_blocks->stateName(state)))];
+                        }
+                    }
                     if (changed && m_sounds) {
                         const vxe::DVec3 middle(static_cast<vxe::f64>(position.x) + 0.5,
                                                 static_cast<vxe::f64>(position.y) + 0.5,

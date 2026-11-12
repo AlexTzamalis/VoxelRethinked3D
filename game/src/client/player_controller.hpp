@@ -56,6 +56,8 @@ public:
     [[nodiscard]] const PlayerState& state() const noexcept { return m_state; }
     [[nodiscard]] vxe::f32 yaw() const noexcept { return m_yaw; }
     [[nodiscard]] vxe::f32 pitch() const noexcept { return m_pitch; }
+    // Running (the sprint key held or latched), for the statistics.
+    [[nodiscard]] bool isSprinting() const noexcept { return m_sprinting; }
 
 private:
     vxe::input::InputSystem& m_input;
@@ -74,6 +76,7 @@ private:
     vxe::f64 m_walked = 0.0; // Blocks, for the view bobbing.
     vxe::f64 m_bob = 0.0;    // How strong the bobbing is now, 0 to 1.
     bool m_sprintLatched = false;
+    bool m_sprinting = false; // The sprint input of the last update.
     bool m_crouchLatched = false;
     bool m_jumpWaiting = false; // Pressed since the last step.
 };
