@@ -44,6 +44,7 @@ add_executable(vxe_tests
     render/chunk_renderer_tests.cpp
     render/lod_renderer_tests.cpp
     render/precipitation_tests.cpp
+    render/water_tests.cpp
     render/shadows_tests.cpp
     render/god_rays_tests.cpp
     render/texture_pack_tests.cpp

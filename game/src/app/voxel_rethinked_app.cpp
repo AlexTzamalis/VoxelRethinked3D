@@ -1253,6 +1253,7 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
     }
     renderer.chunks().setNightVision(developer);
     renderer.chunks().setCaveCullingPaused(insideRock);
+    updateWaterView(renderer);
     renderer.beginFrame(m_camera, time);
     m_clockHours = renderer.sky().clockHours();
     if (m_demo) {
@@ -1407,6 +1408,40 @@ void VoxelRethinkedApp::setFreeCamera(bool on) {
 // F5 views: behind the head or in front of the face, four blocks away, pulled
 // in where a solid block stands in between so the camera never looks out of
 // a wall. Aiming still starts at the eyes (m_eyeCamera).
+void VoxelRethinkedApp::updateWaterView(vxe::render::Renderer& renderer) const {
+    vxe::render::WaterView view;
+    if (m_demo && m_blocks && isWorldState(m_states.current())) {
+        const vxe::voxel::VoxelWorld& world = m_demo->world();
+        const auto cell = [](vxe::f64 value) { return static_cast<vxe::i64>(std::floor(value)); };
+        vxe::BlockPos at{
+            .x = cell(m_camera.position.x), .y = cell(m_camera.position.y), .z = cell(m_camera.position.z)};
+        const vxe::voxel::BlockStateId here = world.getBlock(at, vxe::voxel::kAirState);
+        if (m_blocks->isWet(here)) {
+            // Up to the first dry cell: the surface.
+            constexpr vxe::i64 kLongestLook = 256;
+            vxe::i64 steps = 0;
+            while (steps < kLongestLook && m_blocks->isWet(world.getBlock(at, vxe::voxel::kAirState))) {
+                ++at.y;
+                ++steps;
+            }
+            view.underWater = true;
+            view.depth = static_cast<vxe::f32>(static_cast<vxe::f64>(at.y) - m_camera.position.y);
+            // The liquid's tint (sRGB, 0xAABBGGRR) in linear light, a little
+            // darker than the bright texture it colors.
+            const vxe::voxel::BlockStateId liquid =
+                m_blocks->isLiquid(here) ? here : m_blocks->renderInfo(here).fluid;
+            const vxe::u8 tint = m_blocks->renderInfo(liquid).tintIndex;
+            const vxe::u32 rgba =
+                tint < m_blocks->tintColors().size() ? m_blocks->tintColors()[tint] : 0xFFE4763FU;
+            const auto channel = [rgba](unsigned shift) {
+                return std::pow(static_cast<vxe::f32>((rgba >> shift) & 0xFFU) / 255.0F, 2.2F) * 0.6F;
+            };
+            view.color = vxe::Vec3(channel(0), channel(8), channel(16));
+        }
+    }
+    renderer.water().setView(view);
+}
+
 void VoxelRethinkedApp::placeViewCamera() {
     if (m_perspective == Perspective::FirstPerson || !m_player || !m_demo || m_freeCamera ||
         !isWorldState(m_states.current())) {

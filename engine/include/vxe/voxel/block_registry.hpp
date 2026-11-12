@@ -53,10 +53,13 @@ inline constexpr usize kTintCount = 16;
 // before and quads stay 8 bytes. `overlayLayer` is the layer drawn over this
 // one on the same face, plus 1 (0 for none); with one, usually only the
 // overlay is tinted, so a grey fringe colors a plain dirt side.
-//   bits 0..15 overlayLayer, 16..19 tint, 20..23 overlayTint
+//   bits 0..15 overlayLayer, 16..19 tint, 20..23 overlayTint, 24 kTextureLookLiquid
 [[nodiscard]] constexpr u32 textureLook(u32 overlayLayer, u32 tint, u32 overlayTint) noexcept {
     return overlayLayer | (tint << 16U) | (overlayTint << 20U);
 }
+// A liquid's surface (water): seen from above, it gets deeper in color with
+// the depth behind it (render::WaterRenderer).
+inline constexpr u32 kTextureLookLiquid = 1U << 24U;
 
 // Everything the engine needs to know about a block state to mesh and light
 // it (Section 6.3). The game fills these in from its data files; the engine

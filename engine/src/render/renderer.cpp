@@ -117,6 +117,12 @@ Result<std::unique_ptr<Renderer>> Renderer::create(const RendererDesc& desc) {
         return fail(godRays.error());
     }
     renderer->m_godRays = std::move(godRays.value());
+    auto water = WaterRenderer::create(
+        {.device = &device, .settings = desc.settings, .shaders = desc.shaders, .colorFormat = kSceneFormat});
+    if (!water) {
+        return fail(water.error());
+    }
+    renderer->m_water = std::move(water.value());
     auto sunlight =
         SunlightShadows::create({.device = &device, .settings = desc.settings, .shaders = desc.shaders});
     if (!sunlight) {
@@ -166,6 +172,7 @@ Renderer::~Renderer() {
     m_debugDraw.reset();
     m_post.reset();
     m_godRays.reset();
+    m_water.reset();
     m_entities.reset();
     m_sunlight.reset();
     m_clouds.reset();
@@ -281,17 +288,28 @@ Result<void> Renderer::buildGraph() {
     godRayBlend.colorAttachment(color, rhi::LoadOp::Load);
     godRayBlend.sampleTexture(rayLayer);
 
-    auto translucent =
-        graph.addPass({.name = "ChunksTranslucent", .record = [this, shadowMap](PassContext& context) {
-                           m_constants.bind(context.commands);
-                           m_sunlight->bind(context.commands);
-                           m_chunks->setShadowMap(context.texture(shadowMap));
-                           m_sky->bindParams(context.commands, 1);
-                           m_chunks->record(context.commands, ChunkPass::Translucent);
-                       }});
+    // Water reads how far the solid scene lies behind its surface from a copy
+    // of the depth, since the depth stays attached for its own depth test.
+    auto depthCopy = graph.addPass({.name = "WaterDepth", .record = [this, depth](PassContext& context) {
+                                        m_water->recordDepthCopy(context.commands, context.texture(depth));
+                                    }});
+    const TextureRef solidDepth = depthCopy.createTexture("SolidDepth", {.format = rhi::Format::R32Float});
+    depthCopy.colorAttachment(solidDepth, rhi::LoadOp::DontCare);
+    depthCopy.sampleTexture(depth);
+
+    auto translucent = graph.addPass(
+        {.name = "ChunksTranslucent", .record = [this, shadowMap, solidDepth](PassContext& context) {
+             m_constants.bind(context.commands);
+             m_sunlight->bind(context.commands);
+             m_chunks->setShadowMap(context.texture(shadowMap));
+             m_sky->bindParams(context.commands, 1);
+             m_water->bindSurfaces(context.commands, context.texture(solidDepth));
+             m_chunks->record(context.commands, ChunkPass::Translucent);
+         }});
     translucent.colorAttachment(color, rhi::LoadOp::Load);
     translucent.depthAttachment(depth, rhi::LoadOp::Load);
     translucent.sampleTexture(shadowMap);
+    translucent.sampleTexture(solidDepth);
 
     // Rain and snow last, in front of water, glass and the clouds.
     auto precipitation = graph.addPass({.name = "Precipitation", .record = [this](PassContext& context) {
@@ -300,6 +318,14 @@ Result<void> Renderer::buildGraph() {
                                         }});
     precipitation.colorAttachment(color, rhi::LoadOp::Load);
     precipitation.depthAttachment(depth, rhi::LoadOp::Load);
+
+    // With the eye under water, the scene fades into the water (not the hand).
+    auto underwater = graph.addPass({.name = "Underwater", .record = [this, depth](PassContext& context) {
+                                         m_constants.bind(context.commands);
+                                         m_water->recordFog(context.commands, context.texture(depth));
+                                     }});
+    underwater.colorAttachment(color, rhi::LoadOp::Load);
+    underwater.sampleTexture(depth);
 
     // The hand and the item in it, over everything of the world.
     auto hand = graph.addPass({.name = "FirstPerson", .record = [this](PassContext& context) {
@@ -423,6 +449,7 @@ void Renderer::beginFrame(const Camera& camera, const FrameTime& time) {
     const Vec3 lightColor = sunCasts ? Vec3(m_sky->params().sunColor) : skyLight * 0.35F;
     m_godRays->update(camera, m_chunks->viewAspect(), Vec3(m_sky->params().sunDirection), lightColor,
                       light.strength);
+    m_water->update(skyLight, daylight);
     m_lod->setViewSize(width, height);
     m_lod->beginFrame(camera);
     m_entities->beginFrame();

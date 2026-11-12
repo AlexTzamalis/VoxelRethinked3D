@@ -8,6 +8,15 @@
 // wrote depth, so they fog themselves (sky parameters in set 1, slot 1).
 #define VXE_SKY_SLOT 1
 #include "include/sky.glsl"
+#include "include/frame.glsl"
+
+// Water (render::WaterRenderer): how much light it swallows behind its
+// surface, and the depth of the solid scene behind it.
+VXE_BINDING_STD140(1, 4) uniform WaterParams {
+    vec4 fog;     // Used under water (underwater.frag).
+    vec4 surface; // x: light swallowed per block (0 off), y: share of the color left in the deep.
+} water;
+VXE_BINDING(2, 8) uniform sampler2D solidDepth;
 #endif
 
 VXE_BINDING(2, 2) uniform sampler2DArray blockTextures;
@@ -24,6 +33,7 @@ layout(location = 8) in vec3 vSky;
 layout(location = 9) in vec3 vBlock;
 layout(location = 10) in float vBase;
 layout(location = 11) flat in vec3 vNormal;
+layout(location = 12) flat in uint vLiquid;
 
 #ifndef VXE_CHUNK_SHADOW
 // Mountain and cloud shadows beyond the shadow map (render::SunlightShadows).
@@ -137,6 +147,21 @@ void main() {
 #endif
 #ifdef VXE_CHUNK_TRANSLUCENT
     vec3 color = albedo.rgb * shade;
+    if (vLiquid != 0u && water.surface.x > 0.0) {
+        // The deeper the water behind the surface, the more of the light from
+        // the floor it swallows: clear over a shallow floor, its own darker
+        // color and nearly opaque over the deep. Open sky behind counts as deep.
+        const float behind = texelFetch(solidDepth, ivec2(gl_FragCoord.xy), 0).r;
+        float thickness = 64.0;
+        if (behind > 0.0) {
+            const vec2 clip = gl_FragCoord.xy * frame.viewport.zw * 2.0 - 1.0;
+            const vec4 point = frame.inverseViewProjection * vec4(clip, behind, 1.0);
+            thickness = max(length(point.xyz / point.w) - length(vRelative), 0.0);
+        }
+        const float deep = 1.0 - exp(-thickness * water.surface.x);
+        color = mix(color, color * water.surface.y, deep);
+        albedo.a = mix(albedo.a * 0.55, 0.96, deep);
+    }
     if (sky.flags.y != 0) {
         const float distance = length(vRelative);
         const vec3 direction = vRelative / max(distance, 1e-4);

@@ -53,6 +53,7 @@ layout(location = 8) out vec3 vSky;
 layout(location = 9) out vec3 vBlock;
 layout(location = 10) out float vBase;          // Face shading times ambient occlusion.
 layout(location = 11) flat out vec3 vNormal;    // 0 for plants' crossed planes.
+layout(location = 12) flat out uint vLiquid;    // 1 on a liquid's surface (voxel::kTextureLookLiquid).
 
 #ifdef VXE_CHUNK_SHADOW
 // The cascade being drawn into the shadow map (render::ChunkRenderer::recordShadows).
@@ -172,6 +173,7 @@ void main() {
     vTint = chunkParams.tints[(look >> 16u) & 15u].rgb;
     vOverlayTint = chunkParams.tints[(look >> 20u) & 15u].rgb;
     vOverlayLayer = look & 0xFFFFu;
+    vLiquid = (look >> 24u) & 1u;
 #endif
     const uint animation = animations[layer];
     if ((animation & 0xFFu) > 1u) {

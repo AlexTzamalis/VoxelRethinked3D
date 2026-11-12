@@ -2,6 +2,11 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#160] 2026-11-12, Water by depth and fog under water
+### Added
+- render::WaterRenderer. From above, water deepens in color with the depth behind its surface: clear over a shallow floor, its own darker color and nearly opaque over the deep. Liquid surfaces (voxel::kTextureLookLiquid, set by the catalog for translucent liquids) read the solid scene's depth from a copy made before the translucent chunks (WaterDepth pass), since water writes none.
+- Under water, a fog of the water's color closes in (90% at the clarity distance) and hides the sky, darker the deeper the eye is below the surface and at night (Underwater pass, before the hand).
+- Settings Graphics.Water.DepthColor, UnderwaterFog and Clarity (24 blocks), all live.
 ## [#159] 2026-11-12, Coral reefs, waterlogged blocks, Lukewarm Ocean
 ### Added
 - Waterlogged blocks (waterlogged = true in a block file, BlockRenderInfo::fluid in the engine): the block stands in water. The mesher counts the cell as that water, so the water around shows no faces against it, and where it meets air the faces are water's. The player swims there, breaking it leaves the water, and it can only be placed in water. Corals and coral fans are waterlogged.

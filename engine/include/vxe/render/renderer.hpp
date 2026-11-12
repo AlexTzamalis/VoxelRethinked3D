@@ -20,6 +20,7 @@
 #include <vxe/render/screenshot.hpp>
 #include <vxe/render/sky.hpp>
 #include <vxe/render/sunlight.hpp>
+#include <vxe/render/water.hpp>
 #include <vxe/rhi/command_list.hpp>
 #include <vxe/rhi/device.hpp>
 #include <vxe/rhi/gpu_timer.hpp>
@@ -108,6 +109,7 @@ public:
     [[nodiscard]] PrecipitationRenderer& precipitation() noexcept { return *m_precipitation; }
     [[nodiscard]] SunlightShadows& sunlight() noexcept { return *m_sunlight; }
     [[nodiscard]] EntityRenderer& entities() noexcept { return *m_entities; }
+    [[nodiscard]] WaterRenderer& water() noexcept { return *m_water; }
     // How strong sky light is right now, 0.25 (moonlight) to 1 (day), as the
     // chunks use it: for lighting entities the same way.
     [[nodiscard]] f32 daylight() const noexcept;
@@ -132,6 +134,7 @@ private:
     std::unique_ptr<SkyRenderer> m_sky;
     std::unique_ptr<CloudRenderer> m_clouds;
     std::unique_ptr<GodRayRenderer> m_godRays;
+    std::unique_ptr<WaterRenderer> m_water;
     std::unique_ptr<SunlightShadows> m_sunlight;
     std::unique_ptr<EntityRenderer> m_entities;
     std::unique_ptr<PrecipitationRenderer> m_precipitation;

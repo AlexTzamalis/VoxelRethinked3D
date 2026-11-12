@@ -105,6 +105,8 @@ private:
     HeldItem m_heldKind = HeldItem::None;
     std::vector<vxe::render::EntityVertex> m_entityVertices; // Reused every frame.
     void placeViewCamera();
+    // Tells the renderer whether the camera is in water, how deep, and the water's color.
+    void updateWaterView(vxe::render::Renderer& renderer) const;
     void updatePlayerModel(vxe::EngineContext& context, vxe::f64 deltaSeconds);
     std::unique_ptr<PlayerController> m_player;
     std::unique_ptr<vxe::audio::AudioSystem> m_audio;

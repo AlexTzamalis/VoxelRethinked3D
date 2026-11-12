@@ -137,6 +137,19 @@ Result<BlockCatalog> BlockCatalogLoader::run(std::span<const BlockSource> source
         info.lightOpacity =
             std::max(info.lightOpacity, m_catalog.m_renderInfos.at(water->second).lightOpacity);
     }
+    // The textures of translucent liquids are liquid surfaces: they deepen in
+    // color with the water behind them.
+    for (usize state = 0; state < m_catalog.m_stateFlags.size(); ++state) {
+        const vxe::voxel::BlockRenderInfo& info = m_catalog.m_renderInfos[state];
+        if ((m_catalog.m_stateFlags[state] & 2U) == 0 || info.layer != vxe::voxel::RenderLayer::Translucent) {
+            continue;
+        }
+        for (const vxe::u16 layer : info.faceTextureLayer) {
+            if (layer < m_catalog.m_textureLooks.size()) {
+                m_catalog.m_textureLooks[layer] |= vxe::voxel::kTextureLookLiquid;
+            }
+        }
+    }
     if (m_catalog.m_blocks.empty() && m_problems.empty()) {
         m_problems.emplace_back("no block definitions found");
     }
