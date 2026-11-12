@@ -18,6 +18,8 @@ set(vrGameSources
     src/client/demo_world.cpp
     src/client/demo_world.hpp
     src/client/player_controller.cpp
+    src/client/player_model.cpp
+    src/client/player_model.hpp
     src/client/player_controller.hpp
     src/client/sound_director.cpp
     src/client/sound_director.hpp

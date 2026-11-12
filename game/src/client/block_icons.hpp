@@ -5,6 +5,7 @@
 #include <vxe/core/types.hpp>
 #include <vxe/render/texture_pack.hpp>
 
+#include <array>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -39,6 +40,12 @@ public:
     // The atlas name of a state's icon: all states of a block share one.
     // Empty for air and states without an icon.
     [[nodiscard]] std::string_view iconOf(vxe::voxel::BlockStateId state) const;
+
+    // The six faces of a state (+X, -X, +Y, -Y, +Z, -Z) as 16 x 16 pictures
+    // with their tints and overlays, for the item in the player's hand. A plant
+    // gives its one picture in the first.
+    [[nodiscard]] static std::array<std::vector<vxe::u32>, 6>
+    faces(const BlockCatalog& catalog, vxe::voxel::BlockStateId state, const FindTexture& find);
 
 private:
     void bakePlant(const BlockCatalog& catalog, const FindTexture& find, const BlockDefinition& block,

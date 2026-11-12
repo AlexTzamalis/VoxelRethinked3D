@@ -32,6 +32,7 @@
 #include <filesystem>
 #include <format>
 #include <memory>
+#include <numbers>
 #include <random>
 #include <string>
 #include <string_view>
@@ -56,6 +57,8 @@ constexpr vxe::f32 kPanoramaTurnSpeed = 0.02F;
 
 // The UI font, panorama and theme inside the texture packs (Section 15.1).
 constexpr std::string_view kFontImage = "ui/font.png";
+// The player's skin: 64 x 64 in Minecraft's layout, so packs can bring any such skin.
+constexpr std::string_view kSkinImage = "entity/player.png";
 // Menu backgrounds: one is picked at random each launch. The default pack has
 // all three, so whatever packs are on, each resolves.
 constexpr std::array<std::string_view, 3> kPanoramaImages = {"ui/panorama.jpg", "ui/panorama_2.jpg",
@@ -420,6 +423,26 @@ void VoxelRethinkedApp::registerCommands(vxe::EngineContext& context) {
                                               return output;
                                           }
                                           last->activate();
+                                          return output;
+                                      }});
+    // The F5 views by name, for scripted runs.
+    context.commands.registerCommand({.name = "view",
+                                      .usage = "view <first|behind|front>",
+                                      .description = "Picks the view F5 cycles through.",
+                                      .handler = [this](std::span<const std::string> arguments) {
+                                          vxe::config::CommandOutput output;
+                                          const std::string which =
+                                              arguments.empty() ? "" : arguments.front();
+                                          if (which == "first") {
+                                              m_perspective = Perspective::FirstPerson;
+                                          } else if (which == "behind") {
+                                              m_perspective = Perspective::Behind;
+                                          } else if (which == "front") {
+                                              m_perspective = Perspective::InFront;
+                                          } else {
+                                              output.lines.emplace_back("Expected first, behind or front");
+                                              output.success = false;
+                                          }
                                           return output;
                                       }});
     // A picture of the next frame, for players (F2) and scripted runs.
@@ -861,6 +884,7 @@ vxe::Result<void> VoxelRethinkedApp::loadCoreAssets(vxe::EngineContext& context)
             images.push_back(std::format("ui/{}.png", name));
         }
         images.emplace_back("?ui/loading_background.png");
+        images.emplace_back(kSkinImage);
         // Block textures too, as PNG files: the icons are baked from them.
         for (const std::string& key : m_blocks->textureKeys()) {
             images.push_back(vxe::render::textureFile(key) + ".png");
@@ -1093,6 +1117,11 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
             if (m_input->isPressed(m_actions->freeCamera)) {
                 setFreeCamera(!m_freeCamera);
             }
+            if (m_input->isPressed(m_actions->perspective)) {
+                m_perspective = m_perspective == Perspective::FirstPerson ? Perspective::Behind
+                                : m_perspective == Perspective::Behind    ? Perspective::InFront
+                                                                          : Perspective::FirstPerson;
+            }
             if (steering && m_freeCamera && !m_inventoryOpen) {
                 m_flight->update(m_camera, time.deltaSeconds);
             } else if (steering && m_player && m_demo && !m_freeCamera) {
@@ -1125,6 +1154,8 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
     // game the player's choice wins.
     const auto fieldOfView = static_cast<vxe::f32>(m_settings->fieldOfView.get());
     m_camera.fovYDegrees = m_player ? m_player->fieldOfView(fieldOfView) : fieldOfView;
+    m_eyeCamera = m_camera;
+    placeViewCamera();
 
     if (context.renderer == nullptr) {
         return;
@@ -1139,17 +1170,19 @@ void VoxelRethinkedApp::updateWorld(vxe::EngineContext& context, const vxe::Fram
             saveWorld(context, false);
         }
         m_demo->update(m_camera);
+        updatePlayerModel(context, time.deltaSeconds);
         const bool playing = m_states.current() == GameState::InGame && !m_freeCamera && !m_inventoryOpen &&
                              !m_settings->freezeCamera.get() &&
                              (context.console == nullptr || !context.console->isOpen());
         if (playing && m_interaction) {
             m_interaction->update(
-                m_camera, m_player->state(), m_demo->world(), m_hotbar,
+                m_eyeCamera, m_player->state(), m_demo->world(), m_hotbar,
                 [this](const vxe::BlockPos& position, vxe::voxel::BlockStateId state) {
                     const vxe::voxel::BlockStateId before =
                         m_demo->world().getBlock(position, vxe::voxel::kAirState);
                     const bool changed = m_demo->setBlock(position, state);
                     if (changed) {
+                        m_playerModel.swing();
                         if (state == vxe::voxel::kAirState && before != vxe::voxel::kAirState) {
                             ++m_stats.broken[std::string(blockOfState(m_blocks->stateName(before)))];
                         } else if (state != vxe::voxel::kAirState) {
@@ -1279,6 +1312,86 @@ void VoxelRethinkedApp::setFreeCamera(bool on) {
     }
 }
 
+// F5 views: behind the head or in front of the face, four blocks away, pulled
+// in where a solid block stands in between so the camera never looks out of
+// a wall. Aiming still starts at the eyes (m_eyeCamera).
+void VoxelRethinkedApp::placeViewCamera() {
+    if (m_perspective == Perspective::FirstPerson || !m_player || !m_demo || m_freeCamera ||
+        !isWorldState(m_states.current())) {
+        return;
+    }
+    constexpr vxe::f64 kDistance = 4.0;
+    constexpr vxe::f64 kStep = 0.05;
+    constexpr vxe::f64 kKeepOff = 0.2;
+    const vxe::DVec3 forward(m_eyeCamera.forward());
+    const vxe::DVec3 away = m_perspective == Perspective::Behind ? -forward : forward;
+    vxe::f64 reach = kDistance;
+    for (vxe::f64 t = kStep; t <= kDistance; t += kStep) {
+        const vxe::DVec3 at = m_eyeCamera.position + (away * t);
+        const vxe::BlockPos cell{.x = static_cast<vxe::i64>(std::floor(at.x)),
+                                 .y = static_cast<vxe::i64>(std::floor(at.y)),
+                                 .z = static_cast<vxe::i64>(std::floor(at.z))};
+        if (m_blocks->isSolid(m_demo->world().getBlock(cell, vxe::voxel::kAirState))) {
+            reach = std::max(t - kKeepOff, 0.3);
+            break;
+        }
+    }
+    m_camera.position = m_eyeCamera.position + (away * reach);
+    if (m_perspective == Perspective::InFront) {
+        m_camera.yaw = m_eyeCamera.yaw + std::numbers::pi_v<vxe::f32>;
+        m_camera.pitch = -m_eyeCamera.pitch;
+    }
+}
+
+// The player's body in the F5 views, or the hand and its item in first
+// person, animated from how the player moved this frame.
+void VoxelRethinkedApp::updatePlayerModel(vxe::EngineContext& context, vxe::f64 deltaSeconds) {
+    if (context.renderer == nullptr || !m_player || !m_demo || m_freeCamera ||
+        !isWorldState(m_states.current())) {
+        m_playerModel.reset();
+        return;
+    }
+    vxe::render::Renderer& renderer = *context.renderer;
+    const vxe::voxel::BlockStateId held = m_hotbar.current();
+    if (held != m_heldState && m_texturePacks) {
+        m_heldState = held;
+        if (held == vxe::voxel::kAirState) {
+            m_heldKind = HeldItem::None;
+        } else {
+            m_heldKind = m_blocks->renderInfo(held).layer == vxe::voxel::RenderLayer::Plant ? HeldItem::Flat
+                                                                                            : HeldItem::Block;
+            const auto faces = BlockIcons::faces(*m_blocks, held, [this](std::string_view key) {
+                return m_texturePacks->image(vxe::render::textureFile(key) + ".png");
+            });
+            renderer.entities().setItemFaces(faces);
+        }
+    }
+    const vxe::DVec3 eye = m_eyeCamera.position;
+    const vxe::u8 light = m_demo->world().getLight({.x = static_cast<vxe::i64>(std::floor(eye.x)),
+                                                    .y = static_cast<vxe::i64>(std::floor(eye.y)),
+                                                    .z = static_cast<vxe::i64>(std::floor(eye.z))});
+    const vxe::f32 sky = static_cast<vxe::f32>(vxe::voxel::skyLightOf(light)) / 15.0F;
+    const vxe::f32 block = static_cast<vxe::f32>(vxe::voxel::blockLightOf(light)) / 15.0F;
+    const PlayerState& state = m_player->state();
+    const PlayerPose pose{.feet = eye - vxe::DVec3(0.0, m_player->eyeHeight(), 0.0),
+                          .headYaw = m_eyeCamera.yaw,
+                          .pitch = m_eyeCamera.pitch,
+                          .onGround = state.onGround,
+                          .flying = state.flying,
+                          .crouching = state.crouching,
+                          .held = m_heldKind,
+                          .light = std::max(sky * renderer.daylight(), block)};
+    m_playerModel.update(pose, m_states.current() == GameState::InGame ? deltaSeconds : 0.0);
+    m_entityVertices.clear();
+    if (m_perspective != Perspective::FirstPerson) {
+        m_playerModel.buildBody(pose, m_camera, m_entityVertices);
+        renderer.entities().add(vxe::render::EntityLayer::World, m_entityVertices);
+    } else if (m_settings->showHud.get()) {
+        m_playerModel.buildFirstPerson(pose, m_camera, m_entityVertices);
+        renderer.entities().add(vxe::render::EntityLayer::FirstPerson, m_entityVertices);
+    }
+}
+
 void VoxelRethinkedApp::placeSpawnCamera() {
     // Streaming centers on the camera, so it waits at the spawn while the
     // world loads around it.
@@ -1323,6 +1436,8 @@ void VoxelRethinkedApp::updateTextures(vxe::EngineContext& context) {
     std::ranges::transform(vxe::render::kPrecipitationImages, streaks.begin(),
                            [this](std::string_view path) { return m_texturePacks->image(path); });
     context.renderer->precipitation().setImages(streaks);
+    context.renderer->entities().setSkin(m_texturePacks->image(kSkinImage));
+    m_heldState = 0xFFFF; // The item in hand is baked again from the new textures.
     context.renderer->chunks().setTextures(textures->texture, textures->sampler);
     context.renderer->lod().setTextures(textures->texture, textures->sampler,
                                         static_cast<vxe::u32>(m_blocks->textureKeys().size()));

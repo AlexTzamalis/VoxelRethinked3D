@@ -287,6 +287,8 @@ GameActions::GameActions(vxe::input::InputSystem& input)
         action("gameplay.toggle_hud", "Toggle HUD", "Interface", gameplay, Binding::key(scancode::kF1));
     freeCamera =
         action("gameplay.free_camera", "Free camera", "Interface", gameplay, Binding::key(scancode::kF6));
+    perspective =
+        action("gameplay.perspective", "Change view", "Interface", gameplay, Binding::key(scancode::kF5));
     screenshot = action("global.screenshot", "Screenshot", "Interface", global, Binding::key(scancode::kF2));
     fullscreen = action("global.fullscreen", "Fullscreen", "Interface", global, Binding::key(scancode::kF11));
 }

@@ -149,6 +149,29 @@ void BlockIcons::bakePlant(const BlockCatalog& catalog, const FindTexture& find,
     m_iconOfState.at(block.firstState) = static_cast<u32>(m_icons.size());
 }
 
+std::array<std::vector<u32>, 6> BlockIcons::faces(const BlockCatalog& catalog, vxe::voxel::BlockStateId state,
+                                                  const FindTexture& find) {
+    constexpr u32 kFace = 16;
+    std::array<std::vector<u32>, 6> result;
+    const vxe::voxel::BlockRenderInfo& info = catalog.renderInfo(state);
+    for (usize face = 0; face < result.size(); ++face) {
+        std::vector<u32>& pixels = result.at(face);
+        pixels.assign(usize{kFace} * kFace, 0U);
+        if (!info.isVisible()) {
+            continue;
+        }
+        const auto layer = info.textureLayer(static_cast<BlockFace>(face));
+        for (u32 y = 0; y < kFace; ++y) {
+            for (u32 x = 0; x < kFace; ++x) {
+                const f32 u = (static_cast<f32>(x) + 0.5F) / static_cast<f32>(kFace);
+                const f32 v = (static_cast<f32>(y) + 0.5F) / static_cast<f32>(kFace);
+                pixels[(usize{y} * kFace) + x] = lookAt(catalog, find, layer, u, v);
+            }
+        }
+    }
+    return result;
+}
+
 std::string_view BlockIcons::iconOf(vxe::voxel::BlockStateId state) const {
     if (state >= m_iconOfState.size() || m_iconOfState[state] == 0) {
         return {};

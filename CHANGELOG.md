@@ -2,6 +2,13 @@
 
 All notable changes to Voxel Rethinked. Each entry matches exactly one commit.
 
+## [#154] 2026-11-12, F5 views and the player model
+### Added
+- F5 (rebindable, "Change view") cycles first person, behind the player and in front of the face, four blocks away; the camera is pulled in where a solid block stands in between. Aiming still starts at the eyes. Console command view first|behind|front.
+- The player model, like Minecraft's: head, body, arms and legs with a second skin layer, legs that swing with the distance walked, arms that swing the other way and sway at rest (also while flying), a head that turns and tilts with the view and a body that follows it, a crouch, and an arm swing on breaking and placing blocks. The held block sits in the right hand.
+- First person: the held block at the lower right with the same swing, or the right arm when the hand is empty; hidden with the HUD (F1).
+- An original default skin, textures/default/entity/player.png, in Minecraft's 64 x 64 layout, so any such skin in a pack replaces it.
+- render::EntityRenderer (added in #153, used now): box models built on the CPU, an entity texture array of the skin and the six faces of the held block, a FirstPerson pass drawn over the world. BlockIcons::faces bakes those faces with their tints and overlays.
 ## [#153] 2026-11-12, Mountain and cloud shadows, light in the air, screenshots
 ### Added
 - Mountain shadows (Graphics.Shadows.Terrain): mountains and far terrain shade the land behind them from the sun or moon, as far as about 2 km, on chunks and far terrain alike. A height grid of 512 x 512 cells of 8 blocks comes from the far terrain tiles around the camera (voxel::fillLodHeights, on a job); a compute pass (render/terrain_shadow.comp) finds how high the shade reaches over each column, again only when the light turned or the terrain changed. render::SunlightShadows.

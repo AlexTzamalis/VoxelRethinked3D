@@ -57,13 +57,14 @@ Result<std::unique_ptr<EntityRenderer>> EntityRenderer::create(const EntityRende
         return fail(sampler.error());
     }
     e.m_sampler = sampler.value();
-    auto textures = device.createTexture({.type = rhi::TextureType::Texture2DArray,
-                                          .format = rhi::Format::RGBA8Srgb,
-                                          .width = kEntityTextureSize,
-                                          .height = kEntityTextureSize,
-                                          .layers = kEntityTextureLayers,
-                                          .usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
-                                          .debugName = "Entity textures"});
+    auto textures =
+        device.createTexture({.type = rhi::TextureType::Texture2DArray,
+                              .format = rhi::Format::RGBA8Srgb,
+                              .width = kEntityTextureSize,
+                              .height = kEntityTextureSize,
+                              .layers = kEntityTextureLayers,
+                              .usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst,
+                              .debugName = "Entity textures"});
     if (!textures) {
         return fail(textures.error());
     }
@@ -72,8 +73,8 @@ Result<std::unique_ptr<EntityRenderer>> EntityRenderer::create(const EntityRende
     for (u32 layer = 0; layer < kEntityTextureLayers; ++layer) {
         e.uploadLayer(layer, grey);
     }
-    VXE_TRY(e.m_ring.create(device, usize{kEntityMaxVertices} * sizeof(EntityVertex), rhi::BufferUsage::Storage,
-                            "Entity vertices"));
+    VXE_TRY(e.m_ring.create(device, usize{kEntityMaxVertices} * sizeof(EntityVertex),
+                            rhi::BufferUsage::Storage, "Entity vertices"));
     return entities;
 }
 
@@ -94,8 +95,8 @@ void EntityRenderer::uploadLayer(u32 layer, std::span<const u32> pixels) {
         std::copy_n(pixels.begin() + static_cast<std::ptrdiff_t>((kRow - 1 - y) * kRow), kRow,
                     flipped.begin() + static_cast<std::ptrdiff_t>(y * kRow));
     }
-    static_cast<void>(
-        m_device.uploadTexture(m_textures, {.layer = layer, .data = std::as_bytes(std::span<const u32>(flipped))}));
+    static_cast<void>(m_device.uploadTexture(
+        m_textures, {.layer = layer, .data = std::as_bytes(std::span<const u32>(flipped))}));
 }
 
 void EntityRenderer::setSkin(const PackImage* image) {
@@ -137,7 +138,8 @@ void EntityRenderer::beginFrame() {
 
 void EntityRenderer::add(EntityLayer layer, std::span<const EntityVertex> vertices) {
     std::vector<EntityVertex>& list = m_vertices.at(static_cast<usize>(layer));
-    const usize room = kEntityMaxVertices - std::min<usize>(kEntityMaxVertices, m_vertices[0].size() + m_vertices[1].size());
+    const usize room =
+        kEntityMaxVertices - std::min<usize>(kEntityMaxVertices, m_vertices[0].size() + m_vertices[1].size());
     const usize count = std::min(vertices.size(), room) / 3 * 3;
     list.insert(list.end(), vertices.begin(), vertices.begin() + static_cast<std::ptrdiff_t>(count));
 }

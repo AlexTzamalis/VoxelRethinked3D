@@ -58,6 +58,8 @@ public:
     [[nodiscard]] vxe::f32 pitch() const noexcept { return m_pitch; }
     // Running (the sprint key held or latched), for the statistics.
     [[nodiscard]] bool isSprinting() const noexcept { return m_sprinting; }
+    // How high the eyes are above the feet now (lower while crouching).
+    [[nodiscard]] vxe::f64 eyeHeight() const noexcept { return m_eyeHeight; }
 
 private:
     vxe::input::InputSystem& m_input;

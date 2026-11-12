@@ -84,6 +84,7 @@ struct GameActions {
     vxe::input::ActionId pause;
     vxe::input::ActionId toggleHud;
     vxe::input::ActionId freeCamera;
+    vxe::input::ActionId perspective;
     vxe::input::ActionId screenshot;
     vxe::input::ActionId fullscreen;
 };

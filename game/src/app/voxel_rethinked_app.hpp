@@ -3,6 +3,7 @@
 #include "client/block_icons.hpp"
 #include "client/demo_world.hpp"
 #include "client/player_controller.hpp"
+#include "client/player_model.hpp"
 #include "client/sound_director.hpp"
 #include "common/block_catalog.hpp"
 #include "common/player_stats.hpp"
@@ -91,6 +92,20 @@ private:
     std::optional<WorldInfo> m_world;
     PlayerStats m_stats; // The current world's statistics, saved with the player.
     StatsTracker m_statsTracker;
+    // F5 views (asked by Alex 2026-11-12): first person, behind, in front.
+    enum class Perspective : vxe::u8 {
+        FirstPerson,
+        Behind,
+        InFront,
+    };
+    Perspective m_perspective = Perspective::FirstPerson;
+    PlayerModel m_playerModel;
+    vxe::render::Camera m_eyeCamera;               // At the eyes; aiming starts here in every view.
+    vxe::voxel::BlockStateId m_heldState = 0xFFFF; // Whose faces the item layers hold; none yet.
+    HeldItem m_heldKind = HeldItem::None;
+    std::vector<vxe::render::EntityVertex> m_entityVertices; // Reused every frame.
+    void placeViewCamera();
+    void updatePlayerModel(vxe::EngineContext& context, vxe::f64 deltaSeconds);
     std::unique_ptr<PlayerController> m_player;
     std::unique_ptr<vxe::audio::AudioSystem> m_audio;
     std::unique_ptr<SoundDirector> m_sounds;

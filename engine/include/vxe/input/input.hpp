@@ -42,6 +42,7 @@ inline constexpr u16 kGrave = 53;
 inline constexpr u16 kF1 = 58;
 inline constexpr u16 kF2 = 59;
 inline constexpr u16 kF3 = 60;
+inline constexpr u16 kF5 = 62;
 inline constexpr u16 kF6 = 63;
 inline constexpr u16 kF11 = 68;
 inline constexpr u16 kHome = 74;
